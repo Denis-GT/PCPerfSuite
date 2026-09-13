@@ -1,37 +1,9 @@
 <Window x:Class="PCPerfSuite.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels"
         xmlns:views="clr-namespace:PCPerfSuite.App.Views"
         Title="PCPerfSuite" Height="820" Width="1280" MinHeight="600" MinWidth="920"
         WindowStartupLocation="CenterScreen">
-
-    <Window.Resources>
-        <DataTemplate DataType="{x:Type vm:MonitoringViewModel}">
-            <views:MonitoringView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:CleanupViewModel}">
-            <views:CleanupView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:StorageViewModel}">
-            <views:StorageView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-            <views:SettingsView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:FanCurvesViewModel}">
-            <views:FanCurvesView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:GpuControlViewModel}">
-            <views:GpuControlView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:OverlayViewModel}">
-            <views:OverlayView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ComingSoonViewModel}">
-            <views:ComingSoonView/>
-        </DataTemplate>
-    </Window.Resources>
 
     <Grid>
         <!-- Lueur décorative derrière le verre (visible surtout si Mica/Acrylic natif n'est pas
@@ -106,8 +78,25 @@
             </DockPanel>
         </Border>
 
-        <!-- Contenu -->
-        <ContentControl Grid.Column="1" Content="{Binding CurrentViewModel}" Margin="0"/>
+        <!-- Contenu : chaque vue est instanciée une seule fois pour la durée de vie de l'app (au lieu
+             d'un ContentControl qui détruirait/recréerait la vue — et donc les Sparkline du Monitoring
+             avec leur historique — à chaque changement d'onglet) ; seule sa Visibility change. -->
+        <Grid Grid.Column="1">
+            <views:MonitoringView DataContext="{Binding Monitoring}"
+                                  Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Monitoring}"/>
+            <views:CleanupView DataContext="{Binding Cleanup}"
+                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Nettoyage}"/>
+            <views:StorageView DataContext="{Binding Storage}"
+                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Stockage}"/>
+            <views:SettingsView DataContext="{Binding Settings}"
+                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres Windows'}"/>
+            <views:FanCurvesView DataContext="{Binding Fans}"
+                                 Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
+            <views:GpuControlView DataContext="{Binding Gpu}"
+                                  Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=GPU}"/>
+            <views:OverlayView DataContext="{Binding Overlay}"
+                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Overlay}"/>
+        </Grid>
         </Grid>
     </Grid>
 </Window>

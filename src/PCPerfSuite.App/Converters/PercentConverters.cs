@@ -90,6 +90,19 @@ public sealed class BoolToVisibilityConverter : IValueConverter
         => value is Visibility.Visible;
 }
 
+/// <summary>Visible quand la valeur liée == ConverterParameter (comparaison de chaînes) — sert à garder
+/// plusieurs vues instanciées en permanence et à juste basculer laquelle est visible (voir MainWindow),
+/// plutôt qu'un ContentControl qui détruirait/recréerait la vue à chaque changement d'onglet.</summary>
+public sealed class StringEqualsToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => string.Equals(value as string, parameter as string, StringComparison.Ordinal)
+            ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>Formate une valeur nullable avec une unité, ou affiche "--" si absente (capteur non disponible sur cette config).</summary>
 public sealed class NullableMetricConverter : IValueConverter
 {
