@@ -145,7 +145,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         new("5 secondes", 5000),
     };
 
-    [ObservableProperty] private RefreshRateOption selectedRefreshRate;
+    [ObservableProperty] private RefreshRateOption? selectedRefreshRate;
+    [ObservableProperty] private string customRefreshText = "1000";
+    [ObservableProperty] private string? customRefreshError;
 
     public MetricSelectionViewModel MyMetrics { get; }
     public ObservableCollection<MetricTileViewModel> MyMetricTiles { get; } = new();
@@ -193,8 +195,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _hardware = hardware;
 
         AppSettings settings = AppSettingsStore.Load();
-        selectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == settings.MonitoringRefreshMs)
-                              ?? RefreshRateOptions[2];
+        int initialMs = settings.MonitoringRefreshMs;
+        selectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == initialMs);
+        customRefreshText = initialMs.ToString();
 
         MyMetrics = new MetricSelectionViewModel(settings.MonitoringMetricIds ?? MetricCatalog.DefaultMonitoringIds);
         MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
@@ -202,7 +205,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(selectedRefreshRate.Milliseconds),
+            Interval = TimeSpan.FromMilliseconds(initialMs),
         };
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
@@ -210,12 +213,43 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _ = RefreshAsync();
     }
 
-    partial void OnSelectedRefreshRateChanged(RefreshRateOption value)
+    partial void OnSelectedRefreshRateChanged(RefreshRateOption? value)
     {
-        _timer.Interval = TimeSpan.FromMilliseconds(value.Milliseconds);
+        // null = aucune pastille ne correspond (un débit personnalisé vient d'être appliqué) : rien à faire.
+        if (value is null) return;
+
+        CustomRefreshText = value.Milliseconds.ToString();
+        CustomRefreshError = null;
+        ApplyRefreshRate(value.Milliseconds);
+    }
+
+    [RelayCommand]
+    private void ApplyCustomRefresh()
+    {
+        if (!int.TryParse(CustomRefreshText, out int ms))
+        {
+            CustomRefreshError = "Nombre invalide.";
+            return;
+        }
+        if (ms is < 50 or > 60_000)
+        {
+            CustomRefreshError = "Entre 50 ms et 60 000 ms.";
+            return;
+        }
+
+        CustomRefreshError = null;
+        ApplyRefreshRate(ms);
+        // Fait ressortir la pastille correspondante si l'utilisateur a retapé une valeur prédéfinie ;
+        // sinon aucune pastille ne reste sélectionnée, ce qui indique visuellement "débit personnalisé".
+        SelectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == ms);
+    }
+
+    private void ApplyRefreshRate(int milliseconds)
+    {
+        _timer.Interval = TimeSpan.FromMilliseconds(milliseconds);
 
         AppSettings settings = AppSettingsStore.Load();
-        settings.MonitoringRefreshMs = value.Milliseconds;
+        settings.MonitoringRefreshMs = milliseconds;
         AppSettingsStore.Save(settings);
     }
 

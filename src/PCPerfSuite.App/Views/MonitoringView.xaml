@@ -12,8 +12,12 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Vue d'ensemble des composants." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Vue d'ensemble des composants." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Actualisation :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="3">
                         <ListBox ItemsSource="{Binding RefreshRateOptions}" SelectedItem="{Binding SelectedRefreshRate}"
@@ -63,7 +67,18 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </Border>
+                    <TextBox Text="{Binding CustomRefreshText, UpdateSourceTrigger=PropertyChanged}" Width="56"
+                             TextAlignment="Right" Margin="10,0,0,0">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Return" Command="{Binding ApplyCustomRefreshCommand}"/>
+                        </TextBox.InputBindings>
+                    </TextBox>
+                    <TextBlock Text="ms (perso.)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,6,0"/>
+                    <Button Content="OK" Style="{StaticResource GhostButton}" Padding="12,5" Command="{Binding ApplyCustomRefreshCommand}"/>
                 </StackPanel>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CustomRefreshError}" Style="{StaticResource Caption}"
+                           Foreground="{StaticResource DangerBrush}" HorizontalAlignment="Right" Margin="0,4,0,0"
+                           Visibility="{Binding CustomRefreshError, Converter={StaticResource NullToVisibility}}"/>
             </Grid>
 
             <!-- Mes métriques : tuiles choisies dans le même catalogue que l'overlay -->
