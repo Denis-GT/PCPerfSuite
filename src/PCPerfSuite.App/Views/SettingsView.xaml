@@ -1,0 +1,65 @@
+<UserControl x:Class="PCPerfSuite.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="32,28,32,28">
+        <StackPanel MaxWidth="1000">
+
+            <TextBlock Text="Paramètres Windows" Style="{StaticResource H1}"/>
+            <TextBlock Text="Réglages de performance Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.)."
+                       Style="{StaticResource Caption}" Margin="0,4,0,16"/>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
+                    Visibility="{Binding IsElevated, Converter={StaticResource BoolToVisibility}}"
+                    Background="#241A1000" BorderBrush="{StaticResource WarnBrush}">
+                <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap">
+                    <Run Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → &quot;Exécuter en tant qu'administrateur&quot;)." FontWeight="SemiBold"/>
+                </TextBlock>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Tweaks}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="{Binding Category}" Style="{StaticResource Caption}" Foreground="{StaticResource AccentBrush}"/>
+                                    <TextBlock Text="{Binding Name}" Style="{StaticResource H2}" Margin="0,2,0,0"/>
+                                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,6,0,0"/>
+
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                Visibility="{Binding RequiresRestart, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="Redémarrage requis" Style="{StaticResource Caption}" FontSize="11"/>
+                                        </Border>
+                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                Visibility="{Binding IsRisky, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="Compromis énergie/chaleur" Style="{StaticResource Caption}" FontSize="11" Foreground="{StaticResource WarnBrush}"/>
+                                        </Border>
+                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2"
+                                                Visibility="{Binding IsUnknownState, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="État inconnu sur cette config" Style="{StaticResource Caption}" FontSize="11"/>
+                                        </Border>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
+                                               Margin="0,6,0,0"
+                                               Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
+                                </StackPanel>
+
+                                <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                          IsChecked="{Binding IsOn, Mode=TwoWay}" IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolean}}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

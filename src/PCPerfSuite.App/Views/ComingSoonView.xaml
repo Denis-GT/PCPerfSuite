@@ -1,0 +1,32 @@
+<UserControl x:Class="PCPerfSuite.App.Views.ComingSoonView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="32,28,32,28">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+            <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="8,3" HorizontalAlignment="Left">
+                <TextBlock Text="Bientôt disponible" Style="{StaticResource Caption}" FontSize="11" Foreground="{StaticResource AccentBrush2}"/>
+            </Border>
+            <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" Margin="0,14,0,0"/>
+            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Body}" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,8,0,20"/>
+
+            <Border Style="{StaticResource Card}">
+                <ItemsControl ItemsSource="{Binding Bullets}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="6" Height="6" Fill="{StaticResource AccentBrush}"
+                                         VerticalAlignment="Top" Margin="2,7,10,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding}" Style="{StaticResource Body}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

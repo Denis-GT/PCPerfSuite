@@ -1,0 +1,20 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider / ReSharper
+.idea/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+**/packages/*
+
+# OS cruft
+.DS_Store
+Thumbs.db
