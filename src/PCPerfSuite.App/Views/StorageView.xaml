@@ -3,6 +3,51 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
+    <UserControl.Resources>
+        <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+        <!-- Carte de disque sélectionnable : toute la carte est cliquable, pas seulement une case à cocher. -->
+        <Style x:Key="DriveCard" TargetType="ToggleButton">
+            <Setter Property="Width" Value="252"/>
+            <Setter Property="Margin" Value="0,0,12,12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="#0FFFFFFF" BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="14" Padding="14,12">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1AFFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#2A0A84FF"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#3D0A84FF"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CrumbButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+            <Setter Property="Padding" Value="10,5"/>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="32,28,32,20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -14,14 +59,20 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Stockage" Style="{StaticResource H1}"/>
-            <TextBlock Text="Cartographie de l'occupation disque façon SpaceSniffer — clique un bloc pour zoomer dedans."
+            <TextBlock Text="Cartographie de l'occupation disque façon SpaceSniffer : chaque case est un dossier ou un fichier, proportionnelle à sa taille."
                        Style="{StaticResource Caption}" Margin="0,4,0,0"/>
         </StackPanel>
 
+        <!-- Sélection des disques -->
         <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Text="Disques à analyser" Style="{StaticResource H2}"/>
-                <ItemsControl ItemsSource="{Binding Drives}" Margin="0,10,0,0">
+                <Grid Margin="0,0,0,12">
+                    <TextBlock Text="Disques à analyser" Style="{StaticResource H2}"/>
+                    <TextBlock Text="{Binding SelectionSummary}" Style="{StaticResource Caption}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding Drives}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel/>
@@ -29,20 +80,79 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,0,24,8"
-                                      Foreground="{StaticResource TextPrimaryBrush}" VerticalContentAlignment="Center"/>
+                            <ToggleButton Style="{StaticResource DriveCard}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          IsEnabled="{Binding DataContext.IsScanning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBoolean}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Width="40" Height="40" CornerRadius="11" Background="#330A84FF" VerticalAlignment="Top">
+                                        <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="19"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                                <Run Text="{Binding Letter, Mode=OneWay}" FontWeight="SemiBold" FontSize="14"/>
+                                                <Run Text=" "/>
+                                                <Run Text="{Binding VolumeLabel, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            </TextBlock>
+                                            <Border Grid.Column="1" Width="18" Height="18" CornerRadius="9" Margin="6,0,0,0"
+                                                    Background="{StaticResource AccentBrush}" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="10" Foreground="White"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
+
+                                        <controls:MeterBar Value="{Binding UsedPercent, Mode=OneWay}" Height="6" Margin="0,9,0,7">
+                                            <controls:MeterBar.Style>
+                                                <Style TargetType="{x:Type controls:MeterBar}">
+                                                    <Setter Property="IndicatorBrush" Value="{StaticResource AccentBrush}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAlmostFull}" Value="True">
+                                                            <Setter Property="IndicatorBrush" Value="{StaticResource WarnBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </controls:MeterBar.Style>
+                                        </controls:MeterBar>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding UsageText}" Style="{StaticResource Caption}" FontSize="11.5"
+                                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding UsedPercentText}" Style="{StaticResource Caption}"
+                                                       FontSize="11.5" FontWeight="SemiBold" TextWrapping="NoWrap" Margin="8,0,0,0"/>
+                                        </Grid>
+                                        <TextBlock Text="{Binding FreeText}" Style="{StaticResource Caption}" FontSize="11.5"
+                                                   TextWrapping="NoWrap" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </ToggleButton>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Grid Margin="0,12,0,0">
+                <Grid Margin="0,2,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="{Binding StatusText}" Style="{StaticResource Caption}"
-                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
+                               VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
                     <Button Grid.Column="1" Content="Annuler" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
                             Command="{Binding CancelScanCommand}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>
                     <Button Grid.Column="2" Content="Analyser" Style="{StaticResource AccentButton}"
@@ -51,45 +161,91 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="2" Margin="0,0,0,10" Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
+        <!-- Barre de navigation dans la carte -->
+        <Grid Grid.Row="2" Margin="0,0,0,10" Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <ItemsControl Grid.Column="0" ItemsSource="{Binding Breadcrumb}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal"/>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="{Binding Name}" Style="{StaticResource GhostButton}" Padding="10,5" Margin="0,0,4,0"
-                                    Command="{Binding DataContext.NavigateToBreadcrumbCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                    CommandParameter="{Binding}"/>
-                            <TextBlock Text="/" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <Button Grid.Column="1" Content="Ouvrir dans l'Explorateur" Style="{StaticResource GhostButton}"
-                    Command="{Binding OpenCurrentInExplorerCommand}"/>
+
+            <Button Grid.Column="0" Style="{StaticResource CrumbButton}" Margin="0,0,10,0" Command="{Binding NavigateUpCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE74A;" FontFamily="{StaticResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="Remonter" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Breadcrumb}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE76C;" FontFamily="{StaticResource IconFont}" FontSize="10" Margin="2,0,6,0"
+                                           Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                           Visibility="{Binding RelativeSource={RelativeSource PreviousData}, Converter={StaticResource NullToVisibility}}"/>
+                                <Button Content="{Binding Name}" Style="{StaticResource CrumbButton}"
+                                        Command="{Binding DataContext.NavigateToBreadcrumbCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <Button Grid.Column="2" Style="{StaticResource CrumbButton}" Margin="10,0,0,0" Command="{Binding OpenCurrentInExplorerCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE838;" FontFamily="{StaticResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="Ouvrir dans l'Explorateur" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </Grid>
 
-        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="2" MinHeight="260"
-                Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
-            <controls:TreemapControl Nodes="{Binding CurrentNode.Children}"
-                                      HoveredNode="{Binding HoveredNode, Mode=TwoWay}"
-                                      SelectedNode="{Binding SelectedNode, Mode=TwoWay}"/>
-        </Border>
+        <!-- Carte / états vide et analyse en cours -->
+        <Grid Grid.Row="3" MinHeight="260">
+            <Border CornerRadius="16" Background="#B3080A12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="6"
+                    Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
+                <controls:TreemapControl Root="{Binding CurrentNode}"
+                                          HoveredNode="{Binding HoveredNode, Mode=TwoWay}"
+                                          DrillCommand="{Binding DrillIntoCommand}"
+                                          ZoomOutCommand="{Binding NavigateUpCommand}"/>
+            </Border>
 
-        <Border Grid.Row="4" Margin="0,10,0,0" Visibility="{Binding HoveredNode, Converter={StaticResource NullToVisibility}}">
-            <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
-                <Run Text="{Binding HoveredNode.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                <Run Text=" — "/>
-                <Run Text="{Binding HoveredNode.FullPath, Mode=OneWay}"/>
-            </TextBlock>
-        </Border>
+            <Border Style="{StaticResource Card}" Visibility="{Binding ShowEmptyState, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420">
+                    <TextBlock Text="&#xEDA2;" FontFamily="{StaticResource IconFont}" FontSize="40" Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Choisis un ou plusieurs disques" Style="{StaticResource H2}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+                    <TextBlock Text="Lance l'analyse, puis clique sur un dossier pour l'ouvrir et découvrir ce qu'il contient. Clic droit pour remonter."
+                               Style="{StaticResource Caption}" TextAlignment="Center" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
+                    <TextBlock Text="Analyse en cours…" Style="{StaticResource H2}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}" TextAlignment="Center"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,6,0,14"/>
+                    <Button Content="Annuler" Style="{StaticResource GhostButton}" HorizontalAlignment="Center" Command="{Binding CancelScanCommand}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Élément survolé + aide -->
+        <DockPanel Grid.Row="4" Margin="4,10,4,0" LastChildFill="True" Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock DockPanel.Dock="Right" Text="Clic : ouvrir un dossier  ·  Clic droit : remonter" Style="{StaticResource Caption}"
+                       TextWrapping="NoWrap" VerticalAlignment="Center" Margin="16,0,0,0"/>
+            <StackPanel Orientation="Horizontal" Visibility="{Binding HoveredNode, Converter={StaticResource NullToVisibility}}">
+                <TextBlock Text="{Binding HoveredNode.Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="320" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding HoveredDetails}" Style="{StaticResource Caption}" TextWrapping="NoWrap"
+                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+        </DockPanel>
     </Grid>
 </UserControl>

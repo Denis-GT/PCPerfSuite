@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,7 +11,18 @@ namespace PCPerfSuite.App.ViewModels;
 public sealed partial class DriveOption : ObservableObject
 {
     public required string RootPath { get; init; }
-    public required string Label { get; init; }
+    public required string Letter { get; init; }
+    public required string VolumeLabel { get; init; }
+    public required string UsageText { get; init; }
+    public required string FreeText { get; init; }
+    public required double UsedPercent { get; init; }
+    public required bool IsRemovable { get; init; }
+
+    public string UsedPercentText => $"{UsedPercent:0} %";
+    public bool IsAlmostFull => UsedPercent >= 90;
+
+    /// <summary>Glyphe Segoe Fluent Icons / MDL2 : clé USB ou disque dur.</summary>
+    public string Glyph => IsRemovable ? "" : "";
 
     [ObservableProperty] private bool isSelected;
 }
@@ -23,33 +35,101 @@ public sealed partial class StorageViewModel : ObservableObject
     public ObservableCollectionEx<DriveOption> Drives { get; } = new();
     public ObservableCollectionEx<FolderNode> Breadcrumb { get; } = new();
 
-    [ObservableProperty] private bool isScanning;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    private bool isScanning;
+
     [ObservableProperty] private string? statusText;
-    [ObservableProperty] private FolderNode? rootNode;
-    [ObservableProperty] private FolderNode? currentNode;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasResult))]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    private FolderNode? rootNode;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(NavigateUpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCurrentInExplorerCommand))]
+    private FolderNode? currentNode;
+
     [ObservableProperty] private FolderNode? hoveredNode;
-    [ObservableProperty] private FolderNode? selectedNode;
+    [ObservableProperty] private string? hoveredDetails;
+    [ObservableProperty] private string selectionSummary = "";
+
+    public bool HasResult => RootNode is not null;
+    public bool ShowEmptyState => RootNode is null && !IsScanning;
 
     public StorageViewModel()
     {
-        foreach (DriveInfo drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+        foreach (DriveInfo drive in DriveInfo.GetDrives())
         {
-            long used = drive.TotalSize - drive.AvailableFreeSpace;
-            Drives.Add(new DriveOption
-            {
-                RootPath = drive.RootDirectory.FullName,
-                Label = $"{drive.Name.TrimEnd('\\')} — {ByteFormatter.Format(used)} / {ByteFormatter.Format(drive.TotalSize)}",
-            });
+            DriveOption? option = TryCreateOption(drive);
+            if (option is null) continue;
+
+            option.PropertyChanged += OnDrivePropertyChanged;
+            Drives.Add(option);
         }
 
         if (Drives.Count > 0) Drives[0].IsSelected = true;
+        UpdateSelectionSummary();
     }
 
-    partial void OnSelectedNodeChanged(FolderNode? value)
+    private static DriveOption? TryCreateOption(DriveInfo drive)
     {
-        if (value is not { CanDrillInto: true }) return;
-        CurrentNode = value;
-        Breadcrumb.Add(value);
+        try
+        {
+            if (!drive.IsReady || drive.DriveType is not (DriveType.Fixed or DriveType.Removable)) return null;
+
+            long total = drive.TotalSize;
+            long free = drive.AvailableFreeSpace;
+            long used = total - free;
+            bool removable = drive.DriveType == DriveType.Removable;
+
+            return new DriveOption
+            {
+                RootPath = drive.RootDirectory.FullName,
+                Letter = drive.Name.TrimEnd('\\'),
+                VolumeLabel = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                    ? (removable ? "Disque amovible" : "Disque local")
+                    : drive.VolumeLabel,
+                UsageText = $"{ByteFormatter.Format(used)} / {ByteFormatter.Format(total)}",
+                FreeText = $"{ByteFormatter.Format(free)} libres",
+                UsedPercent = total > 0 ? used * 100.0 / total : 0,
+                IsRemovable = removable,
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private void OnDrivePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DriveOption.IsSelected)) UpdateSelectionSummary();
+    }
+
+    private void UpdateSelectionSummary()
+    {
+        int count = Drives.Count(d => d.IsSelected);
+        SelectionSummary = count switch
+        {
+            0 => "Aucun disque sélectionné",
+            1 => "1 disque sélectionné",
+            _ => $"{count} disques sélectionnés",
+        };
+    }
+
+    partial void OnHoveredNodeChanged(FolderNode? value)
+    {
+        if (value is null || CurrentNode is not { SizeBytes: > 0 } current)
+        {
+            HoveredDetails = null;
+            return;
+        }
+
+        string kind = value.IsFile ? "fichier" : value.IsAggregate ? "regroupement" : "dossier";
+        double share = value.SizeBytes * 100.0 / current.SizeBytes;
+        HoveredDetails = $"{ByteFormatter.Format(value.SizeBytes)} · {share:0.#} % de {current.Name} · {kind}";
     }
 
     [RelayCommand]
@@ -67,34 +147,40 @@ public sealed partial class StorageViewModel : ObservableObject
         _scanCts = cts;
 
         IsScanning = true;
-        RootNode = null;
+        HoveredNode = null;
         CurrentNode = null;
+        RootNode = null;
         Breadcrumb.Clear();
 
         var progress = new Progress<ScanProgress>(p =>
-            StatusText = $"Analyse en cours… {ByteFormatter.Format(p.BytesScanned)} — {Truncate(p.CurrentPath, 70)}");
+            StatusText = $"{ByteFormatter.Format(p.BytesScanned)} analysés — {Truncate(p.CurrentPath, 70)}");
 
         try
         {
             FolderNode root;
             if (selected.Count == 1)
             {
-                root = await _scanner.ScanAsync(selected[0].RootPath, selected[0].RootPath.TrimEnd('\\'), progress, cts.Token);
+                root = await _scanner.ScanAsync(selected[0].RootPath, selected[0].Letter, progress, cts.Token);
             }
             else
             {
-                var children = new List<FolderNode>();
+                var drives = new List<FolderNode>();
                 foreach (DriveOption drive in selected)
                 {
-                    children.Add(await _scanner.ScanAsync(drive.RootPath, drive.RootPath.TrimEnd('\\'), progress, cts.Token));
+                    drives.Add(await _scanner.ScanAsync(drive.RootPath, drive.Letter, progress, cts.Token));
                 }
-                root = new FolderNode { Name = "Disques sélectionnés", SizeBytes = children.Sum(c => c.SizeBytes), Children = children };
+
+                root = new FolderNode { Name = "Disques sélectionnés", SizeBytes = drives.Sum(d => d.SizeBytes) };
+                foreach (FolderNode drive in drives)
+                {
+                    drive.Parent = root;
+                    root.Children.Add(drive);
+                }
             }
 
             RootNode = root;
-            CurrentNode = root;
-            Breadcrumb.Add(root);
-            StatusText = $"Terminé — {ByteFormatter.Format(root.SizeBytes)} au total.";
+            SetCurrent(root);
+            StatusText = $"Terminé — {ByteFormatter.Format(root.SizeBytes)} analysés.";
         }
         catch (OperationCanceledException)
         {
@@ -114,19 +200,28 @@ public sealed partial class StorageViewModel : ObservableObject
     private void CancelScan() => _scanCts?.Cancel();
 
     [RelayCommand]
-    private void NavigateToBreadcrumb(FolderNode node)
+    private void DrillInto(FolderNode? node)
     {
-        int index = Breadcrumb.IndexOf(node);
-        if (index < 0) return;
+        if (node is { CanDrillInto: true } && !ReferenceEquals(node, CurrentNode)) SetCurrent(node);
+    }
 
-        while (Breadcrumb.Count > index + 1)
-        {
-            Breadcrumb.RemoveAt(Breadcrumb.Count - 1);
-        }
-        CurrentNode = node;
+    private bool CanNavigateUp() => CurrentNode?.Parent is not null;
+
+    [RelayCommand(CanExecute = nameof(CanNavigateUp))]
+    private void NavigateUp()
+    {
+        if (CurrentNode?.Parent is { } parent) SetCurrent(parent);
     }
 
     [RelayCommand]
+    private void NavigateToBreadcrumb(FolderNode? node)
+    {
+        if (node is not null && !ReferenceEquals(node, CurrentNode)) SetCurrent(node);
+    }
+
+    private bool CanOpenCurrentInExplorer() => !string.IsNullOrEmpty(CurrentNode?.FullPath);
+
+    [RelayCommand(CanExecute = nameof(CanOpenCurrentInExplorer))]
     private void OpenCurrentInExplorer()
     {
         string? path = CurrentNode?.FullPath;
@@ -138,6 +233,16 @@ public sealed partial class StorageViewModel : ObservableObject
             Arguments = $"\"{path}\"",
             UseShellExecute = true,
         });
+    }
+
+    private void SetCurrent(FolderNode node)
+    {
+        CurrentNode = node;
+
+        var chain = new List<FolderNode>();
+        for (FolderNode? n = node; n is not null; n = n.Parent) chain.Add(n);
+        chain.Reverse();
+        Breadcrumb.ReplaceAll(chain);
     }
 
     private static string Truncate(string value, int maxLength)

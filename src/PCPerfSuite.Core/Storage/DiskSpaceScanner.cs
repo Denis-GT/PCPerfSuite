@@ -11,6 +11,10 @@ public sealed class FolderNode
     public long SizeBytes { get; set; }
     public bool IsFile { get; init; }
     public bool IsAggregate { get; init; }
+
+    /// <summary>Dossier contenant, null pour la racine d'une analyse — sert au fil d'Ariane et au zoom arrière.</summary>
+    public FolderNode? Parent { get; set; }
+
     public List<FolderNode> Children { get; init; } = new();
 
     public bool CanDrillInto => !IsFile && !IsAggregate && Children.Count > 0;
@@ -111,13 +115,13 @@ public sealed class DiskSpaceScanner
             progress?.Report(new ScanProgress { CurrentPath = path, BytesScanned = counters.BytesScanned });
         }
 
-        return new FolderNode
+        var node = new FolderNode { Name = displayName, FullPath = path, SizeBytes = totalSize };
+        foreach (FolderNode child in Condense(children))
         {
-            Name = displayName,
-            FullPath = path,
-            SizeBytes = totalSize,
-            Children = Condense(children),
-        };
+            child.Parent = node;
+            node.Children.Add(child);
+        }
+        return node;
     }
 
     private static List<FolderNode> Condense(List<FolderNode> children)
