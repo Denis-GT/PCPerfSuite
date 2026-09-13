@@ -9,10 +9,11 @@ using PCPerfSuite.Core.Storage;
 namespace PCPerfSuite.App.Controls;
 
 /// <summary>
-/// Carte d'occupation disque façon SpaceSniffer : treemap "squarifié" (Bruls/Huizing/van Wijk) et imbriqué.
-/// Chaque dossier assez grand à l'écran affiche un bandeau de titre et, à l'intérieur, sa propre treemap de
-/// sous-dossiers/fichiers, récursivement. Un clic zoome dans un dossier — la case s'agrandit jusqu'à remplir
-/// la vue en révélant son contenu — et un clic droit (ou le bouton "précédent" de la souris) remonte.
+/// Carte d'occupation disque façon SpaceSniffer : treemap "squarifié" (Bruls/Huizing/van Wijk) dont les
+/// dossiers se dévoilent au clic. Un dossier fermé est une simple case ; un clic l'ouvre sur place — un
+/// bandeau de titre apparaît et ses sous-dossiers/fichiers se déplient à l'intérieur de sa case, sans que
+/// les autres cases changent de taille. Un clic sur le bandeau le referme, un double-clic zoome dedans, un
+/// clic droit (ou le bouton "précédent" de la souris) remonte.
 /// </summary>
 public sealed class TreemapControl : FrameworkElement
 {
@@ -43,7 +44,7 @@ public sealed class TreemapControl : FrameworkElement
         set => SetValue(HoveredNodeProperty, value);
     }
 
-    /// <summary>Exécutée avec le dossier cliqué.</summary>
+    /// <summary>Exécutée avec le dossier dans lequel zoomer (double-clic).</summary>
     public ICommand? DrillCommand
     {
         get => (ICommand?)GetValue(DrillCommandProperty);
@@ -59,7 +60,8 @@ public sealed class TreemapControl : FrameworkElement
     private const double HeaderHeight = 18;
     private const int MaxDepth = 8;
     private const int MaxCells = 6000;
-    private const double AnimationMs = 320;
+    private const double ZoomAnimationMs = 320;
+    private const double RevealAnimationMs = 260;
 
     private static readonly Color[] Palette =
     {
@@ -88,6 +90,8 @@ public sealed class TreemapControl : FrameworkElement
     private static readonly Brush FoldBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)));
     private static readonly Brush HoverFill = Frozen(new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)));
     private static readonly Pen HoverPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF))), 1.5));
+    private static readonly Pen LightChevronPen = MakeChevronPen(Color.FromArgb(0xD8, 0xFF, 0xFF, 0xFF));
+    private static readonly Pen DarkChevronPen = MakeChevronPen(Color.FromArgb(0xC0, 0x12, 0x14, 0x1A));
 
     private sealed class Cell
     {
@@ -95,10 +99,16 @@ public sealed class TreemapControl : FrameworkElement
         public required Rect Rect { get; init; }
         public required int Parent { get; init; }
         public required double Radius { get; init; }
+
+        /// <summary>Dossier dévoilé : bandeau de titre + son contenu dessiné à l'intérieur.</summary>
+        public required bool IsOpen { get; init; }
+
+        /// <summary>Dossier assez grand à cet endroit pour être dévoilé sur place.</summary>
+        public required bool CanOpen { get; init; }
     }
 
-    /// <summary>Carte calculée pour une racine donnée, dessinée une fois dans un Drawing figé : pendant les
-    /// animations de zoom on ne fait que la redessiner sous une transformation, sans tout recalculer.</summary>
+    /// <summary>Carte calculée pour une racine et un ensemble de dossiers dévoilés, dessinée une fois dans un
+    /// Drawing figé : pendant les animations on ne fait que la redessiner (transformée, découpée), sans recalcul.</summary>
     private sealed class Layout
     {
         public required FolderNode Root { get; init; }
@@ -117,13 +127,23 @@ public sealed class TreemapControl : FrameworkElement
         }
     }
 
+    private enum Transition { ZoomIn, ZoomOut, Reveal, Fold }
+
+    /// <summary>Dossiers dévoilés. Conservés en zoomant/dézoomant, vidés à chaque nouvelle analyse.</summary>
+    private readonly HashSet<FolderNode> _open = new();
+
     private Layout? _layout;
     private Layout? _outgoing;
+    private Transition _transition;
     private Rect _transitionRect;
-    private bool _zoomingIn;
+    private double _durationMs;
     private bool _animating;
     private readonly Stopwatch _clock = new();
     private int _hoverIndex = -1;
+
+    /// <summary>Dossier visé par le premier clic d'un double-clic : ce premier clic a déjà pu dévoiler le
+    /// dossier, et donc changer ce qui se trouve sous le curseur au moment du second.</summary>
+    private FolderNode? _lastClicked;
 
     public TreemapControl()
     {
@@ -138,9 +158,24 @@ public sealed class TreemapControl : FrameworkElement
     {
         Layout? previous = _layout;
         StopAnimation();
-        _layout = BuildLayout(Root);
+
+        FolderNode? root = Root;
+        if (root is null || previous is null || !ReferenceEquals(TopOf(root), TopOf(previous.Root)))
+        {
+            _open.Clear();
+        }
+        else if (IsDescendant(previous.Root, root))
+        {
+            // En remontant, le chemin dont on vient reste dévoilé pour garder le contexte sous les yeux.
+            for (FolderNode? n = previous.Root; n is not null && !ReferenceEquals(n, root); n = n.Parent)
+            {
+                _open.Add(n);
+            }
+        }
+
+        _layout = BuildLayout(root);
         ResetHover();
-        TryStartTransition(previous, _layout);
+        if (previous is not null && _layout is not null) TryStartZoomTransition(previous, _layout);
         InvalidateVisual();
     }
 
@@ -160,34 +195,67 @@ public sealed class TreemapControl : FrameworkElement
         InvalidateVisual();
     }
 
-    private void ResetHover()
+    // ----- Dévoiler / replier -----
+
+    private void SetOpen(FolderNode node, bool open, Rect rect)
     {
-        _hoverIndex = -1;
-        SetCurrentValue(HoveredNodeProperty, null);
+        if (open ? !_open.Add(node) : !_open.Remove(node)) return;
+
+        Layout? previous = _layout;
+        _layout = BuildLayout(Root);
+
+        if (open && !(_layout is not null && _layout.IndexByNode.TryGetValue(node, out int index) && _layout.Cells[index].IsOpen))
+        {
+            // Limite de cases atteinte : impossible de le dévoiler sur place, on zoome dedans à la place.
+            _open.Remove(node);
+            _layout = previous;
+            Drill(node);
+            return;
+        }
+
+        StartTransition(previous, open ? Transition.Reveal : Transition.Fold, rect, RevealAnimationMs);
+        RefreshHover();
+        InvalidateVisual();
     }
 
-    // ----- Animation de zoom -----
-
-    private void TryStartTransition(Layout? from, Layout? to)
+    private void Drill(FolderNode node)
     {
-        if (from is null || to is null) return;
+        if (DrillCommand?.CanExecute(node) == true) DrillCommand.Execute(node);
+    }
 
-        Rect? rect = null;
+    // ----- Animations -----
+
+    private void TryStartZoomTransition(Layout from, Layout to)
+    {
+        Rect? rect;
+        Transition kind;
         if (IsDescendant(to.Root, from.Root))
         {
             rect = from.RectOf(to.Root);
-            _zoomingIn = true;
+            kind = Transition.ZoomIn;
         }
         else if (IsDescendant(from.Root, to.Root))
         {
             rect = to.RectOf(from.Root);
-            _zoomingIn = false;
+            kind = Transition.ZoomOut;
+        }
+        else
+        {
+            return;
         }
 
-        if (rect is not { Width: > 1, Height: > 1 } target) return;
+        if (rect is { } target) StartTransition(from, kind, target, ZoomAnimationMs);
+    }
+
+    private void StartTransition(Layout? from, Transition kind, Rect rect, double durationMs)
+    {
+        StopAnimation();
+        if (from is null || _layout is null || rect.Width <= 1 || rect.Height <= 1) return;
 
         _outgoing = from;
-        _transitionRect = target;
+        _transition = kind;
+        _transitionRect = rect;
+        _durationMs = durationMs;
         _animating = true;
         _clock.Restart();
         CompositionTarget.Rendering += OnRenderingFrame;
@@ -195,7 +263,11 @@ public sealed class TreemapControl : FrameworkElement
 
     private void OnRenderingFrame(object? sender, EventArgs e)
     {
-        if (_clock.Elapsed.TotalMilliseconds >= AnimationMs) StopAnimation();
+        if (_clock.Elapsed.TotalMilliseconds >= _durationMs)
+        {
+            StopAnimation();
+            RefreshHover();
+        }
         InvalidateVisual();
     }
 
@@ -208,6 +280,13 @@ public sealed class TreemapControl : FrameworkElement
         CompositionTarget.Rendering -= OnRenderingFrame;
     }
 
+    private void FinishAnimation()
+    {
+        if (!_animating) return;
+        StopAnimation();
+        InvalidateVisual();
+    }
+
     private static bool IsDescendant(FolderNode node, FolderNode ancestor)
     {
         for (FolderNode? n = node.Parent; n is not null; n = n.Parent)
@@ -215,6 +294,13 @@ public sealed class TreemapControl : FrameworkElement
             if (ReferenceEquals(n, ancestor)) return true;
         }
         return false;
+    }
+
+    private static FolderNode TopOf(FolderNode node)
+    {
+        FolderNode top = node;
+        while (top.Parent is not null) top = top.Parent;
+        return top;
     }
 
     // ----- Construction de la carte -----
@@ -239,7 +325,7 @@ public sealed class TreemapControl : FrameworkElement
         return new Layout { Root = root, Cells = cells, IndexByNode = index, Drawing = drawing };
     }
 
-    private static void LayoutLevel(DrawingContext dc, FolderNode parent, Rect area, int depth, int parentIndex,
+    private void LayoutLevel(DrawingContext dc, FolderNode parent, Rect area, int depth, int parentIndex,
         Color? branchColor, List<Cell> cells, double pixelsPerDip)
     {
         List<FolderNode> items = parent.Children.Where(c => c.SizeBytes > 0).OrderByDescending(c => c.SizeBytes).ToList();
@@ -252,13 +338,13 @@ public sealed class TreemapControl : FrameworkElement
 
             Color color = ColorFor(node, branchColor, depth);
             double radius = Math.Min(depth == 0 ? 6 : 4, Math.Min(rect.Width, rect.Height) / 4);
+            bool canOpen = node.CanDrillInto && depth < MaxDepth && rect.Width >= 56 && rect.Height >= HeaderHeight + 24;
+            bool isOpen = canOpen && _open.Contains(node) && cells.Count < MaxCells;
+
             int index = cells.Count;
-            cells.Add(new Cell { Node = node, Rect = rect, Parent = parentIndex, Radius = radius });
+            cells.Add(new Cell { Node = node, Rect = rect, Parent = parentIndex, Radius = radius, IsOpen = isOpen, CanOpen = canOpen });
 
-            bool nest = node.CanDrillInto && depth < MaxDepth && cells.Count < MaxCells
-                        && rect.Width >= 56 && rect.Height >= HeaderHeight + 24;
-
-            if (nest)
+            if (isOpen)
             {
                 DrawContainer(dc, node, rect, radius, color, pixelsPerDip);
                 var body = new Rect(rect.X + 3, rect.Y + HeaderHeight, rect.Width - 6, rect.Height - HeaderHeight - 3);
@@ -271,7 +357,7 @@ public sealed class TreemapControl : FrameworkElement
         }
     }
 
-    /// <summary>Dossier dont le contenu est affiché : cadre coloré + bandeau titre, intérieur assombri.</summary>
+    /// <summary>Dossier dévoilé : cadre coloré + bandeau titre (avec chevron "replier"), intérieur assombri.</summary>
     private static void DrawContainer(DrawingContext dc, FolderNode node, Rect rect, double radius, Color color, double pixelsPerDip)
     {
         dc.DrawRoundedRectangle(Frozen(new SolidColorBrush(color)), null, rect, radius, radius);
@@ -280,21 +366,35 @@ public sealed class TreemapControl : FrameworkElement
         double innerRadius = Math.Max(0, radius - 2);
         dc.DrawRoundedRectangle(Frozen(new SolidColorBrush(Mix(color, BackdropColor, 0.74))), null, body, innerRadius, innerRadius);
 
-        var header = new Rect(rect.X + 6, rect.Y, Math.Max(1, rect.Width - 12), HeaderHeight - 1);
         bool darkText = Luminance(color) > 0.62;
-        string size = ByteFormatter.Format(node.SizeBytes);
-        string content = $"{node.Name}  {size}";
+        bool showChevron = rect.Width >= 80;
+        var header = new Rect(rect.X + 6, rect.Y, Math.Max(1, rect.Width - 12 - (showChevron ? 14 : 0)), HeaderHeight - 1);
 
-        FormattedText text = MakeText(content, 11, FontWeights.Normal, darkText ? DarkText : Brushes.White, header.Width, pixelsPerDip);
+        string size = ByteFormatter.Format(node.SizeBytes);
+        FormattedText text = MakeText($"{node.Name}  {size}", 11, FontWeights.Normal, darkText ? DarkText : Brushes.White, header.Width, pixelsPerDip);
         text.SetFontWeight(FontWeights.SemiBold, 0, node.Name.Length);
         text.SetForegroundBrush(darkText ? DarkTextSecondary : LightTextSecondary, node.Name.Length + 2, size.Length);
 
         dc.PushClip(new RectangleGeometry(header));
         dc.DrawText(text, new Point(header.X, header.Y + (header.Height - text.Height) / 2));
         dc.Pop();
+
+        if (!showChevron) return;
+
+        double cx = rect.Right - 12;
+        double cy = rect.Y + (HeaderHeight - 1) / 2;
+        var chevron = new StreamGeometry();
+        using (StreamGeometryContext ctx = chevron.Open())
+        {
+            ctx.BeginFigure(new Point(cx - 3.5, cy + 1.75), false, false);
+            ctx.LineTo(new Point(cx, cy - 1.75), true, true);
+            ctx.LineTo(new Point(cx + 3.5, cy + 1.75), true, true);
+        }
+        chevron.Freeze();
+        dc.DrawGeometry(null, darkText ? DarkChevronPen : LightChevronPen, chevron);
     }
 
-    /// <summary>Fichier, bloc "Autres", ou dossier trop petit ici pour montrer son contenu.</summary>
+    /// <summary>Fichier, bloc "Autres", ou dossier fermé (coin corné = un clic le dévoile).</summary>
     private static void DrawTile(DrawingContext dc, FolderNode node, Rect rect, double radius, Color color, double pixelsPerDip)
     {
         var fill = new LinearGradientBrush(Mix(color, Colors.White, 0.14), Mix(color, Colors.Black, 0.16), 90);
@@ -309,8 +409,7 @@ public sealed class TreemapControl : FrameworkElement
 
         if (node.CanDrillInto && rect.Width >= 16 && rect.Height >= 16)
         {
-            // Dossier replié : petit coin corné pour indiquer qu'un clic l'ouvre.
-            double s = Math.Min(8, Math.Min(rect.Width, rect.Height) / 3);
+            double s = Math.Min(9, Math.Min(rect.Width, rect.Height) / 3);
             double inset = radius * 0.3;
             var fold = new StreamGeometry();
             using (StreamGeometryContext ctx = fold.Open())
@@ -504,26 +603,54 @@ public sealed class TreemapControl : FrameworkElement
             return;
         }
 
-        double p = Math.Clamp(_clock.Elapsed.TotalMilliseconds / AnimationMs, 0, 1);
+        double p = Math.Clamp(_clock.Elapsed.TotalMilliseconds / _durationMs, 0, 1);
         double t = 1 - Math.Pow(1 - p, 3);
 
-        if (_zoomingIn)
+        switch (_transition)
         {
-            // La case cliquée grandit jusqu'à remplir la vue ; son contenu apparaît dedans pendant que
-            // l'ancienne carte est "traversée" et s'efface.
-            Rect target = Lerp(_transitionRect, bounds, t);
-            DrawLayer(dc, _outgoing, MapRect(_transitionRect, target), 1 - t);
-            DrawLayer(dc, _layout, MapRect(bounds, target), Math.Min(1, t * 1.8));
+            case Transition.Reveal:
+                // Le dossier se déplie : bandeau d'abord, puis son contenu se révèle de haut en bas dans sa case.
+                dc.DrawDrawing(_outgoing.Drawing);
+                DrawUnfolding(dc, _layout, _transitionRect, t);
+                break;
+
+            case Transition.Fold:
+                dc.DrawDrawing(_layout.Drawing);
+                DrawUnfolding(dc, _outgoing, _transitionRect, 1 - t);
+                break;
+
+            case Transition.ZoomIn:
+            {
+                // La case grandit jusqu'à remplir la vue ; son contenu apparaît dedans pendant que l'ancienne carte s'efface.
+                Rect target = Lerp(_transitionRect, bounds, t);
+                DrawLayer(dc, _outgoing, MapRect(_transitionRect, target), 1 - t);
+                DrawLayer(dc, _layout, MapRect(bounds, target), Math.Min(1, t * 1.8));
+                break;
+            }
+
+            case Transition.ZoomOut:
+            {
+                // Inverse : on recule, et le dossier qu'on quitte se replie dans sa case de la carte parente.
+                Rect viewport = Lerp(_transitionRect, bounds, t);
+                Matrix parentTransform = MapRect(viewport, bounds);
+                DrawLayer(dc, _layout, parentTransform, 1);
+                Rect folded = Rect.Transform(_transitionRect, parentTransform);
+                DrawLayer(dc, _outgoing, MapRect(bounds, folded), 1 - t);
+                break;
+            }
         }
-        else
-        {
-            // Inverse : on recule, et le dossier qu'on quitte se replie dans sa case de la carte parente.
-            Rect viewport = Lerp(_transitionRect, bounds, t);
-            Matrix parentTransform = MapRect(viewport, bounds);
-            DrawLayer(dc, _layout, parentTransform, 1);
-            Rect folded = Rect.Transform(_transitionRect, parentTransform);
-            DrawLayer(dc, _outgoing, MapRect(bounds, folded), 1 - t);
-        }
+    }
+
+    private static void DrawUnfolding(DrawingContext dc, Layout layout, Rect cell, double amount)
+    {
+        if (amount <= 0.01) return;
+
+        double height = Math.Min(cell.Height, HeaderHeight + (cell.Height - HeaderHeight) * amount);
+        dc.PushClip(new RectangleGeometry(new Rect(cell.X, cell.Y, cell.Width, height)));
+        dc.PushOpacity(Math.Min(1, 0.3 + amount));
+        dc.DrawDrawing(layout.Drawing);
+        dc.Pop();
+        dc.Pop();
     }
 
     private void DrawHover(DrawingContext dc)
@@ -567,20 +694,19 @@ public sealed class TreemapControl : FrameworkElement
         return freezable;
     }
 
+    private static Pen MakeChevronPen(Color color) => Frozen(new Pen(Frozen(new SolidColorBrush(color)), 1.4)
+    {
+        StartLineCap = PenLineCap.Round,
+        EndLineCap = PenLineCap.Round,
+        LineJoin = PenLineJoin.Round,
+    });
+
     // ----- Interaction -----
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (_animating || _layout is null) return;
-
-        int index = HitTest(e.GetPosition(this));
-        if (index == _hoverIndex) return;
-
-        _hoverIndex = index;
-        SetCurrentValue(HoveredNodeProperty, index >= 0 ? _layout.Cells[index].Node : null);
-        Cursor = DrillTarget(index) is not null ? Cursors.Hand : Cursors.Arrow;
-        InvalidateVisual();
+        if (!_animating) UpdateHover(e.GetPosition(this));
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)
@@ -591,17 +717,41 @@ public sealed class TreemapControl : FrameworkElement
         InvalidateVisual();
     }
 
-    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
-        base.OnMouseLeftButtonUp(e);
-        if (_animating || _layout is null) return;
+        base.OnMouseLeftButtonDown(e);
+        if (_layout is null) return;
+        e.Handled = true;
 
-        FolderNode? target = DrillTarget(HitTest(e.GetPosition(this)));
-        if (target is not null && DrillCommand?.CanExecute(target) == true)
+        if (e.ClickCount >= 2)
         {
-            DrillCommand.Execute(target);
-            e.Handled = true;
+            FolderNode? target = _lastClicked;
+            _lastClicked = null;
+            if (target is { CanDrillInto: true }) Drill(target);
+            return;
         }
+
+        FinishAnimation();
+        _lastClicked = null;
+
+        Point point = e.GetPosition(this);
+        int index = HitTest(point);
+        if (index < 0) return;
+
+        Cell cell = _layout.Cells[index];
+        if (cell.IsOpen)
+        {
+            // Seul le bandeau replie : un clic dans un interstice entre deux cases ne doit rien fermer.
+            _lastClicked = cell.Node;
+            if (point.Y <= cell.Rect.Y + HeaderHeight) SetOpen(cell.Node, false, cell.Rect);
+            return;
+        }
+
+        if (!cell.Node.CanDrillInto) return;
+        _lastClicked = cell.Node;
+
+        if (cell.CanOpen) SetOpen(cell.Node, true, cell.Rect);
+        else Drill(cell.Node); // trop petit ici pour être dévoilé sur place : on zoome dedans
     }
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
@@ -621,8 +771,40 @@ public sealed class TreemapControl : FrameworkElement
 
     private void ZoomOut()
     {
-        if (_animating) return;
+        FinishAnimation();
         if (ZoomOutCommand?.CanExecute(null) == true) ZoomOutCommand.Execute(null);
+    }
+
+    private void UpdateHover(Point point)
+    {
+        if (_layout is null) return;
+
+        int index = HitTest(point);
+        Cursor = IsClickable(index, point) ? Cursors.Hand : Cursors.Arrow;
+        if (index == _hoverIndex) return;
+
+        _hoverIndex = index;
+        SetCurrentValue(HoveredNodeProperty, index >= 0 ? _layout.Cells[index].Node : null);
+        InvalidateVisual();
+    }
+
+    private void RefreshHover()
+    {
+        ResetHover();
+        if (IsMouseOver) UpdateHover(Mouse.GetPosition(this));
+    }
+
+    private void ResetHover()
+    {
+        _hoverIndex = -1;
+        SetCurrentValue(HoveredNodeProperty, null);
+    }
+
+    private bool IsClickable(int index, Point point)
+    {
+        if (_layout is null || index < 0) return false;
+        Cell cell = _layout.Cells[index];
+        return cell.IsOpen ? point.Y <= cell.Rect.Y + HeaderHeight : cell.Node.CanDrillInto;
     }
 
     /// <summary>Case la plus profonde sous le curseur (les enfants sont ajoutés après leur dossier et dessinés dedans).</summary>
@@ -634,17 +816,5 @@ public sealed class TreemapControl : FrameworkElement
             if (_layout.Cells[i].Rect.Contains(point)) return i;
         }
         return -1;
-    }
-
-    /// <summary>Dossier à ouvrir pour un clic sur cette case : elle-même si c'est un dossier, sinon le
-    /// dossier affiché qui la contient (clic sur un fichier = ouvrir son dossier).</summary>
-    private FolderNode? DrillTarget(int index)
-    {
-        if (_layout is null) return null;
-        for (int i = index; i >= 0; i = _layout.Cells[i].Parent)
-        {
-            if (_layout.Cells[i].Node.CanDrillInto) return _layout.Cells[i].Node;
-        }
-        return null;
     }
 }

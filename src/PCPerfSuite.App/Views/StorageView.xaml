@@ -221,7 +221,7 @@
                     <TextBlock Text="&#xEDA2;" FontFamily="{StaticResource IconFont}" FontSize="40" Foreground="{StaticResource AccentBrush}"
                                HorizontalAlignment="Center"/>
                     <TextBlock Text="Choisis un ou plusieurs disques" Style="{StaticResource H2}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
-                    <TextBlock Text="Lance l'analyse, puis clique sur un dossier pour l'ouvrir et découvrir ce qu'il contient. Clic droit pour remonter."
+                    <TextBlock Text="Lance l'analyse, puis clique sur une case pour dévoiler ce qu'elle contient. Double-clic pour zoomer dedans, clic droit pour remonter."
                                Style="{StaticResource Caption}" TextAlignment="Center" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
@@ -238,14 +238,14 @@
 
         <!-- Élément survolé + aide -->
         <DockPanel Grid.Row="4" Margin="4,10,4,0" LastChildFill="True" Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
-            <TextBlock DockPanel.Dock="Right" Text="Clic : ouvrir un dossier  ·  Clic droit : remonter" Style="{StaticResource Caption}"
-                       TextWrapping="NoWrap" VerticalAlignment="Center" Margin="16,0,0,0"/>
-            <StackPanel Orientation="Horizontal" Visibility="{Binding HoveredNode, Converter={StaticResource NullToVisibility}}">
-                <TextBlock Text="{Binding HoveredNode.Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
-                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="320" VerticalAlignment="Center"/>
+            <TextBlock DockPanel.Dock="Right" Text="Clic : dévoiler / replier  ·  Double-clic : zoomer  ·  Clic droit : remonter"
+                       Style="{StaticResource Caption}" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="16,0,0,0"/>
+            <DockPanel LastChildFill="True" Visibility="{Binding HoveredNode, Converter={StaticResource NullToVisibility}}">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding HoveredNode.Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="300" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding HoveredDetails}" Style="{StaticResource Caption}" TextWrapping="NoWrap"
-                           VerticalAlignment="Center" Margin="10,0,0,0"/>
-            </StackPanel>
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </DockPanel>
         </DockPanel>
     </Grid>
 </UserControl>
