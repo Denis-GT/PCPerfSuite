@@ -21,6 +21,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         var cleanup = new CleanupViewModel();
+        var storage = new StorageViewModel();
         var settings = new SettingsViewModel();
 
         var fans = new ComingSoonViewModel(
@@ -57,6 +58,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             new("Monitoring", _monitoring),
             new("Nettoyage", cleanup),
+            new("Stockage", storage),
             new("Paramètres Windows", settings),
             new("Ventilateurs", fans),
             new("GPU", gpu),

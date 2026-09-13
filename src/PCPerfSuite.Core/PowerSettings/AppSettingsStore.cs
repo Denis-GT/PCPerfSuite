@@ -7,6 +7,9 @@ public sealed class AppSettings
     /// <summary>GUID du plan "Performances ultimes" une fois dupliqué, pour éviter d'en recréer un à chaque lancement
     /// (le nom du plan est localisé par Windows donc on ne peut pas le retrouver de façon fiable par son nom).</summary>
     public string? UltimatePerformanceGuid { get; set; }
+
+    /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
+    public int MonitoringRefreshMs { get; set; } = 1000;
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>

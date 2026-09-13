@@ -15,4 +15,7 @@ public static class ByteFormatter
         }
         return unit == 0 ? $"{value:0} {Units[unit]}" : $"{value:0.#} {Units[unit]}";
     }
+
+    public static string FormatRate(double? bytesPerSecond)
+        => bytesPerSecond is { } v ? $"{Format((long)Math.Round(Math.Max(0, v)))}/s" : "--";
 }

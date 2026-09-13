@@ -45,48 +45,55 @@
         <GradientStop Color="#12FFFFFF" Offset="1"/>
     </LinearGradientBrush>
 
-    <!-- Ombres portées, partagées pour rester légères en perf (Freezable). -->
-    <DropShadowEffect x:Key="CardShadowEffect" Color="#000000" Opacity="0.38" BlurRadius="28" ShadowDepth="8" Direction="270"/>
+    <!-- Lueur accent, réservée aux éléments SANS texte (ex: piste du toggle) : tout Effect force
+         un rendu bitmap intermédiaire qui désactive le ClearType du texte qu'il contient. -->
     <DropShadowEffect x:Key="AccentGlowEffect" Color="#0A84FF" Opacity="0.5" BlurRadius="18" ShadowDepth="0"/>
 
-    <!-- Typo -->
+    <!-- Typo. ClearTypeHint=Enabled : garde un rendu de texte net même à l'intérieur d'un
+         parent semi-transparent/animé (survol, désactivé) qui forcerait sinon un antialiasing
+         en niveaux de gris plus flou. -->
     <Style x:Key="H1" TargetType="TextBlock">
         <Setter Property="FontSize" Value="24"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
     </Style>
     <Style x:Key="H2" TargetType="TextBlock">
         <Setter Property="FontSize" Value="15"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
     </Style>
     <Style x:Key="Body" TargetType="TextBlock">
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
     </Style>
     <Style x:Key="Caption" TargetType="TextBlock">
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
     </Style>
     <Style x:Key="MetricValue" TargetType="TextBlock">
         <Setter Property="FontSize" Value="28"/>
         <Setter Property="FontWeight" Value="Bold"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
     </Style>
 
-    <!-- Carte en verre dépoli -->
+    <!-- Carte en verre dépoli. Pas d'Effect ici (rendrait le texte contenu flou) : la profondeur
+         vient uniquement du dégradé de fond + de la bordure lumineuse. -->
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="18"/>
         <Setter Property="Padding" Value="16"/>
-        <Setter Property="Effect" Value="{StaticResource CardShadowEffect}"/>
     </Style>
 
-    <!-- Bouton accent (rempli, façon bouton système Apple : libellé blanc + lueur) -->
+    <!-- Bouton accent (rempli, façon bouton système Apple : libellé blanc) -->
     <Style x:Key="AccentButton" TargetType="Button">
         <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
         <Setter Property="Foreground" Value="White"/>
@@ -94,7 +101,6 @@
         <Setter Property="Padding" Value="16,9"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="Effect" Value="{StaticResource AccentGlowEffect}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">

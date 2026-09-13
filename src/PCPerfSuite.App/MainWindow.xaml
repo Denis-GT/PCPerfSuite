@@ -13,6 +13,9 @@
         <DataTemplate DataType="{x:Type vm:CleanupViewModel}">
             <views:CleanupView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:StorageViewModel}">
+            <views:StorageView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
             <views:SettingsView/>
         </DataTemplate>

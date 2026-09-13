@@ -39,6 +39,7 @@ public sealed class HardwareMonitorService : IDisposable
         var memory = new MemorySnapshot();
         var motherboard = new MotherboardSnapshot();
         var fans = new List<FanReading>();
+        var disks = new List<DiskSnapshot>();
 
         foreach (IHardware hardware in _computer.Hardware)
         {
@@ -67,6 +68,10 @@ public sealed class HardwareMonitorService : IDisposable
                         CollectFans(sub, fans);
                     }
                     break;
+
+                case HardwareType.Storage:
+                    disks.Add(ReadDisk(hardware));
+                    break;
             }
         }
 
@@ -77,6 +82,7 @@ public sealed class HardwareMonitorService : IDisposable
             Memory = memory,
             Motherboard = motherboard,
             Fans = fans,
+            Disks = disks,
         };
     }
 
@@ -164,24 +170,66 @@ public sealed class HardwareMonitorService : IDisposable
 
     private static MotherboardSnapshot ReadMotherboard(IHardware hardware)
     {
-        // Les capteurs de température de la carte mère vivent souvent sur le sous-matériel (puce Super I/O).
-        var allTempSensors = hardware.Sensors
-            .Concat(hardware.SubHardware.SelectMany(sub => sub.Sensors))
+        // Les capteurs de la carte mère vivent souvent sur le sous-matériel (puce Super I/O).
+        List<ISensor> subSensors = hardware.SubHardware.SelectMany(sub => sub.Sensors).ToList();
+
+        List<ISensor> allTempSensors = hardware.Sensors.Concat(subSensors)
             .Where(s => s.SensorType == SensorType.Temperature)
             .ToList();
 
-        float? systemTemp = allTempSensors
-            .FirstOrDefault(s => s.Name.Contains("System", StringComparison.OrdinalIgnoreCase)
-                                  || s.Name.Contains("Motherboard", StringComparison.OrdinalIgnoreCase))?.Value;
+        ISensor? systemSensor = allTempSensors.FirstOrDefault(s =>
+            s.Name.Contains("System", StringComparison.OrdinalIgnoreCase)
+            || s.Name.Contains("Motherboard", StringComparison.OrdinalIgnoreCase));
 
-        float? vrmTemp = allTempSensors
-            .FirstOrDefault(s => s.Name.Contains("VRM", StringComparison.OrdinalIgnoreCase))?.Value;
+        ISensor? vrmSensor = allTempSensors.FirstOrDefault(s =>
+            s.Name.Contains("VRM", StringComparison.OrdinalIgnoreCase));
+
+        List<SensorReading> otherTemps = allTempSensors
+            .Where(s => s != systemSensor && s != vrmSensor)
+            .Select(s => new SensorReading { Name = s.Name, Value = s.Value })
+            .ToList();
+
+        List<SensorReading> voltages = hardware.Sensors.Concat(subSensors)
+            .Where(s => s.SensorType == SensorType.Voltage)
+            .Select(s => new SensorReading { Name = s.Name, Value = s.Value })
+            .ToList();
 
         return new MotherboardSnapshot
         {
             Name = hardware.Name,
-            SystemTempC = systemTemp,
-            VrmTempC = vrmTemp,
+            SystemTempC = systemSensor?.Value,
+            VrmTempC = vrmSensor?.Value,
+            OtherTemperatures = otherTemps,
+            Voltages = voltages,
+        };
+    }
+
+    private static DiskSnapshot ReadDisk(IHardware hardware)
+    {
+        float? usedPercent = FindSensor(hardware, SensorType.Load, "Used Space")?.Value;
+        float? readRate = FindSensor(hardware, SensorType.Throughput, "Read Rate")?.Value;
+        float? writeRate = FindSensor(hardware, SensorType.Throughput, "Write Rate")?.Value;
+        float? temp = hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature)?.Value;
+
+        // Les SSD/NVMe exposent soit "Remaining Life" (déjà le % restant), soit "Percentage Used"
+        // (convention NVMe standard : usure consommée, donc vie restante = 100 - valeur). La plupart
+        // des HDD n'exposent ni l'un ni l'autre : RemainingLifePercent reste alors null (affiché "--").
+        float? remainingLife = FindSensor(hardware, SensorType.Level, "Remaining Life")?.Value;
+        if (remainingLife is null)
+        {
+            float? percentageUsed = FindSensor(hardware, SensorType.Level, "Percentage Used")?.Value;
+            if (percentageUsed is { } used) remainingLife = Math.Clamp(100 - used, 0, 100);
+        }
+
+        return new DiskSnapshot
+        {
+            Name = hardware.Name,
+            Identifier = hardware.Identifier.ToString(),
+            UsedPercent = usedPercent,
+            ReadRateBytesPerSecond = readRate,
+            WriteRateBytesPerSecond = writeRate,
+            TemperatureC = temp,
+            RemainingLifePercent = remainingLife,
         };
     }
 

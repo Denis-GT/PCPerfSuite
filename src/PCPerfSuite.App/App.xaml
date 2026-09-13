@@ -17,11 +17,17 @@
             <conv:NullableNumberToDoubleConverter x:Key="NullableToDouble"/>
             <conv:InverseBooleanConverter x:Key="InverseBoolean"/>
             <conv:NullableMetricConverter x:Key="Metric"/>
+            <conv:DiskHealthStatusToBrushConverter x:Key="DiskHealthBrush"/>
 
             <Style TargetType="Window">
                 <Setter Property="Background" Value="{StaticResource BgBrush}"/>
                 <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
                 <Setter Property="TextElement.Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <!-- Display (plutôt que Ideal, le défaut WPF) aligne le texte sur la grille de
+                     pixels de l'écran au lieu de l'optimiser pour un rendu façon impression :
+                     nettement plus net à l'écran, surtout en mise à l'échelle DPI non entière. -->
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>
