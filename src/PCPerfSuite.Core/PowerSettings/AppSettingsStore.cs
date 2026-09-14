@@ -14,6 +14,21 @@ public sealed class AppSettings
 
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
+
+    /// <summary>Réglages de contrôle GPU (limite de puissance + ventilateurs NVAPI).</summary>
+    public GpuControlSettings Gpu { get; set; } = new();
+}
+
+public sealed class GpuControlSettings
+{
+    /// <summary>Null tant que l'utilisateur n'a jamais touché le slider — on n'impose alors rien au
+    /// démarrage, la carte reste sur son réglage par défaut.</summary>
+    public float? PowerLimitPercent { get; set; }
+
+    public FanControlMode FanMode { get; set; } = FanControlMode.Auto;
+    public float FanManualPercent { get; set; } = 60;
+    public FanTempSource FanSource { get; set; } = FanTempSource.GpuCore;
+    public List<FanCurvePoint> FanPoints { get; set; } = FanCurveMath.EquilibrePoints();
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>

@@ -1,0 +1,105 @@
+<UserControl x:Class="PCPerfSuite.App.Views.GpuControlView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <ScrollViewer Padding="32,28,32,28">
+        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+            <TextBlock Text="GPU" Style="{StaticResource H1}"/>
+            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap"
+                       Text="Limite de puissance et courbe de ventilation via NVAPI. Le décalage d'horloge cœur/mémoire n'est pas proposé : l'API NVAPI d'overclocking accessible ici est réservée aux GPU Pascal (GTX 10xx) et ne fonctionne pas sur les générations plus récentes — l'implémenter à l'aveugle sur ta RTX 5070 Ti serait plus risqué qu'utile."/>
+
+            <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,0,0,16"
+                       Text="Aucun GPU NVIDIA piloté par NVAPI détecté (pas de GPU NVIDIA, pilote absent, ou app pas lancée en administrateur)."
+                       Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}"/>
+
+            <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding GpuName}" Style="{StaticResource H2}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="1" Style="{StaticResource Caption}" VerticalAlignment="Center">
+                                <Run Text="{Binding CoreTempC, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
+                            </TextBlock>
+                        </Grid>
+
+                        <TextBlock Text="Limite de puissance" Style="{StaticResource Caption}" Margin="0,16,0,4"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="46"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
+                                    Value="{Binding PowerLimitPercent}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                       Text="{Binding PowerLimitPercent, StringFormat={}{0:0}%}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Ventilateur GPU" Style="{StaticResource H2}" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <Run Text="{Binding FanRpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center">
+                                    <Run Text="{Binding FanCurrentPercent, Converter={StaticResource Metric}, ConverterParameter=%, Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <RadioButton Content="Auto" Style="{StaticResource NavItem}" GroupName="gpu-fan-mode"
+                                         IsChecked="{Binding FanMode, Converter={StaticResource EnumEquals}, ConverterParameter=Auto}"/>
+                            <RadioButton Content="Manuel" Style="{StaticResource NavItem}" GroupName="gpu-fan-mode"
+                                         IsChecked="{Binding FanMode, Converter={StaticResource EnumEquals}, ConverterParameter=Manual}"/>
+                            <RadioButton Content="Courbe" Style="{StaticResource NavItem}" GroupName="gpu-fan-mode"
+                                         IsChecked="{Binding FanMode, Converter={StaticResource EnumEquals}, ConverterParameter=Curve}"/>
+                        </StackPanel>
+
+                        <!-- Manuel -->
+                        <Grid Margin="0,14,0,0" Visibility="{Binding FanMode, Converter={StaticResource EnumEqualsVisibility}, ConverterParameter=Manual}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="46"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding FanManualPercent}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                       Text="{Binding FanManualPercent, StringFormat={}{0:0}%}"/>
+                        </Grid>
+
+                        <!-- Courbe -->
+                        <StackPanel Margin="0,14,0,0" Visibility="{Binding FanMode, Converter={StaticResource EnumEqualsVisibility}, ConverterParameter=Curve}">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Content="Silencieux" Style="{StaticResource GhostButton}" Margin="0,0,6,0" Command="{Binding ApplySilencieuxCommand}"/>
+                                <Button Content="Équilibré" Style="{StaticResource GhostButton}" Margin="0,0,6,0" Command="{Binding ApplyEquilibreCommand}"/>
+                                <Button Content="Perf" Style="{StaticResource GhostButton}" Command="{Binding ApplyPerfCommand}"/>
+                            </StackPanel>
+
+                            <controls:FanCurveEditor x:Name="CurveEditor" Points="{Binding FanPoints}" CurrentTempC="{Binding CoreTempC}"/>
+
+                            <TextBlock Style="{StaticResource Caption}" Margin="0,8,0,0">
+                                <Run Text="Consigne actuelle : "/>
+                                <Run Text="{Binding FanTargetPercent, Converter={StaticResource Metric}, ConverterParameter=%, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                   Text="Au-delà de 88°C, le ventilateur passe à 100% quel que soit le mode choisi."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
