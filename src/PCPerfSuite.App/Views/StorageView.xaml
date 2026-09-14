@@ -14,7 +14,7 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Stockage" Style="{StaticResource H1}"/>
-            <TextBlock Text="Cartographie de l'occupation disque façon SpaceSniffer — clique un bloc pour le dévoiler, reclique pour le replier."
+            <TextBlock Text="Cartographie de l'occupation disque façon SpaceSniffer — clique un bloc pour le dévoiler, reclique pour le replier, clic droit pour plus d'actions."
                        Style="{StaticResource Caption}" Margin="0,4,0,0"/>
         </StackPanel>
 
@@ -46,27 +46,53 @@
                     <Button Grid.Column="1" Content="Annuler" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
                             Command="{Binding CancelScanCommand}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>
                     <Button Grid.Column="2" Content="Analyser" Style="{StaticResource AccentButton}"
-                            Command="{Binding ScanCommand}" IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBoolean}}"/>
+                            Command="{Binding ScanCommand}"/>
                 </Grid>
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="2" Margin="0,0,0,10" Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="{Binding RootNode.Name}" Style="{StaticResource Caption}"
-                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
-            <Button Grid.Column="1" Content="Ouvrir dans l'Explorateur" Style="{StaticResource GhostButton}"
-                    Command="{Binding OpenCurrentInExplorerCommand}"/>
-        </Grid>
+        <TextBlock Grid.Row="2" Text="{Binding RootNode.Name}" Style="{StaticResource Caption}" Margin="0,0,0,10"
+                   TextTrimming="CharacterEllipsis" Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}"/>
 
         <Border Grid.Row="3" Style="{StaticResource Card}" Padding="2" MinHeight="260"
                 Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
             <controls:TreemapControl Nodes="{Binding RootNode.Children}"
                                       HoveredNode="{Binding HoveredNode, Mode=TwoWay}"
-                                      SelectedNode="{Binding SelectedNode, Mode=TwoWay}"/>
+                                      SelectedNode="{Binding SelectedNode, Mode=TwoWay}"
+                                      TreeVersion="{Binding TreeVersion}">
+                <controls:TreemapControl.ContextMenu>
+                    <!-- Le menu vit dans son propre popup, hors de l'arbre visuel de la vue : on le relie
+                         explicitement à la treemap (PlacementTarget, fixé par le contrôle à l'ouverture).
+                         Ses entrées lisent ContextNode, le bloc visé, et remontent au ViewModel par DataContext. -->
+                    <ContextMenu DataContext="{Binding PlacementTarget, RelativeSource={RelativeSource Self}}">
+                        <MenuItem Header="Ouvrir"
+                                  Command="{Binding DataContext.OpenCommand}" CommandParameter="{Binding ContextNode}"/>
+                        <MenuItem Header="Ouvrir dans l'Explorateur"
+                                  Command="{Binding DataContext.OpenInExplorerCommand}" CommandParameter="{Binding ContextNode}"/>
+                        <MenuItem Header="Copier le chemin"
+                                  Command="{Binding DataContext.CopyPathCommand}" CommandParameter="{Binding ContextNode}"/>
+                        <MenuItem Command="{Binding ToggleExpandCommand}" CommandParameter="{Binding ContextNode}">
+                            <MenuItem.Style>
+                                <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                    <Setter Property="Header" Value="Déplier"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsContextNodeExpanded}" Value="True">
+                                            <Setter Property="Header" Value="Replier"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </MenuItem.Style>
+                        </MenuItem>
+                        <MenuItem Header="Rescanner ce dossier"
+                                  Command="{Binding DataContext.RescanCommand}" CommandParameter="{Binding ContextNode}"/>
+                        <MenuItem Header="Propriétés"
+                                  Command="{Binding DataContext.ShowPropertiesCommand}" CommandParameter="{Binding ContextNode}"/>
+                        <Separator/>
+                        <MenuItem Header="Supprimer (Corbeille)…" Style="{StaticResource DangerMenuItem}"
+                                  Command="{Binding DataContext.DeleteCommand}" CommandParameter="{Binding ContextNode}"/>
+                    </ContextMenu>
+                </controls:TreemapControl.ContextMenu>
+            </controls:TreemapControl>
         </Border>
 
         <Border Grid.Row="4" Margin="0,10,0,0" Visibility="{Binding HoveredNode, Converter={StaticResource NullToVisibility}}">

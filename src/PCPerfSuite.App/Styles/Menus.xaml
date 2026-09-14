@@ -1,0 +1,94 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ============================================================ -->
+    <!-- Menus contextuels "Liquid Glass". Fusionné juste après        -->
+    <!-- Theme.xaml, dont il réutilise les pinceaux.                   -->
+    <!-- ============================================================ -->
+
+    <!-- Le popup d'un menu est une fenêtre à part : le flou Mica/Acrylic de la fenêtre principale ne s'y
+         applique pas. Fond opaque, donc, pour rester lisible sur n'importe quel bloc de la treemap, et parce
+         que ClearTypeHint ne garde le texte net dans un popup transparent (coins arrondis) que sur un fond opaque. -->
+    <LinearGradientBrush x:Key="MenuSurfaceBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF272C3C" Offset="0"/>
+        <GradientStop Color="#FF191C29" Offset="1"/>
+    </LinearGradientBrush>
+
+    <Style TargetType="ContextMenu">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="HasDropShadow" Value="False"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Grid Margin="0,0,10,12">
+                        <!-- Ombre portée sur un calque sans texte : le même Effect sur le calque des libellés les rendrait flous. -->
+                        <Border CornerRadius="12" Background="#FF0B0D14">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#000000" Opacity="0.45" BlurRadius="16" ShadowDepth="3" Direction="315"/>
+                            </Border.Effect>
+                        </Border>
+                        <Border Background="{StaticResource MenuSurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="5" MinWidth="210">
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"
+                                            RenderOptions.ClearTypeHint="Enabled"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Gabarit pensé pour des menus contextuels à un seul niveau : ni sous-menus, ni icônes, ni raccourcis. -->
+    <Style TargetType="MenuItem">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Padding" Value="12,7,28,7"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#402A84FF"/>
+                        </Trigger>
+                        <!-- Couleur terne opaque plutôt qu'une Opacity : une opacité partielle ferait perdre le ClearType. -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="#6B7385"/>
+                            <Setter TargetName="Bd" Property="Background" Value="Transparent"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Action destructrice : libellé rouge, grisé comme les autres quand elle est désactivée. -->
+    <Style x:Key="DangerMenuItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+        <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+    </Style>
+
+    <!-- Dans un menu, WPF applique aux Separator le style rangé sous MenuItem.SeparatorStyleKey, pas le style
+         implicite TargetType="Separator" (vérifié à l'exécution). On ne définit donc que cette clé : un style
+         implicite en plus ne servirait ce menu en rien et écraserait silencieusement, partout dans l'app, le
+         premier Separator ajouté ailleurs. -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Margin" Value="8,5"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="#1FFFFFFF"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>
