@@ -10,6 +10,7 @@
   <ItemGroup>
     <!-- Capteurs matériel + écriture ventilateurs : moteur open-source utilisé par HWiNFO-like tools -->
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.3" />
+    <PackageReference Include="NvAPIWrapper.Net" Version="0.8.1.101" />
     <!-- WMI (Storage Management) pour l'état de santé des disques, indépendant du fabricant -->
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>

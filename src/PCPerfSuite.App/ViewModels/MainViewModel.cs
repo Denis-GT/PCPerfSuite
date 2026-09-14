@@ -12,6 +12,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly HardwareMonitorService _hardware = new();
     private readonly MonitoringViewModel _monitoring;
     private readonly FanCurvesViewModel _fans;
+    private readonly GpuControlViewModel _gpuControl;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
@@ -25,20 +26,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _monitoring = new MonitoringViewModel(_hardware);
         _fans = new FanCurvesViewModel(_hardware, _monitoring);
+        _gpuControl = new GpuControlViewModel(_monitoring);
 
         var cleanup = new CleanupViewModel();
         var storage = new StorageViewModel();
         var settings = new SettingsViewModel();
-
-        var gpu = new ComingSoonViewModel(
-            "Overclock & contrôle GPU",
-            "Fréquences, tension, limite de puissance et courbe ventilo GPU — NVIDIA d'abord (ta RTX 5070 Ti), AMD/Intel ensuite.",
-            new[]
-            {
-                "Décalages d'horloge cœur/mémoire et limite de power (%) via NVAPI.",
-                "Courbe ventilo GPU dédiée, avec verrou de sécurité sur les températures.",
-                "Profils applicables automatiquement au lancement d'un jeu.",
-            });
 
         var overlay = new ComingSoonViewModel(
             "Overlay en jeu",
@@ -57,7 +49,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Stockage", storage),
             new("Paramètres Windows", settings),
             new("Ventilateurs", _fans),
-            new("GPU", gpu),
+            new("GPU", _gpuControl),
             new("Overlay", overlay),
         };
 
@@ -73,6 +65,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _fans.Dispose();
+        _gpuControl.Dispose();
         _monitoring.Dispose();
         _hardware.Dispose();
     }
