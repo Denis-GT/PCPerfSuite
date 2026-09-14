@@ -20,3 +20,32 @@ public sealed class GpuControlSnapshot
 
     public IReadOnlyList<GpuFanInfo> Fans { get; init; } = Array.Empty<GpuFanInfo>();
 }
+
+/// <summary>
+/// État d'overclocking lu via NVAPI : décalages d'horloge (P-States 2.0), limite de température
+/// (thermal policies) et surtension cœur. Chaque bloc a son propre indicateur "supporté" : selon la
+/// génération de GPU et le pilote, une partie seulement des trois est disponible, et ce qui ne l'est
+/// pas est masqué dans l'interface plutôt que de faire échouer tout le reste.
+/// </summary>
+public sealed class GpuOverclockSnapshot
+{
+    public bool ClockOffsetsSupported { get; init; }
+    public int CoreOffsetMhz { get; init; }
+    public int CoreOffsetMinMhz { get; init; }
+    public int CoreOffsetMaxMhz { get; init; }
+    public int MemoryOffsetMhz { get; init; }
+    public int MemoryOffsetMinMhz { get; init; }
+    public int MemoryOffsetMaxMhz { get; init; }
+
+    public bool TemperatureLimitSupported { get; init; }
+    public int TemperatureLimitC { get; init; }
+    public int TemperatureLimitMinC { get; init; }
+    public int TemperatureLimitMaxC { get; init; }
+    public int TemperatureLimitDefaultC { get; init; }
+
+    /// <summary>Surtension cœur : API NVAPI réservée aux GPU Pascal (GTX 10xx), d'où le test à
+    /// l'exécution plutôt qu'une hypothèse sur le modèle.</summary>
+    public bool VoltageBoostSupported { get; init; }
+
+    public int VoltageBoostPercent { get; init; }
+}
