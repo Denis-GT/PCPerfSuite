@@ -7,8 +7,14 @@ public sealed class FanReading
     public float? Rpm { get; init; }
     public float? PercentControl { get; init; }
 
-    /// <summary>Identifiant stable du capteur (utilisé plus tard pour piloter la courbe de ce ventilateur précis).</summary>
+    /// <summary>Identifiant stable du capteur RPM.</summary>
     public required string SensorId { get; init; }
+
+    /// <summary>Identifiant stable du capteur de contrôle (%) associé, quand la puce Super I/O permet
+    /// de le piloter en écriture — null si ce ventilateur n'est lisible qu'en lecture seule.</summary>
+    public string? PercentControlSensorId { get; init; }
+
+    public bool CanControl => PercentControlSensorId is not null;
 }
 
 public sealed class CpuSnapshot

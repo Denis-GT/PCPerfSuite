@@ -18,6 +18,8 @@
             <conv:InverseBooleanConverter x:Key="InverseBoolean"/>
             <conv:NullableMetricConverter x:Key="Metric"/>
             <conv:DiskHealthStatusToBrushConverter x:Key="DiskHealthBrush"/>
+            <conv:EnumEqualsConverter x:Key="EnumEquals"/>
+            <conv:EnumEqualsVisibilityConverter x:Key="EnumEqualsVisibility"/>
 
             <Style TargetType="Window">
                 <Setter Property="Background" Value="{StaticResource BgBrush}"/>

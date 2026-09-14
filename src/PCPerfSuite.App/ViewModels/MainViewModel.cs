@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -8,7 +9,9 @@ public sealed record NavEntry(string Title, object ViewModel);
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
-    private readonly MonitoringViewModel _monitoring = new();
+    private readonly HardwareMonitorService _hardware = new();
+    private readonly MonitoringViewModel _monitoring;
+    private readonly FanCurvesViewModel _fans;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
@@ -20,19 +23,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel()
     {
+        _monitoring = new MonitoringViewModel(_hardware);
+        _fans = new FanCurvesViewModel(_hardware, _monitoring);
+
         var cleanup = new CleanupViewModel();
         var storage = new StorageViewModel();
         var settings = new SettingsViewModel();
-
-        var fans = new ComingSoonViewModel(
-            "Courbes de ventilation",
-            "Pilotage des ventilateurs CPU, boîtier et watercooling (AIO ou custom loop), par carte mère.",
-            new[]
-            {
-                "Détection automatique de tous les ventilateurs connectés (via la puce Super I/O de ta carte mère).",
-                "Éditeur de courbe température → vitesse, par ventilateur, avec profils (Silencieux / Équilibré / Perf).",
-                "Compatible ASUS/MSI/Gigabyte/ASRock là où le contrôleur embarqué le permet — certains modèles limitent ce que le logiciel peut piloter, on te le dira clairement plutôt que de deviner.",
-            });
 
         var gpu = new ComingSoonViewModel(
             "Overclock & contrôle GPU",
@@ -60,7 +56,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Nettoyage", cleanup),
             new("Stockage", storage),
             new("Paramètres Windows", settings),
-            new("Ventilateurs", fans),
+            new("Ventilateurs", _fans),
             new("GPU", gpu),
             new("Overlay", overlay),
         };
@@ -74,5 +70,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (value is not null) CurrentViewModel = value.ViewModel;
     }
 
-    public void Dispose() => _monitoring.Dispose();
+    public void Dispose()
+    {
+        _fans.Dispose();
+        _monitoring.Dispose();
+        _hardware.Dispose();
+    }
 }
