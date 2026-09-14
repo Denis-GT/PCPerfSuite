@@ -1,8 +1,11 @@
+using System.Collections.ObjectModel;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -98,13 +101,40 @@ public sealed partial class DiskItemViewModel : ObservableObject
     }
 }
 
+/// <summary>Tuile de "Mes métriques", mise à jour en place à chaque relevé plutôt que recréée (pas de clignotement).</summary>
+public sealed partial class MetricTileViewModel : ObservableObject
+{
+    public MetricDefinition Definition { get; }
+    public string Label => Definition.Label;
+    public string CategoryName => Definition.Category.Name;
+    public bool IsPercent => Definition.IsPercent;
+
+    [ObservableProperty] private string displayValue = "--";
+    [ObservableProperty] private string unit = "";
+    [ObservableProperty] private double percent;
+
+    public MetricTileViewModel(MetricDefinition definition) => Definition = definition;
+
+    public void Apply(MetricSample sample)
+    {
+        MetricReading reading = Definition.Read(sample);
+        DisplayValue = reading.Value;
+        Unit = reading.Unit;
+        Percent = reading.Number ?? 0;
+    }
+}
+
 public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 {
     private readonly HardwareMonitorService _hardware;
     private readonly DiskHealthService _diskHealth = new();
     private readonly DispatcherTimer _timer;
+    private MetricSample? _lastSample;
 
     public event Action<HardwareSnapshot>? SnapshotUpdated;
+
+    /// <summary>Même relevé que SnapshotUpdated, complété des FPS RTSS et de l'heure : ce que lit le catalogue de métriques.</summary>
+    public event Action<MetricSample>? MetricsUpdated;
 
     public static IReadOnlyList<RefreshRateOption> RefreshRateOptions { get; } = new List<RefreshRateOption>
     {
@@ -116,6 +146,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     };
 
     [ObservableProperty] private RefreshRateOption selectedRefreshRate;
+
+    public MetricSelectionViewModel MyMetrics { get; }
+    public ObservableCollection<MetricTileViewModel> MyMetricTiles { get; } = new();
+    [ObservableProperty] private bool isCustomizingMyMetrics;
 
     [ObservableProperty] private string cpuName = "…";
     [ObservableProperty] private double cpuLoad;
@@ -162,6 +196,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         selectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == settings.MonitoringRefreshMs)
                               ?? RefreshRateOptions[2];
 
+        MyMetrics = new MetricSelectionViewModel(settings.MonitoringMetricIds ?? MetricCatalog.DefaultMonitoringIds);
+        MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
+        SyncMyMetricTiles();
+
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMilliseconds(selectedRefreshRate.Milliseconds),
@@ -181,12 +219,46 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         AppSettingsStore.Save(settings);
     }
 
+    private void OnMyMetricsSelectionChanged()
+    {
+        SyncMyMetricTiles();
+
+        AppSettings settings = AppSettingsStore.Load();
+        settings.MonitoringMetricIds = MyMetrics.SelectedIds;
+        AppSettingsStore.Save(settings);
+    }
+
+    private void SyncMyMetricTiles()
+    {
+        // Réconciliation plutôt que reconstruction : les tuiles déjà affichées gardent leur instance.
+        IReadOnlyList<MetricDefinition> selected = MyMetrics.Selected;
+
+        for (int i = MyMetricTiles.Count - 1; i >= 0; i--)
+        {
+            if (!selected.Contains(MyMetricTiles[i].Definition))
+            {
+                MyMetricTiles.RemoveAt(i);
+            }
+        }
+
+        // Les tuiles restantes sont déjà dans l'ordre du catalogue : il suffit d'insérer les nouvelles à leur rang.
+        for (int i = 0; i < selected.Count; i++)
+        {
+            if (i < MyMetricTiles.Count && MyMetricTiles[i].Definition == selected[i]) continue;
+
+            var tile = new MetricTileViewModel(selected[i]);
+            if (_lastSample is not null) tile.Apply(_lastSample);
+            MyMetricTiles.Insert(i, tile);
+        }
+    }
+
     private async Task RefreshAsync()
     {
         try
         {
-            HardwareSnapshot snapshot = await Task.Run(() => _hardware.GetSnapshot());
-            Apply(snapshot);
+            (HardwareSnapshot snapshot, RtssFrameStats? game) = await Task.Run(
+                () => (_hardware.GetSnapshot(), RtssFrameStatsReader.TryReadForeground()));
+            Apply(snapshot, game);
             ErrorMessage = null;
         }
         catch (Exception ex)
@@ -195,7 +267,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void Apply(HardwareSnapshot s)
+    private void Apply(HardwareSnapshot s, RtssFrameStats? game)
     {
         CpuName = s.Cpu.Name;
         CpuLoad = s.Cpu.LoadPercent ?? 0;
@@ -236,7 +308,15 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         Fans.ReplaceAll(s.Fans);
         ApplyDisks(s.Disks);
 
+        var sample = new MetricSample { Hardware = s, Game = game, LocalTime = DateTime.Now };
+        _lastSample = sample;
+        foreach (MetricTileViewModel tile in MyMetricTiles)
+        {
+            tile.Apply(sample);
+        }
+
         SnapshotUpdated?.Invoke(s);
+        MetricsUpdated?.Invoke(sample);
     }
 
     private void ApplyDisks(IReadOnlyList<DiskSnapshot> snapshots)

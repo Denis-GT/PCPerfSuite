@@ -21,10 +21,12 @@ public sealed class CpuSnapshot
 {
     public string Name { get; init; } = "CPU inconnu";
     public float? LoadPercent { get; init; }
+    public float? MaxCoreLoadPercent { get; init; }
     public float? PackageTempC { get; init; }
     public float? MaxCoreTempC { get; init; }
     public float? PowerWatts { get; init; }
     public float? MaxClockMhz { get; init; }
+    public float? CoreVoltage { get; init; }
 }
 
 public sealed class GpuSnapshot
@@ -34,6 +36,7 @@ public sealed class GpuSnapshot
     public float? LoadPercent { get; init; }
     public float? CoreTempC { get; init; }
     public float? HotSpotTempC { get; init; }
+    public float? MemoryJunctionTempC { get; init; }
     public float? CoreClockMhz { get; init; }
     public float? MemoryClockMhz { get; init; }
     public float? PowerWatts { get; init; }
@@ -46,8 +49,10 @@ public sealed class GpuSnapshot
 public sealed class MemorySnapshot
 {
     public float? UsedGb { get; init; }
+    public float? AvailableGb { get; init; }
     public float? TotalGb { get; init; }
     public float? LoadPercent { get; init; }
+    public float? VirtualUsedGb { get; init; }
 }
 
 /// <summary>Capteur nommé générique (température, tension...) pour les valeurs dont la liste
@@ -94,6 +99,14 @@ public sealed class DiskSnapshot
     public float? RemainingLifePercent { get; init; }
 }
 
+/// <summary>Débits cumulés de toutes les cartes réseau vues par LibreHardwareMonitor, en octets/seconde —
+/// null si aucune n'expose de débit.</summary>
+public sealed class NetworkSnapshot
+{
+    public float? UploadBytesPerSecond { get; init; }
+    public float? DownloadBytesPerSecond { get; init; }
+}
+
 public sealed class HardwareSnapshot
 {
     public CpuSnapshot Cpu { get; init; } = new();
@@ -102,5 +115,6 @@ public sealed class HardwareSnapshot
     public MotherboardSnapshot Motherboard { get; init; } = new();
     public IReadOnlyList<FanReading> Fans { get; init; } = Array.Empty<FanReading>();
     public IReadOnlyList<DiskSnapshot> Disks { get; init; } = Array.Empty<DiskSnapshot>();
+    public NetworkSnapshot Network { get; init; } = new();
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
 }

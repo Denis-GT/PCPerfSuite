@@ -24,7 +24,7 @@ public sealed class HardwareMonitorService : IDisposable
             IsMemoryEnabled = true,
             IsMotherboardEnabled = true,
             IsStorageEnabled = true,
-            IsNetworkEnabled = false,
+            IsNetworkEnabled = true,
         };
 
         _computer.Open();
@@ -40,6 +40,8 @@ public sealed class HardwareMonitorService : IDisposable
         var motherboard = new MotherboardSnapshot();
         var fans = new List<FanReading>();
         var disks = new List<DiskSnapshot>();
+        float? uploadRate = null;
+        float? downloadRate = null;
 
         foreach (IHardware hardware in _computer.Hardware)
         {
@@ -72,6 +74,11 @@ public sealed class HardwareMonitorService : IDisposable
                 case HardwareType.Storage:
                     disks.Add(ReadDisk(hardware));
                     break;
+
+                case HardwareType.Network:
+                    uploadRate = AddIfPresent(uploadRate, FindSensor(hardware, SensorType.Throughput, "Upload Speed")?.Value);
+                    downloadRate = AddIfPresent(downloadRate, FindSensor(hardware, SensorType.Throughput, "Download Speed")?.Value);
+                    break;
             }
         }
 
@@ -83,6 +90,7 @@ public sealed class HardwareMonitorService : IDisposable
             Motherboard = motherboard,
             Fans = fans,
             Disks = disks,
+            Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
         };
     }
 
@@ -92,12 +100,18 @@ public sealed class HardwareMonitorService : IDisposable
                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
 
         float? package = FindSensor(hardware, SensorType.Temperature, "CPU Package")?.Value;
-        float? maxCore = hardware.Sensors
-            .Where(s => s.SensorType == SensorType.Temperature && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-            .Select(s => s.Value)
-            .Where(v => v.HasValue)
-            .DefaultIfEmpty()
-            .Max();
+
+        // Intel publie "Core Max" ; ailleurs (AMD : "Core (Tctl/Tdie)"...) on prend le max des sondes "Core",
+        // sans les "CPU Core #n Distance to TjMax" d'Intel qui sont des marges, pas des températures.
+        float? maxCore = FindSensor(hardware, SensorType.Temperature, "Core Max")?.Value
+                         ?? hardware.Sensors
+                             .Where(s => s.SensorType == SensorType.Temperature
+                                         && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)
+                                         && !s.Name.Contains("Distance", StringComparison.OrdinalIgnoreCase))
+                             .Select(s => s.Value)
+                             .Where(v => v.HasValue)
+                             .DefaultIfEmpty()
+                             .Max();
 
         float? power = FindSensor(hardware, SensorType.Power, "CPU Package")?.Value
                         ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power)?.Value;
@@ -109,14 +123,23 @@ public sealed class HardwareMonitorService : IDisposable
             .DefaultIfEmpty()
             .Max();
 
+        // Tension du package : "CPU Core" chez Intel, "Core (SVI2 TFN)" chez AMD Zen. Les tensions par cœur
+        // ("CPU Core #n", "Core #n VID") sont écartées par le '#'.
+        float? coreVoltage = hardware.Sensors.FirstOrDefault(s =>
+            s.SensorType == SensorType.Voltage
+            && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase)
+            && !s.Name.Contains('#'))?.Value;
+
         return new CpuSnapshot
         {
             Name = hardware.Name,
             LoadPercent = load,
+            MaxCoreLoadPercent = FindSensor(hardware, SensorType.Load, "CPU Core Max")?.Value,
             PackageTempC = package ?? maxCore,
             MaxCoreTempC = maxCore,
             PowerWatts = power,
             MaxClockMhz = maxClock,
+            CoreVoltage = coreVoltage,
         };
     }
 
@@ -141,6 +164,8 @@ public sealed class HardwareMonitorService : IDisposable
                           ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value,
             CoreTempC = FindSensor(hardware, SensorType.Temperature, "GPU Core")?.Value,
             HotSpotTempC = FindSensor(hardware, SensorType.Temperature, "GPU Hot Spot")?.Value,
+            // "GPU Memory Junction" chez NVIDIA, "GPU Memory" chez AMD.
+            MemoryJunctionTempC = FindSensor(hardware, SensorType.Temperature, "Memory")?.Value,
             CoreClockMhz = FindSensor(hardware, SensorType.Clock, "GPU Core")?.Value,
             MemoryClockMhz = FindSensor(hardware, SensorType.Clock, "GPU Memory")?.Value,
             PowerWatts = FindSensor(hardware, SensorType.Power, "GPU Package")?.Value
@@ -154,17 +179,24 @@ public sealed class HardwareMonitorService : IDisposable
 
     private static MemorySnapshot ReadMemory(IHardware hardware)
     {
-        float? used = FindSensor(hardware, SensorType.Data, "Memory Used")?.Value;
-        float? available = FindSensor(hardware, SensorType.Data, "Memory Available")?.Value;
-        float? load = hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
+        // RAM et mémoire virtuelle vivent sur le même matériel, et "Memory Used" est contenu dans
+        // "Virtual Memory Used" : on sépare les deux familles avant de chercher par nom.
+        ISensor[] virtualSensors = hardware.Sensors.Where(s => s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)).ToArray();
+        ISensor[] physicalSensors = hardware.Sensors.Except(virtualSensors).ToArray();
+
+        float? used = FindSensor(physicalSensors, SensorType.Data, "Memory Used")?.Value;
+        float? available = FindSensor(physicalSensors, SensorType.Data, "Memory Available")?.Value;
+        float? load = physicalSensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
 
         float? total = used.HasValue && available.HasValue ? used + available : null;
 
         return new MemorySnapshot
         {
             UsedGb = used,
+            AvailableGb = available,
             TotalGb = total,
             LoadPercent = load,
+            VirtualUsedGb = FindSensor(virtualSensors, SensorType.Data, "Memory Used")?.Value,
         };
     }
 
@@ -281,10 +313,16 @@ public sealed class HardwareMonitorService : IDisposable
     }
 
     private static ISensor? FindSensor(IHardware hardware, SensorType type, string nameContains)
+        => FindSensor(hardware.Sensors, type, nameContains);
+
+    private static ISensor? FindSensor(IEnumerable<ISensor> sensors, SensorType type, string nameContains)
     {
-        return hardware.Sensors.FirstOrDefault(s =>
+        return sensors.FirstOrDefault(s =>
             s.SensorType == type && s.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static float? AddIfPresent(float? total, float? value)
+        => value is { } v ? (total ?? 0) + v : total;
 
     /// <summary>Bascule un ventilateur en pilotage logiciel et applique un % cible (0-100), borné aux
     /// limites que la puce Super I/O accepte réellement. Retourne false si le capteur est introuvable

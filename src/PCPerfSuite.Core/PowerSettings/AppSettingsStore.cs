@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
 
 namespace PCPerfSuite.Core.PowerSettings;
@@ -11,6 +12,10 @@ public sealed class AppSettings
 
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
+
+    /// <summary>Identifiants (catalogue de métriques) des tuiles "Mes métriques" du Monitoring — null tant que
+    /// l'utilisateur n'a rien personnalisé (sélection par défaut).</summary>
+    public List<string>? MonitoringMetricIds { get; set; }
 
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
@@ -37,9 +42,19 @@ public sealed class GpuControlSettings
 public sealed class OverlaySettings
 {
     public bool Enabled { get; set; }
-    public bool ShowCpu { get; set; } = true;
-    public bool ShowGpu { get; set; } = true;
-    public bool ShowRam { get; set; } = true;
+
+    /// <summary>Identifiants (catalogue de métriques) affichés dans l'OSD — null dans un fichier d'avant la
+    /// sélection libre, dérivé alors de ShowCpu/ShowGpu/ShowRam.</summary>
+    public List<string>? MetricIds { get; set; }
+
+    /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
+    public bool OneLinePerMetric { get; set; }
+
+    // Anciens interrupteurs, lus uniquement pour la migration : remis à null (donc retirés du JSON) dès
+    // que MetricIds est enregistré.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowCpu { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowGpu { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowRam { get; set; }
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>
