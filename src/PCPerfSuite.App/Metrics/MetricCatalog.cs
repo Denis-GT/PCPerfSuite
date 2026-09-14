@@ -16,8 +16,10 @@ public sealed class MetricSample
     public required DateTime LocalTime { get; init; }
 }
 
-/// <summary>Catégorie : nom affiché dans l'app, et libellé court (ASCII) en tête de ligne dans l'OSD.</summary>
-public sealed record MetricCategory(string Name, string OsdLabel);
+/// <summary>Catégorie : identifiant stable (clé des couleurs persistées), nom affiché dans l'app,
+/// libellé court (ASCII) en tête de ligne dans l'OSD, et couleur par défaut de ce libellé dans
+/// l'overlay — une teinte par catégorie pour les repérer d'un coup d'œil en jeu.</summary>
+public sealed record MetricCategory(string Key, string Name, string OsdLabel, string DefaultColor);
 
 /// <summary>Valeur formatée. Value et Unit restent séparés pour les tuiles (unité en plus petit) ; Text les
 /// combine pour l'OSD. Number alimente la jauge des métriques en %.</summary>
@@ -55,14 +57,20 @@ public sealed class MetricDefinition
 /// </summary>
 public static class MetricCatalog
 {
-    private static readonly MetricCategory Cpu = new("CPU", "CPU");
-    private static readonly MetricCategory Gpu = new("GPU", "GPU");
-    private static readonly MetricCategory Ram = new("RAM", "RAM");
-    private static readonly MetricCategory Motherboard = new("Carte mère", "CM");
-    private static readonly MetricCategory Storage = new("Stockage", "DISQUE");
-    private static readonly MetricCategory Network = new("Réseau", "NET");
-    private static readonly MetricCategory Game = new("Jeu (RTSS)", "JEU");
-    private static readonly MetricCategory Sys = new("Système", "SYS");
+    private static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF");
+    private static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B");
+    private static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF");
+    private static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D");
+    private static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166");
+    private static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0");
+    private static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C");
+    private static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8");
+
+    /// <summary>Catégories dans l'ordre du catalogue — sert au réglage des couleurs de l'overlay.</summary>
+    public static IReadOnlyList<MetricCategory> Categories { get; } = new[]
+    {
+        Cpu, Gpu, Ram, Motherboard, Storage, Network, Game, Sys,
+    };
 
     public static IReadOnlyList<MetricDefinition> All { get; } = new[]
     {

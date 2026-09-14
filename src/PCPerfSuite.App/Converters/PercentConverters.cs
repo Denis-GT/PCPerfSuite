@@ -90,6 +90,17 @@ public sealed class BoolToVisibilityConverter : IValueConverter
         => value is Visibility.Visible;
 }
 
+/// <summary>Inverse de BoolToVisibilityConverter : affiche l'élément quand la valeur est fausse —
+/// pour les messages "cette fonction n'est pas disponible sur ta carte".</summary>
+public sealed class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>Formate une valeur nullable avec une unité, ou affiche "--" si absente (capteur non disponible sur cette config).</summary>
 public sealed class NullableMetricConverter : IValueConverter
 {

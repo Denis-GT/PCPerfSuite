@@ -1,28 +1,57 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PCPerfSuite.App.Metrics;
+using PCPerfSuite.App.Overlay;
+using PCPerfSuite.App.Views;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
 
 /// <summary>
-/// Overlay en jeu (onglet "Overlay") : pousse les métriques choisies (même catalogue que "Mes métriques")
-/// dans l'overlay de RTSS à chaque relevé du MonitoringViewModel partagé — même schéma que
-/// FanCurvesViewModel. Fonctionne en plein écran exclusif car c'est RTSS (déjà accroché au jeu) qui
-/// dessine, pas nous — voir RtssOsdClient pour le détail du mécanisme.
+/// Overlay en jeu (onglet "Overlay") : met en forme les métriques choisies (même catalogue que "Mes
+/// métriques") à chaque relevé du MonitoringViewModel partagé, puis les affiche par deux canaux au
+/// choix, cumulables :
+///
+/// - RTSS : le texte est poussé dans la mémoire partagée de RivaTuner Statistics Server, qui le dessine
+///   lui-même dans le jeu (y compris en plein écran exclusif). Couleurs et taille passent par ses
+///   balises de mise en forme ; la police, elle, est celle configurée dans RTSS.
+/// - Fenêtre PCPerfSuite : une fenêtre transparente toujours au-dessus, dessinée par l'app, donc
+///   police/taille/couleurs/position entièrement libres. Fonctionne en jeu fenêtré ou sans bordure.
+///
+/// La cadence d'affichage est indépendante de celle du monitoring (elle ne peut pas être plus rapide,
+/// puisque les valeurs viennent de là, mais elle peut être plus lente pour un texte plus lisible).
 /// </summary>
 public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 {
     private readonly RtssOsdClient _rtss = new("PCPerfSuite");
     private readonly MonitoringViewModel _monitoring;
     private MetricSample? _lastSample;
+    private long _lastRenderTick;
+    private OverlayWindow? _window;
+
+    /// <summary>Tolérance sur la cadence : sans elle, une cadence d'overlay égale à celle du monitoring
+    /// raterait un relevé sur deux à cause de la gigue du timer.</summary>
+    private const double RateTolerance = 0.9;
 
     [ObservableProperty] private bool isEnabled;
+    [ObservableProperty] private bool useRtss;
+    [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
     [ObservableProperty] private bool isRtssDetected;
-    [ObservableProperty] private string previewText = "";
+    [ObservableProperty] private RefreshRateOption selectedRefreshRate;
+
+    public IReadOnlyList<RefreshRateOption> RefreshRateOptions => RefreshRates.Overlay;
 
     public MetricSelectionViewModel Metrics { get; }
+    public OverlayAppearanceViewModel Appearance { get; }
+
+    /// <summary>Lignes prêtes à afficher, partagées par l'aperçu de l'onglet et la fenêtre d'overlay.</summary>
+    public ObservableCollection<OverlayLine> Lines { get; } = new();
+
+    /// <summary>Signalé quand la géométrie de l'overlay change (ancrage, marges, police) : la fenêtre
+    /// se replace.</summary>
+    public event Action? LayoutChanged;
 
     public OverlayViewModel(MonitoringViewModel monitoring)
     {
@@ -30,9 +59,18 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         OverlaySettings settings = AppSettingsStore.Load().Overlay;
 
         isEnabled = settings.Enabled;
+        useRtss = settings.UseRtss;
+        useWindow = settings.UseWindow;
         oneLinePerMetric = settings.OneLinePerMetric;
+        selectedRefreshRate = RefreshRates.Resolve(RefreshRates.Overlay, settings.RefreshMs);
+
         Metrics = new MetricSelectionViewModel(settings.MetricIds ?? LegacyMetricIds(settings));
         Metrics.SelectionChanged += OnDisplayOptionsChanged;
+
+        Appearance = new OverlayAppearanceViewModel(
+            settings.Appearance ?? new OverlayAppearanceSettings(),
+            OnDisplayOptionsChanged,
+            () => LayoutChanged?.Invoke());
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
     }
@@ -57,13 +95,30 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         }
         else
         {
-            _rtss.Release();
-            IsRtssDetected = false;
-            PreviewText = "";
+            StopOutputs();
         }
     }
 
+    partial void OnUseRtssChanged(bool value)
+    {
+        if (!value)
+        {
+            _rtss.Release();
+            IsRtssDetected = false;
+        }
+        OnDisplayOptionsChanged();
+    }
+
+    partial void OnUseWindowChanged(bool value) => OnDisplayOptionsChanged();
+
     partial void OnOneLinePerMetricChanged(bool value) => OnDisplayOptionsChanged();
+
+    partial void OnSelectedRefreshRateChanged(RefreshRateOption value)
+    {
+        // Repart de zéro pour que la nouvelle cadence s'applique dès le prochain relevé.
+        _lastRenderTick = 0;
+        Persist();
+    }
 
     private void OnDisplayOptionsChanged()
     {
@@ -74,29 +129,69 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private void OnMetricsUpdated(MetricSample sample)
     {
         _lastSample = sample;
+
+        long now = Environment.TickCount64;
+        if (now - _lastRenderTick < SelectedRefreshRate.Milliseconds * RateTolerance) return;
+        _lastRenderTick = now;
+
         Render();
     }
 
+    /// <summary>Recompose les lignes (toujours, pour que l'aperçu reste vivant même overlay éteint) puis
+    /// les pousse vers RTSS et/ou la fenêtre si l'overlay est activé.</summary>
     private void Render()
     {
-        if (!IsEnabled || _lastSample is null) return;
+        if (_lastSample is null) return;
 
-        string text = BuildOsdText(_lastSample);
-        PreviewText = text;
-        IsRtssDetected = _rtss.TryUpdate(text);
+        List<OverlayLine> lines = OverlayComposer.Compose(
+            _lastSample, Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme());
+
+        Lines.Clear();
+        foreach (OverlayLine line in lines) Lines.Add(line);
+
+        if (!IsEnabled)
+        {
+            StopOutputs();
+            return;
+        }
+
+        if (UseRtss)
+        {
+            string text = OverlayComposer.ToRtssText(lines, Appearance.SendColorsToRtss, Appearance.RtssSizePercent);
+            IsRtssDetected = _rtss.TryUpdate(text);
+        }
+
+        SyncWindow();
     }
 
-    private string BuildOsdText(MetricSample sample)
+    private void StopOutputs()
     {
-        IReadOnlyList<MetricDefinition> selected = Metrics.Selected;
+        _rtss.Release();
+        IsRtssDetected = false;
+        CloseWindow();
+    }
 
-        IEnumerable<string> lines = OneLinePerMetric
-            ? selected.Select(m => $"{m.Category.OsdLabel} {m.OsdLabel}  {m.Read(sample).Text}")
-            // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W".
-            : selected.GroupBy(m => m.Category)
-                .Select(g => $"{g.Key.OsdLabel}  {string.Join("  ", g.Select(m => m.Read(sample).Text))}");
+    private void SyncWindow()
+    {
+        if (!IsEnabled || !UseWindow)
+        {
+            CloseWindow();
+            return;
+        }
 
-        return string.Join("\n", lines);
+        if (_window is not null) return;
+
+        _window = new OverlayWindow { DataContext = this };
+        _window.Show();
+    }
+
+    private void CloseWindow()
+    {
+        if (_window is null) return;
+
+        OverlayWindow window = _window;
+        _window = null;
+        window.Close();
     }
 
     private void Persist()
@@ -104,19 +199,28 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         // Relit le fichier plutôt que de garder une copie : le Monitoring enregistre aussi ses réglages.
         AppSettings settings = AppSettingsStore.Load();
         settings.Overlay.Enabled = IsEnabled;
+        settings.Overlay.UseRtss = UseRtss;
+        settings.Overlay.UseWindow = UseWindow;
         settings.Overlay.OneLinePerMetric = OneLinePerMetric;
+        settings.Overlay.RefreshMs = SelectedRefreshRate.Milliseconds;
         settings.Overlay.MetricIds = Metrics.SelectedIds;
+
+        OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();
+        Appearance.WriteTo(appearance);
+        settings.Overlay.Appearance = appearance;
+
         settings.Overlay.ShowCpu = null;
         settings.Overlay.ShowGpu = null;
         settings.Overlay.ShowRam = null;
         AppSettingsStore.Save(settings);
     }
 
-    /// <summary>Libère le créneau OSD à la fermeture de l'app, pour ne pas laisser un texte périmé
-    /// affiché dans les jeux une fois PCPerfSuite fermé.</summary>
+    /// <summary>Libère le créneau OSD et ferme la fenêtre à la fermeture de l'app, pour ne pas laisser un
+    /// texte périmé affiché dans les jeux une fois PCPerfSuite fermé.</summary>
     public void Dispose()
     {
         _monitoring.MetricsUpdated -= OnMetricsUpdated;
+        CloseWindow();
         _rtss.Dispose();
     }
 }
