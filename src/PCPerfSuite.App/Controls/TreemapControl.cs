@@ -1,5 +1,8 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Storage;
 
@@ -14,6 +17,7 @@ namespace PCPerfSuite.App.Controls;
 /// Interaction façon SpaceSniffer : cliquer un bloc le "dévoile" en subdivisant son propre rectangle
 /// pour montrer ses enfants, sans jamais quitter la vue d'ensemble. Un second clic sur son bandeau
 /// d'en-tête le referme. Chaque bloc garde son propre état déplié/replié (pas de pile de navigation).
+/// Un clic droit sur un bloc le désigne comme ContextNode et ouvre le ContextMenu du contrôle.
 /// </summary>
 public sealed class TreemapControl : FrameworkElement
 {
@@ -28,6 +32,20 @@ public sealed class TreemapControl : FrameworkElement
     public static readonly DependencyProperty SelectedNodeProperty = DependencyProperty.Register(
         nameof(SelectedNode), typeof(FolderNode), typeof(TreemapControl),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    public static readonly DependencyProperty TreeVersionProperty = DependencyProperty.Register(
+        nameof(TreeVersion), typeof(int), typeof(TreemapControl),
+        new FrameworkPropertyMetadata(0, OnTreeVersionChanged));
+
+    private static readonly DependencyPropertyKey ContextNodePropertyKey = DependencyProperty.RegisterReadOnly(
+        nameof(ContextNode), typeof(FolderNode), typeof(TreemapControl), new FrameworkPropertyMetadata(null));
+
+    public static readonly DependencyProperty ContextNodeProperty = ContextNodePropertyKey.DependencyProperty;
+
+    private static readonly DependencyPropertyKey IsContextNodeExpandedPropertyKey = DependencyProperty.RegisterReadOnly(
+        nameof(IsContextNodeExpanded), typeof(bool), typeof(TreemapControl), new FrameworkPropertyMetadata(false));
+
+    public static readonly DependencyProperty IsContextNodeExpandedProperty = IsContextNodeExpandedPropertyKey.DependencyProperty;
 
     public IReadOnlyList<FolderNode>? Nodes
     {
@@ -46,6 +64,24 @@ public sealed class TreemapControl : FrameworkElement
         get => (FolderNode?)GetValue(SelectedNodeProperty);
         set => SetValue(SelectedNodeProperty, value);
     }
+
+    /// <summary>À faire évoluer quand l'arbre affiché a été modifié en place (rescan, suppression) : redessine
+    /// en gardant les blocs dépliés, là où un changement de Nodes replierait tout.</summary>
+    public int TreeVersion
+    {
+        get => (int)GetValue(TreeVersionProperty);
+        set => SetValue(TreeVersionProperty, value);
+    }
+
+    /// <summary>Bloc visé par le dernier clic droit, CommandParameter des entrées du menu. Il n'est pas remis à
+    /// null à la fermeture du menu : l'entrée cliquée exécute sa commande de façon asynchrone, pendant que le
+    /// menu se referme, et doit encore y lire le bloc visé.</summary>
+    public FolderNode? ContextNode => (FolderNode?)GetValue(ContextNodeProperty);
+
+    public bool IsContextNodeExpanded => (bool)GetValue(IsContextNodeExpandedProperty);
+
+    /// <summary>Même bascule déplier/replier que le clic gauche, pour le menu contextuel.</summary>
+    public IRelayCommand<FolderNode?> ToggleExpandCommand { get; }
 
     private static readonly Color[] Palette =
     {
@@ -69,18 +105,81 @@ public sealed class TreemapControl : FrameworkElement
     private readonly List<(FolderNode Node, Rect Rect, Color Color)> _layout = new();
     private readonly HashSet<FolderNode> _expanded = new();
     private readonly Typeface _typeface = new("Segoe UI");
+    private bool _isContextMenuOpen;
 
     public TreemapControl()
     {
         ClipToBounds = true;
         Focusable = false;
+        ToggleExpandCommand = new RelayCommand<FolderNode?>(ToggleExpand, node => node is { CanDrillInto: true });
     }
 
     private static void OnNodesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var control = (TreemapControl)d;
         control._expanded.Clear();
+        control.SetValue(ContextNodePropertyKey, null);
         control.RecomputeLayout();
+    }
+
+    private static void OnTreeVersionChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((TreemapControl)d).RefreshAfterTreeEdit();
+
+    /// <summary>L'arbre a été modifié en place : on reconstruit l'état déplié à partir des blocs qui existent
+    /// encore. Un rescan remplace les descendants du dossier par de nouvelles instances, d'où la
+    /// correspondance par chemin (tout bloc dépliable en a un, seuls les agrégats et la racine n'en ont pas).</summary>
+    private void RefreshAfterTreeEdit()
+    {
+        var expandedPaths = new HashSet<string>(
+            _expanded.Select(n => n.FullPath).Where(p => p.Length > 0), StringComparer.OrdinalIgnoreCase);
+
+        _expanded.Clear();
+        if (Nodes is not null)
+        {
+            RestoreExpanded(Nodes, expandedPaths);
+        }
+
+        // Le bloc visé par le menu suit le même sort que les blocs dépliés. Un rescan peut se terminer alors que
+        // le menu est encore ouvert (l'analyse tourne en tâche de fond, la carte reste cliquable) : il aurait
+        // alors remplacé ce bloc par une nouvelle instance au même chemin, et les entrées du menu agiraient sur
+        // un nœud détaché — refusé par FindAncestry, qui compare par référence. On le re-résout donc par chemin.
+        FolderNode? target = _isContextMenuOpen && ContextNode is { FullPath.Length: > 0 } previous && Nodes is not null
+            ? FindByPath(Nodes, previous.FullPath)
+            : null;
+
+        if (_isContextMenuOpen && target is null && ContextMenu is { IsOpen: true } menu)
+        {
+            // Le bloc visé a quitté la carte : mieux vaut refermer que proposer des actions sans effet.
+            menu.IsOpen = false;
+        }
+
+        SetValue(ContextNodePropertyKey, target);
+        SetValue(IsContextNodeExpandedPropertyKey, target is not null && _expanded.Contains(target));
+
+        ToggleExpandCommand.NotifyCanExecuteChanged();
+        RecomputeLayout();
+    }
+
+    private void RestoreExpanded(IEnumerable<FolderNode> nodes, HashSet<string> expandedPaths)
+    {
+        foreach (FolderNode node in nodes)
+        {
+            if (!node.CanDrillInto || !expandedPaths.Contains(node.FullPath)) continue;
+
+            _expanded.Add(node);
+            RestoreExpanded(node.Children, expandedPaths);
+        }
+    }
+
+    private static FolderNode? FindByPath(IEnumerable<FolderNode> nodes, string fullPath)
+    {
+        foreach (FolderNode node in nodes)
+        {
+            if (string.Equals(node.FullPath, fullPath, StringComparison.OrdinalIgnoreCase)) return node;
+            if (FindByPath(node.Children, fullPath) is { } found) return found;
+        }
+
+        return null;
     }
 
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
@@ -266,6 +365,35 @@ public sealed class TreemapControl : FrameworkElement
                 DrawLabel(dc, node, rect);
             }
         }
+
+        if (_isContextMenuOpen && ContextNode is { } target)
+        {
+            DrawContextHighlight(dc, target);
+        }
+    }
+
+    /// <summary>Repère le bloc visé tant que son menu est ouvert. Dessiné après tous les blocs pour rester
+    /// visible par-dessus les enfants d'un bloc déplié ; double liseré clair/sombre pour ressortir sur
+    /// n'importe quelle couleur de la palette.</summary>
+    private void DrawContextHighlight(DrawingContext dc, FolderNode target)
+    {
+        foreach ((FolderNode node, Rect rect, _) in _layout)
+        {
+            if (!ReferenceEquals(node, target)) continue;
+
+            Rect outer = rect;
+            outer.Inflate(-1.25, -1.25);
+            if (outer.IsEmpty) outer = rect;
+            dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)), new Pen(Brushes.White, 2.5), outer);
+
+            Rect inner = rect;
+            inner.Inflate(-3, -3);
+            if (!inner.IsEmpty)
+            {
+                dc.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(0xB0, 0, 0, 0)), 1), inner);
+            }
+            return;
+        }
     }
 
     private void DrawLabel(DrawingContext dc, FolderNode node, Rect rect)
@@ -338,14 +466,48 @@ public sealed class TreemapControl : FrameworkElement
         if (hit is null) return;
 
         SetCurrentValue(SelectedNodeProperty, hit);
+        ToggleExpand(hit);
+    }
 
-        if (!hit.CanDrillInto) return;
+    protected override void OnContextMenuOpening(ContextMenuEventArgs e)
+    {
+        base.OnContextMenuOpening(e);
 
-        if (!_expanded.Add(hit))
+        FolderNode? hit = HitTest(Mouse.GetPosition(this));
+        if (hit is null || ContextMenu is null)
+        {
+            // Clic droit hors de tout bloc : pas de menu.
+            e.Handled = true;
+            return;
+        }
+
+        // Le menu n'est pas dans l'arbre visuel : ses liaisons remontent jusqu'ici par PlacementTarget. On le fixe
+        // nous-mêmes plutôt que de dépendre de la valeur temporaire posée par ContextMenuService, qui la retire
+        // à la fermeture du menu.
+        ContextMenu.PlacementTarget = this;
+
+        SetValue(ContextNodePropertyKey, hit);
+        SetValue(IsContextNodeExpandedPropertyKey, _expanded.Contains(hit));
+        _isContextMenuOpen = true;
+        InvalidateVisual();
+    }
+
+    protected override void OnContextMenuClosing(ContextMenuEventArgs e)
+    {
+        base.OnContextMenuClosing(e);
+        _isContextMenuOpen = false;
+        InvalidateVisual();
+    }
+
+    private void ToggleExpand(FolderNode? node)
+    {
+        if (node is not { CanDrillInto: true }) return;
+
+        if (!_expanded.Add(node))
         {
             // Déjà déplié : un second clic sur son bandeau referme le bloc (et tout ce qui était
             // déplié dessous, pour repartir d'un état propre la prochaine fois qu'on le rouvre).
-            Collapse(hit);
+            Collapse(node);
         }
 
         RecomputeLayout();
