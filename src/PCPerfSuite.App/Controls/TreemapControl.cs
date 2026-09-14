@@ -10,6 +10,10 @@ namespace PCPerfSuite.App.Controls;
 /// un rectangle en blocs proportionnels à la taille de chaque nœud, en essayant de garder des blocs
 /// aussi carrés que possible plutôt que de fines lamelles illisibles. Dessin manuel (pas de lib externe)
 /// pour rester cohérent avec MeterBar/Sparkline.
+///
+/// Interaction façon SpaceSniffer : cliquer un bloc le "dévoile" en subdivisant son propre rectangle
+/// pour montrer ses enfants, sans jamais quitter la vue d'ensemble. Un second clic sur son bandeau
+/// d'en-tête le referme. Chaque bloc garde son propre état déplié/replié (pas de pile de navigation).
 /// </summary>
 public sealed class TreemapControl : FrameworkElement
 {
@@ -58,7 +62,12 @@ public sealed class TreemapControl : FrameworkElement
     private static readonly Color AggregateColor = Color.FromRgb(0x4A, 0x50, 0x60);
     private static readonly Color GapColor = Color.FromRgb(0x0B, 0x0D, 0x14);
 
+    private const double HeaderHeight = 16;
+    private const double InnerPadding = 2;
+    private const int MaxExpandDepth = 24;
+
     private readonly List<(FolderNode Node, Rect Rect, Color Color)> _layout = new();
+    private readonly HashSet<FolderNode> _expanded = new();
     private readonly Typeface _typeface = new("Segoe UI");
 
     public TreemapControl()
@@ -68,7 +77,11 @@ public sealed class TreemapControl : FrameworkElement
     }
 
     private static void OnNodesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-        => ((TreemapControl)d).RecomputeLayout();
+    {
+        var control = (TreemapControl)d;
+        control._expanded.Clear();
+        control.RecomputeLayout();
+    }
 
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
     {
@@ -83,14 +96,38 @@ public sealed class TreemapControl : FrameworkElement
         List<FolderNode>? items = Nodes?.Where(n => n.SizeBytes > 0).OrderByDescending(n => n.SizeBytes).ToList();
         if (items is { Count: > 0 } && ActualWidth > 0 && ActualHeight > 0)
         {
-            List<(FolderNode, Rect)> rects = Squarify(items, new Rect(0, 0, ActualWidth, ActualHeight));
-            foreach ((FolderNode node, Rect rect) in rects)
-            {
-                _layout.Add((node, rect, ColorFor(node)));
-            }
+            BuildLayout(items, new Rect(0, 0, ActualWidth, ActualHeight), 0);
         }
 
         InvalidateVisual();
+    }
+
+    /// <summary>Calcule le layout d'un niveau, puis se rappelle récursivement pour chaque bloc déplié
+    /// afin de subdiviser son rectangle avec ses propres enfants (vue imbriquée façon SpaceSniffer).</summary>
+    private void BuildLayout(List<FolderNode> items, Rect bounds, int depth)
+    {
+        foreach ((FolderNode node, Rect rect) in Squarify(items, bounds))
+        {
+            if (rect.Width <= 0.5 || rect.Height <= 0.5) continue;
+
+            _layout.Add((node, rect, ColorFor(node)));
+
+            if (depth >= MaxExpandDepth || !node.CanDrillInto || !_expanded.Contains(node)) continue;
+
+            var inner = new Rect(
+                rect.X + InnerPadding,
+                rect.Y + HeaderHeight,
+                Math.Max(0, rect.Width - 2 * InnerPadding),
+                Math.Max(0, rect.Height - HeaderHeight - InnerPadding));
+
+            if (inner.Width <= 4 || inner.Height <= 4) continue;
+
+            List<FolderNode> children = node.Children.Where(c => c.SizeBytes > 0).OrderByDescending(c => c.SizeBytes).ToList();
+            if (children.Count > 0)
+            {
+                BuildLayout(children, inner, depth + 1);
+            }
+        }
     }
 
     // ----- Layout (algorithme squarifié) -----
@@ -210,6 +247,8 @@ public sealed class TreemapControl : FrameworkElement
             if (rect.Width <= 0.5 || rect.Height <= 0.5) continue;
 
             bool isHovered = ReferenceEquals(node, HoveredNode);
+            bool isExpanded = node.CanDrillInto && _expanded.Contains(node);
+
             var fill = new SolidColorBrush(color) { Opacity = isHovered ? 1.0 : 0.85 };
             dc.DrawRectangle(fill, new Pen(new SolidColorBrush(GapColor), 1), rect);
 
@@ -218,7 +257,11 @@ public sealed class TreemapControl : FrameworkElement
                 dc.DrawRectangle(null, new Pen(Brushes.White, 1.5), rect);
             }
 
-            if (rect.Width > 46 && rect.Height > 18)
+            if (isExpanded)
+            {
+                DrawExpandedHeader(dc, node, rect);
+            }
+            else if (rect.Width > 46 && rect.Height > 18)
             {
                 DrawLabel(dc, node, rect);
             }
@@ -239,6 +282,32 @@ public sealed class TreemapControl : FrameworkElement
 
         dc.PushClip(new RectangleGeometry(rect));
         dc.DrawText(formatted, new Point(rect.X + 4, rect.Y + 3));
+        dc.Pop();
+    }
+
+    /// <summary>Bandeau d'en-tête d'un bloc déplié : reste visible tout autour/au-dessus de ses enfants,
+    /// c'est lui qu'on reclique pour replier le bloc.</summary>
+    private void DrawExpandedHeader(DrawingContext dc, FolderNode node, Rect rect)
+    {
+        double headerHeight = Math.Min(HeaderHeight, rect.Height);
+        var header = new Rect(rect.X, rect.Y, rect.Width, headerHeight);
+
+        dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(0xA0, 0, 0, 0)), null, header);
+
+        if (header.Width <= 24) return;
+
+        string text = $"{node.Name} — {ByteFormatter.Format(node.SizeBytes)}";
+        var formatted = new FormattedText(
+            text, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+            _typeface, 10.5, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip)
+        {
+            MaxTextWidth = Math.Max(1, header.Width - 8),
+            MaxTextHeight = Math.Max(1, header.Height),
+            Trimming = TextTrimming.CharacterEllipsis,
+        };
+
+        dc.PushClip(new RectangleGeometry(header));
+        dc.DrawText(formatted, new Point(header.X + 4, header.Y + 1));
         dc.Pop();
     }
 
@@ -266,17 +335,38 @@ public sealed class TreemapControl : FrameworkElement
         base.OnMouseLeftButtonUp(e);
         Point p = e.GetPosition(this);
         FolderNode? hit = HitTest(p);
-        if (hit is { CanDrillInto: true })
+        if (hit is null) return;
+
+        SetCurrentValue(SelectedNodeProperty, hit);
+
+        if (!hit.CanDrillInto) return;
+
+        if (!_expanded.Add(hit))
         {
-            SetCurrentValue(SelectedNodeProperty, hit);
+            // Déjà déplié : un second clic sur son bandeau referme le bloc (et tout ce qui était
+            // déplié dessous, pour repartir d'un état propre la prochaine fois qu'on le rouvre).
+            Collapse(hit);
+        }
+
+        RecomputeLayout();
+    }
+
+    private void Collapse(FolderNode node)
+    {
+        _expanded.Remove(node);
+        foreach (FolderNode child in node.Children)
+        {
+            Collapse(child);
         }
     }
 
     private FolderNode? HitTest(Point p)
     {
-        foreach ((FolderNode node, Rect rect, _) in _layout)
+        // Les enfants d'un bloc déplié sont ajoutés après lui dans _layout et sont dessinés par-dessus :
+        // on parcourt donc à l'envers pour retomber sur le bloc le plus profond sous le curseur.
+        for (int i = _layout.Count - 1; i >= 0; i--)
         {
-            if (rect.Contains(p)) return node;
+            if (_layout[i].Rect.Contains(p)) return _layout[i].Node;
         }
         return null;
     }

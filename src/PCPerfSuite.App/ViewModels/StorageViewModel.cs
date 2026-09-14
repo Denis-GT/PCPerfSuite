@@ -21,12 +21,10 @@ public sealed partial class StorageViewModel : ObservableObject
     private CancellationTokenSource? _scanCts;
 
     public ObservableCollectionEx<DriveOption> Drives { get; } = new();
-    public ObservableCollectionEx<FolderNode> Breadcrumb { get; } = new();
 
     [ObservableProperty] private bool isScanning;
     [ObservableProperty] private string? statusText;
     [ObservableProperty] private FolderNode? rootNode;
-    [ObservableProperty] private FolderNode? currentNode;
     [ObservableProperty] private FolderNode? hoveredNode;
     [ObservableProperty] private FolderNode? selectedNode;
 
@@ -45,13 +43,6 @@ public sealed partial class StorageViewModel : ObservableObject
         if (Drives.Count > 0) Drives[0].IsSelected = true;
     }
 
-    partial void OnSelectedNodeChanged(FolderNode? value)
-    {
-        if (value is not { CanDrillInto: true }) return;
-        CurrentNode = value;
-        Breadcrumb.Add(value);
-    }
-
     [RelayCommand]
     private async Task ScanAsync()
     {
@@ -68,8 +59,7 @@ public sealed partial class StorageViewModel : ObservableObject
 
         IsScanning = true;
         RootNode = null;
-        CurrentNode = null;
-        Breadcrumb.Clear();
+        SelectedNode = null;
 
         var progress = new Progress<ScanProgress>(p =>
             StatusText = $"Analyse en cours… {ByteFormatter.Format(p.BytesScanned)} — {Truncate(p.CurrentPath, 70)}");
@@ -92,8 +82,6 @@ public sealed partial class StorageViewModel : ObservableObject
             }
 
             RootNode = root;
-            CurrentNode = root;
-            Breadcrumb.Add(root);
             StatusText = $"Terminé — {ByteFormatter.Format(root.SizeBytes)} au total.";
         }
         catch (OperationCanceledException)
@@ -114,24 +102,25 @@ public sealed partial class StorageViewModel : ObservableObject
     private void CancelScan() => _scanCts?.Cancel();
 
     [RelayCommand]
-    private void NavigateToBreadcrumb(FolderNode node)
-    {
-        int index = Breadcrumb.IndexOf(node);
-        if (index < 0) return;
-
-        while (Breadcrumb.Count > index + 1)
-        {
-            Breadcrumb.RemoveAt(Breadcrumb.Count - 1);
-        }
-        CurrentNode = node;
-    }
-
-    [RelayCommand]
     private void OpenCurrentInExplorer()
     {
-        string? path = CurrentNode?.FullPath;
-        if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
+        FolderNode? node = SelectedNode ?? RootNode;
+        string? path = node?.FullPath;
+        if (string.IsNullOrEmpty(path)) return;
 
+        if (node!.IsFile)
+        {
+            if (!File.Exists(path)) return;
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{path}\"",
+                UseShellExecute = true,
+            });
+            return;
+        }
+
+        if (!Directory.Exists(path)) return;
         Process.Start(new ProcessStartInfo
         {
             FileName = "explorer.exe",
