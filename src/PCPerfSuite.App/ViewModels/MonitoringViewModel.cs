@@ -10,8 +10,6 @@ using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
 
-public sealed record RefreshRateOption(string Label, int Milliseconds);
-
 public sealed partial class DiskItemViewModel : ObservableObject
 {
     private readonly DiskHealthService _health;
@@ -136,14 +134,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     /// <summary>Même relevé que SnapshotUpdated, complété des FPS RTSS et de l'heure : ce que lit le catalogue de métriques.</summary>
     public event Action<MetricSample>? MetricsUpdated;
 
-    public static IReadOnlyList<RefreshRateOption> RefreshRateOptions { get; } = new List<RefreshRateOption>
-    {
-        new("250 ms", 250),
-        new("500 ms", 500),
-        new("1 seconde", 1000),
-        new("2 secondes", 2000),
-        new("5 secondes", 5000),
-    };
+    /// <summary>Propriété d'instance (et non statique) : c'est la seule forme qu'un {Binding} sait
+    /// résoudre — sinon le sélecteur de cadence s'affiche vide et n'est plus modifiable.</summary>
+    public IReadOnlyList<RefreshRateOption> RefreshRateOptions => RefreshRates.Monitoring;
 
     [ObservableProperty] private RefreshRateOption selectedRefreshRate;
 
@@ -193,8 +186,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _hardware = hardware;
 
         AppSettings settings = AppSettingsStore.Load();
-        selectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == settings.MonitoringRefreshMs)
-                              ?? RefreshRateOptions[2];
+        selectedRefreshRate = RefreshRates.Resolve(RefreshRates.Monitoring, settings.MonitoringRefreshMs);
 
         MyMetrics = new MetricSelectionViewModel(settings.MonitoringMetricIds ?? MetricCatalog.DefaultMonitoringIds);
         MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
