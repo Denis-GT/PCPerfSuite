@@ -203,6 +203,92 @@
         </Setter>
     </Style>
 
+    <!-- Anneau de focus clavier des cases à cocher. Passer par FocusVisualStyle (et non un trigger
+         IsKeyboardFocused) : WPF ne l'affiche qu'en navigation au clavier, pas après un clic. -->
+    <Style x:Key="CheckBoxFocusVisual">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-3" CornerRadius="8" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5"
+                            SnapsToDevicePixels="True"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Case à cocher standard (implicite). Les CheckBox avec Style="{StaticResource ToggleSwitch}"
+         ne sont pas concernées : un Style explicite remplace le style implicite. -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="8,0,0,0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource CheckBoxFocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <!-- Fond transparent : l'écart entre la case et le libellé reste cliquable.
+                         ClearTypeHint : garde le libellé net sous l'opacité réduite de l'état désactivé. -->
+                    <Grid x:Name="Root" Background="Transparent" RenderOptions.ClearTypeHint="Enabled">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid Width="18" Height="18" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+                            <Border x:Name="Box" CornerRadius="5" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <Border x:Name="Fill" CornerRadius="5" Background="{StaticResource AccentBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Visibility="Collapsed"/>
+                            <Path x:Name="CheckMark" Data="M 4.75,9.25 L 7.75,12.25 L 13.25,5.75" Stroke="White" StrokeThickness="2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed"/>
+                            <Rectangle x:Name="Dash" Width="8" Height="2" RadiusX="1" RadiusY="1" Fill="White" Visibility="Collapsed"/>
+                        </Grid>
+                        <ContentPresenter x:Name="Label" Grid.Column="1" Margin="{TemplateBinding Padding}" Focusable="False"
+                                          RecognizesAccessKey="True"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Grid>
+                    <!-- Ordre significatif : l'état coché, déclaré après le survol/l'appui, masque la case grise. -->
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="HasContent" Value="False">
+                            <Setter TargetName="Label" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="#D93A4258"/>
+                            <Setter TargetName="Box" Property="BorderBrush" Value="#66FFFFFF"/>
+                            <Setter TargetName="Fill" Property="Background" Value="#2E96FF"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="#E6252B3C"/>
+                            <Setter TargetName="Fill" Property="Background" Value="#0A6FE0"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="Box" Property="BorderBrush" Value="Transparent"/>
+                            <Setter TargetName="Fill" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="{x:Null}">
+                            <Setter TargetName="Box" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="Box" Property="BorderBrush" Value="Transparent"/>
+                            <Setter TargetName="Fill" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Dash" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style TargetType="ScrollViewer">
         <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
     </Style>
