@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 
@@ -18,9 +19,6 @@ namespace PCPerfSuite.Core.Overlay;
 /// </summary>
 public sealed class RtssOsdClient : IDisposable
 {
-    private const string MappingName = "RTSSSharedMemoryV2";
-    private const uint Signature = 0x52545353; // multi-char constant 'RTSS' tel qu'utilisé par RTSS lui-même
-    private const uint MinVersion = 0x00020000; // v2.0 : première version avec arrOSD[]/arrApp[]
     private const uint ExtendedTextVersion = 0x00020007; // v2.7 : szOSDEx (4096 caractères)
 
     private const long HeaderOsdEntrySizeOffset = 20;
@@ -32,13 +30,18 @@ public sealed class RtssOsdClient : IDisposable
     private const int SzOsdOwnerSize = 256;
     private const int SzOsdExSize = 4096;
 
+    // RTSS lit ces chaînes en ANSI (le client de référence RTSSSharedMemoryNET les marshale avec
+    // Marshal.StringToHGlobalAnsi) : en ASCII, "°" devenait "?". .NET 8 n'embarque pas les code pages
+    // Windows sans ce fournisseur.
+    private static readonly Encoding AnsiEncoding = CreateAnsiEncoding();
+
     private readonly string _ownerName;
     private uint _claimedSlot;
 
     public RtssOsdClient(string ownerName)
     {
         if (string.IsNullOrWhiteSpace(ownerName)) throw new ArgumentException("Nom de propriétaire requis.", nameof(ownerName));
-        _ownerName = ownerName.Length > 255 ? ownerName[..255] : ownerName;
+        _ownerName = ownerName[..FittingLength(ownerName, SzOsdOwnerSize - 1)];
     }
 
     /// <summary>Écrit le texte dans notre créneau OSD (le réclame si besoin) et force RTSS à
@@ -48,15 +51,13 @@ public sealed class RtssOsdClient : IDisposable
     {
         try
         {
-            using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(MappingName);
+            using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(RtssSharedMemory.MappingName);
             using MemoryMappedViewAccessor accessor = mmf.CreateViewAccessor();
 
             RtssHeader? header = ReadHeader(accessor);
             if (header is null) return false;
 
             bool useExtended = header.Value.Version >= ExtendedTextVersion;
-            int maxLen = (useExtended ? SzOsdExSize : SzOsdSize) - 1;
-            string clipped = text.Length > maxLen ? text[..maxLen] : text;
 
             for (uint i = 1; i < header.Value.OsdArrSize; i++)
             {
@@ -74,7 +75,7 @@ public sealed class RtssOsdClient : IDisposable
                 }
 
                 long textOffset = useExtended ? ownerOffset + SzOsdOwnerSize : entryOffset;
-                WriteFixedString(accessor, textOffset, useExtended ? SzOsdExSize : SzOsdSize, clipped);
+                WriteFixedString(accessor, textOffset, useExtended ? SzOsdExSize : SzOsdSize, text);
 
                 accessor.Write(HeaderOsdFrameOffset, accessor.ReadUInt32(HeaderOsdFrameOffset) + 1);
 
@@ -99,7 +100,7 @@ public sealed class RtssOsdClient : IDisposable
 
         try
         {
-            using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(MappingName);
+            using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(RtssSharedMemory.MappingName);
             using MemoryMappedViewAccessor accessor = mmf.CreateViewAccessor();
 
             RtssHeader? header = ReadHeader(accessor);
@@ -134,7 +135,7 @@ public sealed class RtssOsdClient : IDisposable
     {
         uint signature = accessor.ReadUInt32(0);
         uint version = accessor.ReadUInt32(4);
-        if (signature != Signature || version < MinVersion) return null;
+        if (signature != RtssSharedMemory.Signature || version < RtssSharedMemory.MinVersion) return null;
 
         uint osdEntrySize = accessor.ReadUInt32(HeaderOsdEntrySizeOffset);
         uint osdArrOffset = accessor.ReadUInt32(HeaderOsdArrOffsetOffset);
@@ -150,15 +151,38 @@ public sealed class RtssOsdClient : IDisposable
         accessor.ReadArray(offset, buffer, 0, maxSize);
         int len = Array.IndexOf(buffer, (byte)0);
         if (len < 0) len = maxSize;
-        return Encoding.ASCII.GetString(buffer, 0, len);
+        return AnsiEncoding.GetString(buffer, 0, len);
     }
 
     private static void WriteFixedString(MemoryMappedViewAccessor accessor, long offset, int maxSize, string value)
     {
         var buffer = new byte[maxSize];
-        byte[] bytes = Encoding.ASCII.GetBytes(value);
-        int len = Math.Min(bytes.Length, maxSize - 1);
-        Array.Copy(bytes, buffer, len);
+        AnsiEncoding.GetBytes(value, 0, FittingLength(value, maxSize - 1), buffer, 0);
         accessor.WriteArray(offset, buffer, 0, maxSize);
+    }
+
+    /// <summary>Plus long préfixe de value dont l'encodage ANSI tient dans maxBytes, sans couper un caractère
+    /// sur deux octets (code pages asiatiques) ni une paire de substitution.</summary>
+    private static int FittingLength(string value, int maxBytes)
+    {
+        if (AnsiEncoding.GetByteCount(value) <= maxBytes) return value.Length;
+
+        int low = 0;
+        int high = value.Length;
+        while (low < high)
+        {
+            int mid = (low + high + 1) / 2;
+            if (AnsiEncoding.GetByteCount(value.AsSpan(0, mid)) <= maxBytes) low = mid;
+            else high = mid - 1;
+        }
+
+        if (low > 0 && char.IsHighSurrogate(value[low - 1])) low--;
+        return low;
+    }
+
+    private static Encoding CreateAnsiEncoding()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.ANSICodePage);
     }
 }
