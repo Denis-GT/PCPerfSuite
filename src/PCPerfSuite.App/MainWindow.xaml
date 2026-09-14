@@ -25,6 +25,9 @@
         <DataTemplate DataType="{x:Type vm:GpuControlViewModel}">
             <views:GpuControlView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:OverlayViewModel}">
+            <views:OverlayView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:ComingSoonViewModel}">
             <views:ComingSoonView/>
         </DataTemplate>
