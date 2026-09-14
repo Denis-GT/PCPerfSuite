@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PCPerfSuite.Core.Hardware;
 
 namespace PCPerfSuite.Core.PowerSettings;
 
@@ -10,6 +11,9 @@ public sealed class AppSettings
 
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
+
+    /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
+    public List<FanCurveConfig> FanCurves { get; set; } = new();
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>

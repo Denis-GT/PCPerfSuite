@@ -275,6 +275,7 @@ public sealed class HardwareMonitorService : IDisposable
                 Rpm = fan.Value,
                 PercentControl = matchingControl?.Value,
                 SensorId = fan.Identifier.ToString(),
+                PercentControlSensorId = matchingControl?.Control is not null ? matchingControl.Identifier.ToString() : null,
             });
         }
     }
@@ -283,6 +284,49 @@ public sealed class HardwareMonitorService : IDisposable
     {
         return hardware.Sensors.FirstOrDefault(s =>
             s.SensorType == type && s.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Bascule un ventilateur en pilotage logiciel et applique un % cible (0-100), borné aux
+    /// limites que la puce Super I/O accepte réellement. Retourne false si le capteur est introuvable
+    /// (carte mère débranchée du point de vue LibreHardwareMonitor — ne devrait pas arriver en usage normal).</summary>
+    public bool TrySetFanPercent(string controlSensorId, float percent)
+    {
+        IControl? control = FindControl(controlSensorId);
+        if (control is null) return false;
+
+        float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
+        control.SetSoftware(clamped);
+        return true;
+    }
+
+    /// <summary>Rend le pilotage du ventilateur au firmware de la carte mère (courbe BIOS par défaut).</summary>
+    public bool TrySetFanAuto(string controlSensorId)
+    {
+        IControl? control = FindControl(controlSensorId);
+        if (control is null) return false;
+
+        control.SetDefault();
+        return true;
+    }
+
+    private IControl? FindControl(string controlSensorId)
+    {
+        foreach (IHardware hardware in _computer.Hardware)
+        {
+            IControl? found = FindControlIn(hardware, controlSensorId) ?? hardware.SubHardware
+                .Select(sub => FindControlIn(sub, controlSensorId))
+                .FirstOrDefault(c => c is not null);
+
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static IControl? FindControlIn(IHardware hardware, string controlSensorId)
+    {
+        ISensor? sensor = hardware.Sensors.FirstOrDefault(s =>
+            s.SensorType == SensorType.Control && s.Identifier.ToString() == controlSensorId);
+        return sensor?.Control;
     }
 
     public void Dispose()

@@ -19,6 +19,9 @@
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
             <views:SettingsView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:FanCurvesViewModel}">
+            <views:FanCurvesView/>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:ComingSoonViewModel}">
             <views:ComingSoonView/>
         </DataTemplate>

@@ -100,7 +100,7 @@ public sealed partial class DiskItemViewModel : ObservableObject
 
 public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 {
-    private readonly HardwareMonitorService _hardware = new();
+    private readonly HardwareMonitorService _hardware;
     private readonly DiskHealthService _diskHealth = new();
     private readonly DispatcherTimer _timer;
 
@@ -154,8 +154,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string? errorMessage;
 
-    public MonitoringViewModel()
+    public MonitoringViewModel(HardwareMonitorService hardware)
     {
+        _hardware = hardware;
+
         AppSettings settings = AppSettingsStore.Load();
         selectedRefreshRate = RefreshRateOptions.FirstOrDefault(o => o.Milliseconds == settings.MonitoringRefreshMs)
                               ?? RefreshRateOptions[2];
@@ -268,6 +270,5 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _timer.Stop();
-        _hardware.Dispose();
     }
 }
