@@ -142,7 +142,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double? memTotalGb;
 
     [ObservableProperty] private string motherboardName = "…";
+    [ObservableProperty] private string motherboardTempLabel = "Température système";
     [ObservableProperty] private double? motherboardTemp;
+    [ObservableProperty] private string motherboardVrmLabel = "VRM";
     [ObservableProperty] private double? motherboardVrmTemp;
 
     public ObservableCollectionEx<FanReading> Fans { get; } = new();
@@ -222,7 +224,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         MemTotalGb = s.Memory.TotalGb;
 
         MotherboardName = s.Motherboard.Name;
+        MotherboardTempLabel = s.Motherboard.SystemTempLabel;
         MotherboardTemp = s.Motherboard.SystemTempC;
+        MotherboardVrmLabel = s.Motherboard.VrmTempLabel;
         MotherboardVrmTemp = s.Motherboard.VrmTempC;
         MotherboardOtherTemps.ReplaceAll(s.Motherboard.OtherTemperatures);
         MotherboardVoltages.ReplaceAll(s.Motherboard.Voltages);

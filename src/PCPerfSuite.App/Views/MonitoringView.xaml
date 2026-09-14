@@ -176,13 +176,13 @@
                                 <TextBlock Style="{StaticResource MetricValue}">
                                     <Run Text="{Binding MotherboardTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="Température système" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding MotherboardTempLabel}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom">
                                 <TextBlock Style="{StaticResource Body}" HorizontalAlignment="Right">
                                     <Run Text="{Binding MotherboardVrmTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="VRM" Style="{StaticResource Caption}" HorizontalAlignment="Right"/>
+                                <TextBlock Text="{Binding MotherboardVrmLabel}" Style="{StaticResource Caption}" HorizontalAlignment="Right"/>
                             </StackPanel>
                         </Grid>
 

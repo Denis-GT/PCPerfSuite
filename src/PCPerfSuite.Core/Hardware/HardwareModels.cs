@@ -55,7 +55,14 @@ public sealed class SensorReading
 public sealed class MotherboardSnapshot
 {
     public string Name { get; init; } = "Carte mère inconnue";
+
+    /// <summary>Libellé de la 1ère case température : "Température système" quand LibreHardwareMonitor
+    /// a pu identifier la sonde par son nom, sinon le nom brut de la sonde utilisée en repli (carte
+    /// mère absente de sa table de correspondance par modèle — cas de nombreuses cartes récentes).</summary>
+    public string SystemTempLabel { get; init; } = "Température système";
     public float? SystemTempC { get; init; }
+
+    public string VrmTempLabel { get; init; } = "VRM";
     public float? VrmTempC { get; init; }
 
     /// <summary>Autres zones de température exposées par la puce Super I/O (chipset, PCH, sondes numérotées...).</summary>

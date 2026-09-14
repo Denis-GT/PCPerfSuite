@@ -184,6 +184,14 @@ public sealed class HardwareMonitorService : IDisposable
         ISensor? vrmSensor = allTempSensors.FirstOrDefault(s =>
             s.Name.Contains("VRM", StringComparison.OrdinalIgnoreCase));
 
+        // LibreHardwareMonitor ne nomme "System"/"VRM"... que sur les cartes mères présentes dans sa
+        // table de correspondance par modèle. Sur les autres (beaucoup de cartes récentes), la puce
+        // Super I/O reste nommée génériquement ("Temperature #1"...) et les deux Contains ci-dessus ne
+        // trouvent rien : on se rabat sur les deux premières sondes plutôt que d'afficher deux "--" qui
+        // donneraient à tort l'impression que ces données sont perdues.
+        systemSensor ??= allTempSensors.FirstOrDefault();
+        vrmSensor ??= allTempSensors.FirstOrDefault(s => s != systemSensor);
+
         List<SensorReading> otherTemps = allTempSensors
             .Where(s => s != systemSensor && s != vrmSensor)
             .Select(s => new SensorReading { Name = s.Name, Value = s.Value })
@@ -197,11 +205,27 @@ public sealed class HardwareMonitorService : IDisposable
         return new MotherboardSnapshot
         {
             Name = hardware.Name,
+            SystemTempLabel = FriendlyOrRawName(systemSensor, "Température système"),
             SystemTempC = systemSensor?.Value,
+            VrmTempLabel = FriendlyOrRawName(vrmSensor, "VRM"),
             VrmTempC = vrmSensor?.Value,
             OtherTemperatures = otherTemps,
             Voltages = voltages,
         };
+    }
+
+    /// <summary>Le libellé français quand le nom du capteur confirme qu'il s'agit bien de cette zone,
+    /// sinon son nom brut (repli générique "Temperature #N") pour ne jamais mal étiqueter une valeur
+    /// dont on n'est pas sûr qu'elle corresponde vraiment au système/au VRM.</summary>
+    private static string FriendlyOrRawName(ISensor? sensor, string friendlyName)
+    {
+        if (sensor is null) return friendlyName;
+
+        bool confirmedByName = sensor.Name.Contains("System", StringComparison.OrdinalIgnoreCase)
+            || sensor.Name.Contains("Motherboard", StringComparison.OrdinalIgnoreCase)
+            || sensor.Name.Contains("VRM", StringComparison.OrdinalIgnoreCase);
+
+        return confirmedByName ? friendlyName : sensor.Name;
     }
 
     private static DiskSnapshot ReadDisk(IHardware hardware)
