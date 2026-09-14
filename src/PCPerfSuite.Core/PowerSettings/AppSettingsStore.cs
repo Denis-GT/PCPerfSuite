@@ -14,6 +14,17 @@ public sealed class AppSettings
 
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
+
+    /// <summary>Réglages de l'overlay en jeu (poussé dans RTSS).</summary>
+    public OverlaySettings Overlay { get; set; } = new();
+}
+
+public sealed class OverlaySettings
+{
+    public bool Enabled { get; set; }
+    public bool ShowCpu { get; set; } = true;
+    public bool ShowGpu { get; set; } = true;
+    public bool ShowRam { get; set; } = true;
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>

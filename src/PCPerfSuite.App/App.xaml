@@ -20,6 +20,7 @@
             <conv:DiskHealthStatusToBrushConverter x:Key="DiskHealthBrush"/>
             <conv:EnumEqualsConverter x:Key="EnumEquals"/>
             <conv:EnumEqualsVisibilityConverter x:Key="EnumEqualsVisibility"/>
+            <conv:RtssStatusConverter x:Key="RtssStatus"/>
 
             <Style TargetType="Window">
                 <Setter Property="Background" Value="{StaticResource BgBrush}"/>

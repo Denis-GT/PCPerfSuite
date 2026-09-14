@@ -12,6 +12,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly HardwareMonitorService _hardware = new();
     private readonly MonitoringViewModel _monitoring;
     private readonly FanCurvesViewModel _fans;
+    private readonly OverlayViewModel _overlay;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
@@ -25,6 +26,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _monitoring = new MonitoringViewModel(_hardware);
         _fans = new FanCurvesViewModel(_hardware, _monitoring);
+        _overlay = new OverlayViewModel(_monitoring);
 
         var cleanup = new CleanupViewModel();
         var storage = new StorageViewModel();
@@ -40,16 +42,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 "Profils applicables automatiquement au lancement d'un jeu.",
             });
 
-        var overlay = new ComingSoonViewModel(
-            "Overlay en jeu",
-            "Un affichage à l'écran façon MSI Afterburner/RTSS, mais avec des polices personnalisables et une UI plus simple à configurer.",
-            new[]
-            {
-                "Overlay superposé transparent (FPS, temps de frame, temps CPU/GPU, températures).",
-                "Police, taille, couleur et position personnalisables par métrique.",
-                "Limitation connue : sans pilote noyau façon RTSS, l'overlay ne s'affichera pas sur certains jeux en plein écran exclusif — on visera d'abord le mode fenêtré/sans bordure, qui couvre la grande majorité des jeux modernes.",
-            });
-
         NavItems = new ObservableCollection<NavEntry>
         {
             new("Monitoring", _monitoring),
@@ -58,7 +50,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Paramètres Windows", settings),
             new("Ventilateurs", _fans),
             new("GPU", gpu),
-            new("Overlay", overlay),
+            new("Overlay", _overlay),
         };
 
         SelectedNavItem = NavItems[0];
@@ -73,6 +65,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _fans.Dispose();
+        _overlay.Dispose();
         _monitoring.Dispose();
         _hardware.Dispose();
     }
