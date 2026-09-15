@@ -419,7 +419,61 @@
                 </StackPanel>
             </Border>
 
-            <!-- Temps de lecture des capteurs : pour fixer l'actualisation minimale sur des mesures réelles. -->
+            <!-- Cadence des capteurs : automatique selon le coût mesuré, ou imposée par groupe. -->
+            <Border Style="{StaticResource Card}" Margin="0,4,0,16">
+                <StackPanel>
+                    <TextBlock Text="Cadence des capteurs" Style="{StaticResource H2}"/>
+                    <TextBlock Text="{Binding SensorCadencesHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+                    <Grid Margin="0,12,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Groupe" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="1" Text="Automatique" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="2" Text="Cadence imposée" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="3" Text="Cadence appliquée" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="4" Text="Coût moyen" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding SensorCadences}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,5,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsAuto}"
+                                              VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                                 IsEnabled="{Binding IsAuto, Converter={StaticResource InverseBoolean}}"
+                                                 Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
+                                        <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{Binding CadenceDisplay}" Style="{StaticResource Body}" FontSize="12.5" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding AverageCostDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Temps de lecture des capteurs : coût de chaque lecture, matériel par matériel. -->
             <Border Style="{StaticResource Card}" Margin="0,4,0,16">
                 <StackPanel>
                     <Grid>
@@ -441,16 +495,14 @@
                     <Grid Margin="0,12,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="90"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="1" Text="Cadence" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="2" Text="Dernière" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
-                        <TextBlock Grid.Column="3" Text="Moyenne" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
-                        <TextBlock Grid.Column="4" Text="Max" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="1" Text="Dernière" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="2" Text="Moyenne" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Text="Max" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
                     </Grid>
                     <ItemsControl ItemsSource="{Binding ReadTimings}">
                         <ItemsControl.ItemTemplate>
@@ -458,16 +510,14 @@
                                 <Grid Margin="0,3,0,3">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="130"/>
                                         <ColumnDefinition Width="90"/>
                                         <ColumnDefinition Width="90"/>
                                         <ColumnDefinition Width="90"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Body}" FontSize="12.5" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Cadence}" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding LastDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
-                                    <TextBlock Grid.Column="3" Text="{Binding AverageDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
-                                    <TextBlock Grid.Column="4" Text="{Binding MaxDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding LastDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding AverageDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding MaxDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right" FontWeight="SemiBold"/>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

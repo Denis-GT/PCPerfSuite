@@ -16,18 +16,18 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly UpdateVisitor _visitor = new();
     private bool _disposed;
 
-    /// <summary>Cadence de relecture du CPU par LibreHardwareMonitor. Sur Intel, il lit chaque cœur en y
-    /// déplaçant son thread, ce qui a été mesuré à ~30 ms en moyenne et 80 ms au pire sur un i5-13500T :
-    /// température, puissance et fréquence suivent donc cette cadence, et la charge est calculée à chaque
-    /// relevé par <see cref="CpuLoadSampler"/>, pour quasiment rien.</summary>
-    public static readonly TimeSpan CpuSensorInterval = TimeSpan.FromMilliseconds(500);
+    /// <summary>Part du temps qu'un groupe de capteurs peut passer à se lire en cadence automatique. Un CPU Intel,
+    /// que LibreHardwareMonitor lit cœur par cœur (~30 ms mesurés sur un i5-13500T), est ainsi relu toutes les
+    /// ~600 ms, et un groupe quasi gratuit à chaque relevé.</summary>
+    public const double AutoReadBudget = 0.05;
 
-    /// <summary>Cadence de relecture de la carte mère, des disques et du réseau : valeurs lentes ou débits
-    /// déjà moyennés. Leur lecture est rapide mais n'a pas d'intérêt plus souvent. GPU et RAM sont relus à chaque relevé.</summary>
-    public static readonly TimeSpan SlowHardwareInterval = TimeSpan.FromSeconds(1);
+    /// <summary>Plafond de la cadence automatique, pour qu'un groupe très coûteux reste quand même à jour.</summary>
+    public static readonly TimeSpan MaxAutoInterval = TimeSpan.FromSeconds(5);
 
-    private readonly ReadSchedule _cpuSchedule = new(CpuSensorInterval);
-    private readonly ReadSchedule _slowSchedule = new(SlowHardwareInterval);
+    private readonly SensorReadSchedule[] _schedules =
+        Enum.GetValues<SensorGroup>().Select(group => new SensorReadSchedule(group)).ToArray();
+
+    /// <summary>Charge CPU calculée à chaque relevé, quelle que soit la cadence du groupe CPU.</summary>
     private readonly CpuLoadSampler _cpuLoad = new();
 
     public HardwareMonitorService()
@@ -52,25 +52,35 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         float? cpuLoad = _cpuLoad.Sample();
 
         var timings = new List<HardwareReadTiming>();
+        var groupDurations = new TimeSpan[_schedules.Length];
+        var groupRead = new bool[_schedules.Length];
+
+        // Échéances évaluées une fois pour tout le relevé : le matériel d'un même groupe est relu ensemble.
+        bool[] due = _schedules.Select(schedule => schedule.IsDue(start)).ToArray();
+
         foreach (IHardware hardware in _computer.Hardware)
         {
-            ReadSchedule? schedule = ScheduleFor(hardware.HardwareType);
-            if (schedule is not null && !schedule.IsDue(start)) continue;
+            int group = (int)GroupOf(hardware.HardwareType);
+            if (!due[group]) continue;
 
             long hardwareStart = Stopwatch.GetTimestamp();
             hardware.Accept(_visitor);
+            TimeSpan duration = Stopwatch.GetElapsedTime(hardwareStart);
+
+            groupDurations[group] += duration;
+            groupRead[group] = true;
             timings.Add(new HardwareReadTiming
             {
                 Identifier = hardware.Identifier.ToString(),
                 Name = hardware.Name,
-                ReadInterval = schedule?.Interval ?? TimeSpan.Zero,
-                Duration = Stopwatch.GetElapsedTime(hardwareStart),
+                Duration = duration,
             });
         }
 
-        // Après la boucle seulement : tout le matériel d'un même groupe voit ainsi la même échéance.
-        if (_cpuSchedule.IsDue(start)) _cpuSchedule.MarkRead(start);
-        if (_slowSchedule.IsDue(start)) _slowSchedule.MarkRead(start);
+        for (int group = 0; group < _schedules.Length; group++)
+        {
+            if (groupRead[group]) _schedules[group].RecordRead(start, groupDurations[group]);
+        }
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
@@ -131,37 +141,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
             ReadTimings = timings,
             ReadDuration = Stopwatch.GetElapsedTime(start),
+            GroupStatuses = _schedules.Select(schedule => schedule.GetStatus()).ToArray(),
         };
     }
 
-    /// <summary>Échéancier du matériel, null pour celui relu à chaque relevé (GPU, RAM).</summary>
-    private ReadSchedule? ScheduleFor(HardwareType type) => type switch
+    /// <summary>Impose une cadence de relecture à un groupe, ou null pour la cadence automatique
+    /// (déduite du coût mesuré). Peut être appelé pendant un relevé en cours.</summary>
+    public void SetManualInterval(SensorGroup group, TimeSpan? interval)
+        => _schedules[(int)group].ManualInterval = interval;
+
+    private static SensorGroup GroupOf(HardwareType type) => type switch
     {
-        HardwareType.Cpu => _cpuSchedule,
-        HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel or HardwareType.Memory => null,
-        _ => _slowSchedule,
+        HardwareType.Cpu => SensorGroup.Cpu,
+        HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel => SensorGroup.Gpu,
+        HardwareType.Memory => SensorGroup.Memory,
+        HardwareType.Storage => SensorGroup.Storage,
+        HardwareType.Network => SensorGroup.Network,
+        // Carte mère et le reste de ce que LibreHardwareMonitor rattache à la carte (Super I/O, contrôleur embarqué).
+        _ => SensorGroup.Motherboard,
     };
-
-    private sealed class ReadSchedule
-    {
-        private long _lastReadTimestamp;
-        private bool _hasRead;
-
-        public ReadSchedule(TimeSpan interval) => Interval = interval;
-
-        public TimeSpan Interval { get; }
-
-        // Marge de 10 % : le timer de l'interface n'est pas exact à la milliseconde, et sans marge un relevé
-        // arrivé à 998 ms pour une cadence d'1 s repousserait la relecture d'un tick entier.
-        public bool IsDue(long timestamp)
-            => !_hasRead || Stopwatch.GetElapsedTime(_lastReadTimestamp, timestamp) >= Interval * 0.9;
-
-        public void MarkRead(long timestamp)
-        {
-            _lastReadTimestamp = timestamp;
-            _hasRead = true;
-        }
-    }
 
     private static CpuSnapshot ReadCpu(IHardware hardware, float? sampledLoad)
     {

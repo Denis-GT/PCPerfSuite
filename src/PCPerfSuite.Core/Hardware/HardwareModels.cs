@@ -114,8 +114,6 @@ public sealed class HardwareReadTiming
     public required string Identifier { get; init; }
     public required string Name { get; init; }
 
-    /// <summary>Cadence de relecture de ce matériel, <see cref="TimeSpan.Zero"/> s'il est relu à chaque relevé.</summary>
-    public TimeSpan ReadInterval { get; init; }
     public TimeSpan Duration { get; init; }
 }
 
@@ -136,4 +134,7 @@ public sealed class HardwareSnapshot
 
     /// <summary>Durée totale de GetSnapshot : mises à jour plus extraction des valeurs.</summary>
     public TimeSpan ReadDuration { get; init; }
+
+    /// <summary>Cadence de chaque groupe de capteurs après ce relevé.</summary>
+    public IReadOnlyList<SensorGroupReadStatus> GroupStatuses { get; init; } = Array.Empty<SensorGroupReadStatus>();
 }

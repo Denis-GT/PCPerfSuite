@@ -14,6 +14,10 @@ public sealed class AppSettings
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
 
+    /// <summary>Cadence imposée par groupe de capteurs, en millisecondes (clé = nom du SensorGroup). Un groupe
+    /// absent est en cadence automatique, déduite du coût mesuré de sa lecture.</summary>
+    public Dictionary<string, int> SensorGroupIntervalsMs { get; set; } = new();
+
     /// <summary>Identifiants (catalogue de métriques) des tuiles "Mes métriques" du Monitoring — null tant que
     /// l'utilisateur n'a rien personnalisé (sélection par défaut).</summary>
     public List<string>? MonitoringMetricIds { get; set; }
