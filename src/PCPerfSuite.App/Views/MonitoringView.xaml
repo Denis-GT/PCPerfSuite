@@ -12,7 +12,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Vue d'ensemble des composants." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="0" Text="Vue d'ensemble des capteurs." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Actualisation :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
@@ -20,221 +20,122 @@
                              ToolTip="{Binding RefreshHint}"
                              Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
                     <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    <TextBlock Text="Par capteur" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
+                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
+                              ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
+                    <TextBlock Text="Personnaliser" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
+                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"
+                              ToolTip="Choisir les capteurs affichés en graphique"/>
                 </StackPanel>
             </Grid>
 
-            <!-- Mes métriques : tuiles choisies dans le même catalogue que l'overlay -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <!-- Cadence par groupe de capteurs, juste sous l'actualisation globale qu'elle affine. -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
+                    Visibility="{Binding IsCustomizingCadences, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
-                    <Grid>
+                    <TextBlock Text="Cadence des capteurs" Style="{StaticResource H2}"/>
+                    <TextBlock Text="{Binding SensorCadencesHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+                    <Grid Margin="0,12,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="90"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Mes métriques" Style="{StaticResource H2}" VerticalAlignment="Center"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Personnaliser" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <TextBlock Grid.Column="0" Text="Groupe" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="1" Text="Automatique" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="2" Text="Cadence imposée" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="3" Text="Cadence appliquée" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="4" Text="Coût moyen" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
                     </Grid>
-
-                    <ItemsControl ItemsSource="{Binding MyMetricTiles}" Margin="0,12,0,0">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
+                    <ItemsControl ItemsSource="{Binding SensorCadences}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="180" Margin="0,0,10,10" Padding="14,10" CornerRadius="12" ToolTip="{Binding Label}"
-                                        Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding CategoryName}" Style="{StaticResource Caption}" FontSize="10.5"
-                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock TextWrapping="NoWrap" Margin="0,2,0,0">
-                                            <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                            <Run Text="{Binding Unit, Mode=OneWay}" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                        <!-- Hauteur réservée même sans jauge, pour que les tuiles restent alignées. -->
-                                        <Grid Height="4" Margin="0,8,0,0">
-                                            <controls:MeterBar Value="{Binding Percent}" Height="4"
-                                                               Visibility="{Binding IsPercent, Converter={StaticResource BoolToVisibility}}"/>
-                                        </Grid>
+                                <Grid Margin="0,5,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                </Border>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsAuto}"
+                                              VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                                 IsEnabled="{Binding IsAuto, Converter={StaticResource InverseBoolean}}"
+                                                 Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
+                                        <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{Binding CadenceDisplay}" Style="{StaticResource Body}" FontSize="12.5" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding AverageCostDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Text="Aucune métrique sélectionnée — active « Personnaliser » pour en choisir." Style="{StaticResource Caption}"
-                               Visibility="{Binding MyMetricTiles.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,0,0,4"/>
-
-                    <Border Visibility="{Binding IsCustomizingMyMetrics, Converter={StaticResource BoolToVisibility}}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0" Margin="0,4,0,0">
-                        <controls:MetricPicker DataContext="{Binding MyMetrics}"/>
-                    </Border>
                 </StackPanel>
             </Border>
 
-            <WrapPanel>
-                <!-- CPU -->
-                <Border Style="{StaticResource Card}" Width="330" Margin="0,0,16,16">
-                    <StackPanel>
-                        <TextBlock Text="{Binding CpuName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="PROCESSEUR" Style="{StaticResource Caption}"/>
-                        <Grid Margin="0,14,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding CpuLoad, StringFormat={}{0:0}%}" Style="{StaticResource MetricValue}"/>
-                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <TextBlock Style="{StaticResource Body}" HorizontalAlignment="Right">
-                                    <Run Text="{Binding CpuTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource Caption}" HorizontalAlignment="Right">
-                                    <Run Text="{Binding CpuPower, Converter={StaticResource Metric}, ConverterParameter=W, Mode=OneWay}"/>
-                                </TextBlock>
+            <!-- Choix des capteurs affichés : catalogue partagé avec l'overlay et capteurs propres à la machine. -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
+                    Visibility="{Binding IsCustomizingMyMetrics, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <TextBlock Text="Capteurs affichés" Style="{StaticResource H2}"/>
+                    <TextBlock Text="Les ventilateurs, disques, sondes et tensions de la carte mère apparaissent dès le premier relevé."
+                               Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,14"/>
+                    <controls:MetricPicker DataContext="{Binding MyMetrics}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Tuiles graphiques : une par capteur choisi. -->
+            <ItemsControl ItemsSource="{Binding MyMetricTiles}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="300" Margin="0,0,14,14" Padding="16,12" CornerRadius="14" ToolTip="{Binding Label}"
+                                Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Style="{StaticResource Caption}" VerticalAlignment="Center"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding CategoryName, Mode=OneWay}" Foreground="{Binding LineBrush, Mode=OneWay}"/>
+                                        <Run Text="·"/>
+                                        <Run Text="{Binding Label, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <TextBlock Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center">
+                                        <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </TextBlock>
+                                </Grid>
+                                <controls:Sparkline Series="{Binding History}" Height="64" Margin="0,10,0,0"
+                                                    LineBrush="{Binding LineBrush}" FillBrush="{Binding FillBrush}"
+                                                    AutoScale="{Binding AutoScale}" Maximum="{Binding GraphMaximum}"
+                                                    MinimumScale="{Binding MinimumScale}"/>
                             </StackPanel>
-                        </Grid>
-                        <controls:MeterBar Value="{Binding CpuLoad}" Margin="0,12,0,0"/>
-                        <controls:Sparkline x:Name="CpuSparkline" Height="52" Margin="0,14,0,0"/>
-                        <TextBlock Margin="0,8,0,0" Style="{StaticResource Caption}">
-                            <Run Text="Fréquence max :"/>
-                            <Run Text="{Binding CpuClock, Converter={StaticResource Metric}, ConverterParameter= MHz, Mode=OneWay}"/>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Aucun capteur affiché — active « Personnaliser » pour en choisir." Style="{StaticResource Caption}"
+                       Visibility="{Binding MyMetricTiles.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,0,0,16"/>
 
-                <!-- GPU -->
-                <Border Style="{StaticResource Card}" Width="330" Margin="0,0,16,16"
-                        Visibility="{Binding HasGpu, Converter={StaticResource BoolToVisibility}}">
-                    <StackPanel>
-                        <TextBlock Text="{Binding GpuName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding GpuVendor}" Style="{StaticResource Caption}"/>
-                        <Grid Margin="0,14,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding GpuLoad, StringFormat={}{0:0}%}" Style="{StaticResource MetricValue}"/>
-                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <TextBlock Style="{StaticResource Body}" HorizontalAlignment="Right">
-                                    <Run Text="{Binding GpuTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource Caption}" HorizontalAlignment="Right">
-                                    <Run Text="{Binding GpuPower, Converter={StaticResource Metric}, ConverterParameter=W, Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Grid>
-                        <controls:MeterBar Value="{Binding GpuLoad}" Margin="0,12,0,0" IndicatorBrush="{StaticResource AccentBrush2}"/>
-                        <controls:Sparkline x:Name="GpuSparkline" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource AccentBrush2}"
-                                            FillBrush="#305FE0C7"/>
-                        <Grid Margin="0,10,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Style="{StaticResource Caption}">
-                                <Run Text="Cœur :"/>
-                                <Run Text="{Binding GpuCoreClock, Converter={StaticResource Metric}, ConverterParameter= MHz, Mode=OneWay}"/>
-                            </TextBlock>
-                            <TextBlock Grid.Column="1" Style="{StaticResource Caption}">
-                                <Run Text="Mém. :"/>
-                                <Run Text="{Binding GpuMemClock, Converter={StaticResource Metric}, ConverterParameter= MHz, Mode=OneWay}"/>
-                            </TextBlock>
-                        </Grid>
-                        <controls:MeterBar Value="{Binding GpuVramLoad}" Margin="0,10,0,0" Height="6" IndicatorBrush="{StaticResource TextSecondaryBrush}"/>
-                        <TextBlock Margin="0,6,0,0" Style="{StaticResource Caption}">
-                            <Run Text="VRAM :"/>
-                            <Run Text="{Binding GpuVramUsed, Converter={StaticResource Metric}, ConverterParameter= Mo, Mode=OneWay}"/>
-                            <Run Text="/"/>
-                            <Run Text="{Binding GpuVramTotal, Converter={StaticResource Metric}, ConverterParameter= Mo, Mode=OneWay}"/>
-                            <Run Text=" · Ventilo :"/>
-                            <Run Text="{Binding GpuFanRpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
-
-                <!-- RAM -->
-                <Border Style="{StaticResource Card}" Width="330" Margin="0,0,16,16">
-                    <StackPanel>
-                        <TextBlock Text="Mémoire vive" Style="{StaticResource H2}"/>
-                        <TextBlock Text="RAM" Style="{StaticResource Caption}"/>
-                        <TextBlock Text="{Binding MemLoad, StringFormat={}{0:0}%}" Style="{StaticResource MetricValue}" Margin="0,14,0,0"/>
-                        <controls:MeterBar Value="{Binding MemLoad}" Margin="0,12,0,0" IndicatorBrush="{StaticResource WarnBrush}"/>
-                        <controls:Sparkline x:Name="MemSparkline" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource WarnBrush}" FillBrush="#30FF9F0A"/>
-                        <TextBlock Margin="0,8,0,0" Style="{StaticResource Caption}">
-                            <Run Text="{Binding MemUsedGb, Converter={StaticResource Metric}, ConverterParameter= Go, Mode=OneWay}"/>
-                            <Run Text="/"/>
-                            <Run Text="{Binding MemTotalGb, Converter={StaticResource Metric}, ConverterParameter= Go, Mode=OneWay}"/>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
-
-                <!-- Carte mère -->
-                <Border Style="{StaticResource Card}" Width="330" Margin="0,0,16,16">
-                    <StackPanel>
-                        <TextBlock Text="{Binding MotherboardName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="CARTE MÈRE" Style="{StaticResource Caption}"/>
-                        <Grid Margin="0,14,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Style="{StaticResource MetricValue}">
-                                    <Run Text="{Binding MotherboardTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Text="{Binding MotherboardTempLabel}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom">
-                                <TextBlock Style="{StaticResource Body}" HorizontalAlignment="Right">
-                                    <Run Text="{Binding MotherboardVrmTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Text="{Binding MotherboardVrmLabel}" Style="{StaticResource Caption}" HorizontalAlignment="Right"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Autres zones de température/tensions : la liste dépend entièrement de ce que le
-                             Super I/O de cette carte mère expose, elle peut donc être vide sur certaines configs. -->
-                        <ItemsControl ItemsSource="{Binding MotherboardOtherTemps}" Margin="0,10,0,0">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,3,0,3">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Style="{StaticResource Caption}">
-                                            <Run Text="{Binding Value, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
-                                        </TextBlock>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <ItemsControl ItemsSource="{Binding MotherboardVoltages}" Margin="0,4,0,0">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,3,0,3">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Style="{StaticResource Caption}">
-                                            <Run Text="{Binding Value, Converter={StaticResource Metric}, ConverterParameter=V, Mode=OneWay}"/>
-                                        </TextBlock>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Border>
-            </WrapPanel>
-
-            <!-- Disques -->
+            <!-- Disques : occupation, usure et test de santé. Débits et température sont des tuiles comme les autres. -->
             <Border Style="{StaticResource Card}" Margin="0,4,0,16">
                 <StackPanel>
                     <TextBlock Text="Disques" Style="{StaticResource H2}"/>
@@ -248,37 +149,17 @@
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="160"/>
                                                 <ColumnDefinition Width="50"/>
+                                                <ColumnDefinition Width="130"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                             <controls:MeterBar Grid.Column="1" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"/>
                                             <TextBlock Grid.Column="2" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
                                                        TextAlignment="Right" VerticalAlignment="Center"/>
-                                        </Grid>
-
-                                        <Grid Margin="0,10,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0">
-                                                <TextBlock Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
-                                                <TextBlock Text="{Binding ReadRateDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Écriture" Style="{StaticResource Caption}" FontSize="10.5"/>
-                                                <TextBlock Text="{Binding WriteRateDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="2">
-                                                <TextBlock Text="Température" Style="{StaticResource Caption}" FontSize="10.5"/>
-                                                <TextBlock Text="{Binding TemperatureDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="3">
-                                                <TextBlock Text="Vie restante" Style="{StaticResource Caption}" FontSize="10.5"/>
-                                                <TextBlock Text="{Binding RemainingLifeDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
-                                            </StackPanel>
+                                            <TextBlock Grid.Column="3" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
+                                                <Run Text="Vie restante :"/>
+                                                <Run Text="{Binding RemainingLifeDisplay, Mode=OneWay}"/>
+                                            </TextBlock>
                                         </Grid>
 
                                         <Grid Margin="0,10,0,0">
@@ -302,34 +183,55 @@
                 </StackPanel>
             </Border>
 
-            <!-- Ventilateurs -->
+            <!-- Temps de lecture des capteurs : coût de chaque lecture, matériel par matériel. -->
             <Border Style="{StaticResource Card}" Margin="0,4,0,16">
                 <StackPanel>
-                    <TextBlock Text="Ventilateurs détectés" Style="{StaticResource H2}"/>
-                    <ItemsControl ItemsSource="{Binding Fans}" Margin="0,10,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Temps de lecture des capteurs" Style="{StaticResource H2}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <Run Text="Ticks sautés :"/>
+                                <Run Text="{Binding SkippedTicks, Mode=OneWay}"/>
+                            </TextBlock>
+                            <Button Content="Réinitialiser" Style="{StaticResource GhostButton}" Command="{Binding ResetReadTimingsCommand}"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="{Binding ReadTimingsHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+                    <Grid Margin="0,12,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="1" Text="Dernière" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="2" Text="Moyenne" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Text="Max" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding ReadTimings}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,6,0,6">
+                                <Grid Margin="0,3,0,3">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="140"/>
-                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="90"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Body}" VerticalAlignment="Center">
-                                        <Run Text="{Binding SensorName, Mode=OneWay}"/>
-                                        <Run Text=" — " Foreground="{StaticResource TextSecondaryBrush}"/>
-                                        <Run Text="{Binding HardwareName, Mode=OneWay}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"/>
-                                    </TextBlock>
-                                    <controls:MeterBar Grid.Column="1" Value="{Binding PercentControl, Mode=OneWay, Converter={StaticResource NullableToDouble}}" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="2" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
-                                        <Run Text="{Binding Rpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
-                                    </TextBlock>
+                                    <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Body}" FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding LastDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding AverageDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding MaxDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right" FontWeight="SemiBold"/>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Text="Aucun ventilateur détecté — vérifie que l'app tourne en administrateur." Style="{StaticResource Caption}"
-                               Visibility="{Binding Fans.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,4,0,0"/>
                 </StackPanel>
             </Border>
 

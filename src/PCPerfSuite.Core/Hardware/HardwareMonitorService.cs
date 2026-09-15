@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
 
 namespace PCPerfSuite.Core.Hardware;
@@ -14,6 +15,20 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly Computer _computer;
     private readonly UpdateVisitor _visitor = new();
     private bool _disposed;
+
+    /// <summary>Part du temps qu'un groupe de capteurs peut passer à se lire en cadence automatique. Un CPU Intel,
+    /// que LibreHardwareMonitor lit cœur par cœur (~30 ms mesurés sur un i5-13500T), est ainsi relu toutes les
+    /// ~600 ms, et un groupe quasi gratuit à chaque relevé.</summary>
+    public const double AutoReadBudget = 0.05;
+
+    /// <summary>Plafond de la cadence automatique, pour qu'un groupe très coûteux reste quand même à jour.</summary>
+    public static readonly TimeSpan MaxAutoInterval = TimeSpan.FromSeconds(5);
+
+    private readonly SensorReadSchedule[] _schedules =
+        Enum.GetValues<SensorGroup>().Select(group => new SensorReadSchedule(group)).ToArray();
+
+    /// <summary>Charge CPU calculée à chaque relevé, quelle que soit la cadence du groupe CPU.</summary>
+    private readonly CpuLoadSampler _cpuLoad = new();
 
     public HardwareMonitorService()
     {
@@ -32,7 +47,40 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     public HardwareSnapshot GetSnapshot()
     {
-        _computer.Accept(_visitor);
+        long start = Stopwatch.GetTimestamp();
+
+        float? cpuLoad = _cpuLoad.Sample();
+
+        var timings = new List<HardwareReadTiming>();
+        var groupDurations = new TimeSpan[_schedules.Length];
+        var groupRead = new bool[_schedules.Length];
+
+        // Échéances évaluées une fois pour tout le relevé : le matériel d'un même groupe est relu ensemble.
+        bool[] due = _schedules.Select(schedule => schedule.IsDue(start)).ToArray();
+
+        foreach (IHardware hardware in _computer.Hardware)
+        {
+            int group = (int)GroupOf(hardware.HardwareType);
+            if (!due[group]) continue;
+
+            long hardwareStart = Stopwatch.GetTimestamp();
+            hardware.Accept(_visitor);
+            TimeSpan duration = Stopwatch.GetElapsedTime(hardwareStart);
+
+            groupDurations[group] += duration;
+            groupRead[group] = true;
+            timings.Add(new HardwareReadTiming
+            {
+                Identifier = hardware.Identifier.ToString(),
+                Name = hardware.Name,
+                Duration = duration,
+            });
+        }
+
+        for (int group = 0; group < _schedules.Length; group++)
+        {
+            if (groupRead[group]) _schedules[group].RecordRead(start, groupDurations[group]);
+        }
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
@@ -48,7 +96,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             switch (hardware.HardwareType)
             {
                 case HardwareType.Cpu:
-                    cpu = ReadCpu(hardware);
+                    cpu = ReadCpu(hardware, cpuLoad);
                     break;
 
                 case HardwareType.GpuNvidia:
@@ -91,12 +139,33 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Fans = fans,
             Disks = disks,
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
+            ReadTimings = timings,
+            ReadDuration = Stopwatch.GetElapsedTime(start),
+            GroupStatuses = _schedules.Select(schedule => schedule.GetStatus()).ToArray(),
         };
     }
 
-    private static CpuSnapshot ReadCpu(IHardware hardware)
+    /// <summary>Impose une cadence de relecture à un groupe, ou null pour la cadence automatique
+    /// (déduite du coût mesuré). Peut être appelé pendant un relevé en cours.</summary>
+    public void SetManualInterval(SensorGroup group, TimeSpan? interval)
+        => _schedules[(int)group].ManualInterval = interval;
+
+    private static SensorGroup GroupOf(HardwareType type) => type switch
     {
-        float? load = FindSensor(hardware, SensorType.Load, "CPU Total")?.Value
+        HardwareType.Cpu => SensorGroup.Cpu,
+        HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel => SensorGroup.Gpu,
+        HardwareType.Memory => SensorGroup.Memory,
+        HardwareType.Storage => SensorGroup.Storage,
+        HardwareType.Network => SensorGroup.Network,
+        // Carte mère et le reste de ce que LibreHardwareMonitor rattache à la carte (Super I/O, contrôleur embarqué).
+        _ => SensorGroup.Motherboard,
+    };
+
+    private static CpuSnapshot ReadCpu(IHardware hardware, float? sampledLoad)
+    {
+        // Charge mesurée à chaque relevé quand Windows la fournit, sinon celle de LibreHardwareMonitor (relue moins souvent).
+        float? load = sampledLoad
+                       ?? FindSensor(hardware, SensorType.Load, "CPU Total")?.Value
                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
 
         float? package = FindSensor(hardware, SensorType.Temperature, "CPU Package")?.Value;
@@ -375,6 +444,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _cpuLoad.Dispose();
         _computer.Close();
     }
 }

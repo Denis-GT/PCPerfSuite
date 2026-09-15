@@ -2,8 +2,9 @@ namespace PCPerfSuite.App.ViewModels;
 
 /// <summary>
 /// Bornes de la cadence de rafraîchissement, saisie librement en millisecondes (Monitoring et overlay).
-/// En dessous de 100 ms, la lecture des capteurs n'a pas le temps de se terminer entre deux relevés ;
-/// au-delà d'une minute, l'affichage n'a plus rien de "temps réel".
+/// Minimum de 100 ms : plus vite n'apporte rien de lisible à l'écran, alors que la lecture complète du CPU
+/// par LibreHardwareMonitor coûte déjà 30 à 80 ms. Les capteurs lents ou coûteux ont en plus leur propre
+/// cadence (voir HardwareMonitorService). Au-delà d'une minute, l'affichage n'a plus rien de "temps réel".
 /// </summary>
 public static class RefreshRates
 {

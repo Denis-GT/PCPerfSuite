@@ -48,6 +48,15 @@ public sealed class MetricDefinition
 
     public bool IsPercent { get; init; }
     public required Func<MetricSample, MetricReading> Read { get; init; }
+
+    /// <summary>Haut de l'échelle fixe du graphique (pourcentages, températures) ; null : échelle calée sur le pic visible.</summary>
+    public double? GraphMaximum { get; init; }
+
+    /// <summary>Plancher de l'échelle automatique, pour qu'une valeur au repos ne remplisse pas tout le graphique.</summary>
+    public double GraphMinimumScale { get; init; } = 1;
+
+    /// <summary>Faux pour une valeur sans courbe possible (l'heure) : elle n'est pas proposée en tuile graphique.</summary>
+    public bool HasGraph { get; init; } = true;
 }
 
 /// <summary>
@@ -57,14 +66,20 @@ public sealed class MetricDefinition
 /// </summary>
 public static class MetricCatalog
 {
-    private static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF");
-    private static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B");
-    private static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF");
-    private static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D");
-    private static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166");
-    private static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0");
-    private static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C");
-    private static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8");
+    internal static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF");
+    internal static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B");
+    internal static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF");
+    internal static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D");
+    internal static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166");
+    internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0");
+    internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C");
+    internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8");
+
+    /// <summary>1 Mo/s : plancher des graphiques de débit disque.</summary>
+    internal const double DiskRateFloor = 1_048_576;
+
+    /// <summary>1 Mbit/s : plancher des graphiques de débit réseau.</summary>
+    internal const double NetworkRateFloor = 125_000;
 
     /// <summary>Catégories dans l'ordre du catalogue — sert au réglage des couleurs de l'overlay.</summary>
     public static IReadOnlyList<MetricCategory> Categories { get; } = new[]
@@ -102,12 +117,12 @@ public static class MetricCatalog
         Numeric("mb.temp.system", Motherboard, "Température système", "temp", "°C", "0", s => s.Hardware.Motherboard.SystemTempC),
         Numeric("mb.temp.vrm", Motherboard, "Température VRM", "vrm", "°C", "0", s => s.Hardware.Motherboard.VrmTempC),
 
-        Rate("storage.read", Storage, "Débit lecture total", "lect", s => SumOrNull(s.Hardware.Disks.Select(d => d.ReadRateBytesPerSecond))),
-        Rate("storage.write", Storage, "Débit écriture total", "ecr", s => SumOrNull(s.Hardware.Disks.Select(d => d.WriteRateBytesPerSecond))),
+        Rate("storage.read", Storage, "Débit lecture total", "lect", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.ReadRateBytesPerSecond))),
+        Rate("storage.write", Storage, "Débit écriture total", "ecr", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.WriteRateBytesPerSecond))),
         Numeric("storage.temp.max", Storage, "Température disque max", "temp", "°C", "0", s => s.Hardware.Disks.Max(d => d.TemperatureC)),
 
-        Rate("net.upload", Network, "Débit montant total", "envoi", s => s.Hardware.Network.UploadBytesPerSecond),
-        Rate("net.download", Network, "Débit descendant total", "recep", s => s.Hardware.Network.DownloadBytesPerSecond),
+        Rate("net.upload", Network, "Débit montant total", "envoi", NetworkRateFloor, s => s.Hardware.Network.UploadBytesPerSecond),
+        Rate("net.download", Network, "Débit descendant total", "recep", NetworkRateFloor, s => s.Hardware.Network.DownloadBytesPerSecond),
 
         Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps),
         Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps),
@@ -121,16 +136,23 @@ public static class MetricCatalog
             Category = Sys,
             Label = "Heure",
             OsdLabel = "heure",
+            HasGraph = false,
             Read = s => new MetricReading(null, s.LocalTime.ToString("HH:mm", CultureInfo.InvariantCulture), ""),
         },
     };
 
+    /// <summary>Tuiles graphiques affichées par défaut dans le Monitoring : ce que montraient les anciennes cartes par composant.</summary>
     public static IReadOnlyList<string> DefaultMonitoringIds { get; } = new[]
     {
-        "cpu.load", "cpu.temp.package", "gpu.load", "gpu.temp.core", "ram.load", "net.download",
+        "cpu.load", "cpu.temp.package", "cpu.power",
+        "gpu.load", "gpu.temp.core", "gpu.power",
+        "ram.load",
+        "mb.temp.system",
+        "storage.read", "storage.write",
+        "net.download", "net.upload",
     };
 
-    private static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
+    internal static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
         string unit, string format, Func<MetricSample, double?> get) => new()
     {
         Id = id,
@@ -138,19 +160,31 @@ public static class MetricCatalog
         Label = label,
         OsdLabel = osdLabel,
         IsPercent = unit == "%",
+        // Pourcentages et températures sur une échelle fixe de 0 à 100 ; le reste calé sur le pic visible,
+        // avec un plancher de l'ordre d'une valeur au repos.
+        GraphMaximum = unit is "%" or "°C" ? 100 : null,
+        GraphMinimumScale = unit switch
+        {
+            "W" => 10,
+            "RPM" or "MHz" => 1000,
+            "FPS" => 60,
+            "ms" => 20,
+            _ => 1,
+        },
         Read = s => get(s) is { } v
             ? new MetricReading(v, v.ToString(format, CultureInfo.CurrentCulture), unit)
             : MetricReading.Missing,
     };
 
     /// <summary>Débit en octets/seconde, mis à l'échelle (o/s, Ko/s, Mo/s...).</summary>
-    private static MetricDefinition Rate(string id, MetricCategory category, string label, string osdLabel,
-        Func<MetricSample, double?> getBytesPerSecond) => new()
+    internal static MetricDefinition Rate(string id, MetricCategory category, string label, string osdLabel,
+        double graphMinimumScale, Func<MetricSample, double?> getBytesPerSecond) => new()
     {
         Id = id,
         Category = category,
         Label = label,
         OsdLabel = osdLabel,
+        GraphMinimumScale = graphMinimumScale,
         Read = s =>
         {
             if (getBytesPerSecond(s) is not { } v) return MetricReading.Missing;

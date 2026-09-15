@@ -14,9 +14,17 @@ public sealed class AppSettings
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
 
-    /// <summary>Identifiants (catalogue de métriques) des tuiles "Mes métriques" du Monitoring — null tant que
-    /// l'utilisateur n'a rien personnalisé (sélection par défaut).</summary>
+    /// <summary>Cadence imposée par groupe de capteurs, en millisecondes (clé = nom du SensorGroup). Un groupe
+    /// absent est en cadence automatique, déduite du coût mesuré de sa lecture.</summary>
+    public Dictionary<string, int> SensorGroupIntervalsMs { get; set; } = new();
+
+    /// <summary>Ancienne sélection des tuiles "Mes métriques", d'avant les tuiles graphiques. Lue seulement pour
+    /// initialiser <see cref="MonitoringSensorIds"/>.</summary>
     public List<string>? MonitoringMetricIds { get; set; }
+
+    /// <summary>Capteurs affichés en tuiles graphiques dans le Monitoring (catalogue de métriques et capteurs propres
+    /// à la machine) — null tant que l'utilisateur n'a rien personnalisé depuis les tuiles graphiques.</summary>
+    public List<string>? MonitoringSensorIds { get; set; }
 
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
