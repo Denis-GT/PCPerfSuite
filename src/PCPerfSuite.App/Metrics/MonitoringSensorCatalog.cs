@@ -45,7 +45,7 @@ public static class MonitoringSensorCatalog
         {
             string id = fan.SensorId;
             yield return MetricCatalog.Numeric($"fan:{id}", Fans, $"{fan.SensorName} ({fan.HardwareName})", "fan", "RPM", "0",
-                s => s.Hardware.Fans.FirstOrDefault(f => f.SensorId == id)?.Rpm);
+                s => s.Hardware.Fans.FirstOrDefault(f => f.SensorId == id)?.Rpm, fan.Group);
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
+using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.Core.Hardware;
 
@@ -27,8 +28,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly SensorReadSchedule[] _schedules =
         Enum.GetValues<SensorGroup>().Select(group => new SensorReadSchedule(group)).ToArray();
 
-    /// <summary>Charge CPU calculée à chaque relevé, quelle que soit la cadence du groupe CPU.</summary>
+    /// <summary>Charge CPU (groupe CpuLoad), lue indépendamment de la lecture LibreHardwareMonitor du CPU.</summary>
     private readonly CpuLoadSampler _cpuLoad = new();
+
+    // Dernières valeurs lues hors LibreHardwareMonitor, reprises dans les relevés où leur groupe n'est pas relu.
+    private float? _lastCpuLoad;
+    private RtssFrameStats? _lastGame;
 
     public HardwareMonitorService()
     {
@@ -49,14 +54,26 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         long start = Stopwatch.GetTimestamp();
 
-        float? cpuLoad = _cpuLoad.Sample();
-
         var timings = new List<HardwareReadTiming>();
         var groupDurations = new TimeSpan[_schedules.Length];
         var groupRead = new bool[_schedules.Length];
 
         // Échéances évaluées une fois pour tout le relevé : le matériel d'un même groupe est relu ensemble.
         bool[] due = _schedules.Select(schedule => schedule.IsDue(start)).ToArray();
+
+        if (due[(int)SensorGroup.CpuLoad])
+        {
+            long loadStart = Stopwatch.GetTimestamp();
+            _lastCpuLoad = _cpuLoad.Sample();
+            RecordRead(SensorGroup.CpuLoad, "cpuload", "Charge CPU (compteur Windows)", loadStart, timings, groupDurations, groupRead);
+        }
+
+        if (due[(int)SensorGroup.Fps])
+        {
+            long fpsStart = Stopwatch.GetTimestamp();
+            _lastGame = RtssFrameStatsReader.TryReadForeground();
+            RecordRead(SensorGroup.Fps, "rtss", "FPS (RTSS)", fpsStart, timings, groupDurations, groupRead);
+        }
 
         foreach (IHardware hardware in _computer.Hardware)
         {
@@ -96,14 +113,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             switch (hardware.HardwareType)
             {
                 case HardwareType.Cpu:
-                    cpu = ReadCpu(hardware, cpuLoad);
+                    cpu = ReadCpu(hardware, _lastCpuLoad);
                     break;
 
                 case HardwareType.GpuNvidia:
                 case HardwareType.GpuAmd:
                 case HardwareType.GpuIntel:
                     gpu = ReadGpu(hardware);
-                    CollectFans(hardware, fans);
+                    CollectFans(hardware, SensorGroup.Gpu, fans);
                     break;
 
                 case HardwareType.Memory:
@@ -112,10 +129,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
                 case HardwareType.Motherboard:
                     motherboard = ReadMotherboard(hardware);
-                    CollectFans(hardware, fans);
+                    CollectFans(hardware, SensorGroup.Motherboard, fans);
                     foreach (IHardware sub in hardware.SubHardware)
                     {
-                        CollectFans(sub, fans);
+                        CollectFans(sub, SensorGroup.Motherboard, fans);
                     }
                     break;
 
@@ -142,13 +159,40 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             ReadTimings = timings,
             ReadDuration = Stopwatch.GetElapsedTime(start),
             GroupStatuses = _schedules.Select(schedule => schedule.GetStatus()).ToArray(),
+            GroupsRead = Enum.GetValues<SensorGroup>().Where(group => groupRead[(int)group]).ToArray(),
+            Game = _lastGame,
         };
+    }
+
+    /// <summary>Compte une lecture faite hors LibreHardwareMonitor (charge CPU, FPS) dans les durées du relevé.</summary>
+    private static void RecordRead(SensorGroup group, string identifier, string name, long readStart,
+        List<HardwareReadTiming> timings, TimeSpan[] groupDurations, bool[] groupRead)
+    {
+        TimeSpan duration = Stopwatch.GetElapsedTime(readStart);
+        groupDurations[(int)group] += duration;
+        groupRead[(int)group] = true;
+        timings.Add(new HardwareReadTiming { Identifier = identifier, Name = name, Duration = duration });
     }
 
     /// <summary>Impose une cadence de relecture à un groupe, ou null pour la cadence automatique
     /// (déduite du coût mesuré). Peut être appelé pendant un relevé en cours.</summary>
     public void SetManualInterval(SensorGroup group, TimeSpan? interval)
         => _schedules[(int)group].ManualInterval = interval;
+
+    /// <summary>Cadence actuelle d'un groupe, sans attendre le prochain relevé (après un changement de réglage).</summary>
+    public SensorGroupReadStatus GetGroupStatus(SensorGroup group) => _schedules[(int)group].GetStatus();
+
+    /// <summary>Cadence de base, l'actualisation globale : celle d'un groupe en automatique dont la lecture ne coûte pas cher.</summary>
+    public void SetBaseInterval(TimeSpan interval)
+    {
+        foreach (SensorReadSchedule schedule in _schedules)
+        {
+            schedule.BaseInterval = interval;
+        }
+    }
+
+    /// <summary>Intervalle du groupe relu le plus souvent : le rythme auquel appeler GetSnapshot.</summary>
+    public TimeSpan ShortestInterval => _schedules.Min(schedule => schedule.GetStatus().Interval);
 
     private static SensorGroup GroupOf(HardwareType type) => type switch
     {
@@ -358,7 +402,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         };
     }
 
-    private static void CollectFans(IHardware hardware, List<FanReading> into)
+    private static void CollectFans(IHardware hardware, SensorGroup group, List<FanReading> into)
     {
         var fanSensors = hardware.Sensors.Where(s => s.SensorType == SensorType.Fan);
         var controlSensors = hardware.Sensors.Where(s => s.SensorType == SensorType.Control).ToList();
@@ -372,6 +416,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             into.Add(new FanReading
             {
                 HardwareName = hardware.Name,
+                Group = group,
                 SensorName = fan.Name,
                 Rpm = fan.Value,
                 PercentControl = matchingControl?.Value,
