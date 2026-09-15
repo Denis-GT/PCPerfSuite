@@ -56,51 +56,87 @@ public static class RtssFrameStatsReader
     private const int MinSamplesFor1Percent = 100;
     private const int MinSamplesFor01Percent = 1000;
 
+    // Mapping gardé ouvert d'un relevé à l'autre : rouvrir et projeter toute la mémoire partagée de RTSS
+    // (plusieurs Mo) à chaque appel coûtait ~12 ms. Quand RTSS se ferme, il marque sa mémoire 0xDEAD : la
+    // vérification de signature fait alors relâcher le mapping, et l'appel suivant ouvre celui d'un RTSS relancé.
+    private static readonly object Sync = new();
+    private static MemoryMappedFile? _mapping;
+    private static MemoryMappedViewAccessor? _accessor;
+
     /// <summary>Ne lève jamais (RTSS absent est un cas normal) : null si RTSS n'est pas lancé ou n'a pas
     /// accroché l'application au premier plan.</summary>
     public static RtssFrameStats? TryReadForeground()
     {
-        try
+        lock (Sync)
         {
-            uint foregroundPid = GetForegroundProcessId();
-            if (foregroundPid == 0) return null;
-
-            using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(RtssSharedMemory.MappingName, MemoryMappedFileRights.Read);
-            using MemoryMappedViewAccessor accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-
-            if (accessor.ReadUInt32(0) != RtssSharedMemory.Signature || accessor.ReadUInt32(4) < RtssSharedMemory.MinVersion) return null;
-
-            uint entrySize = accessor.ReadUInt32(HeaderAppEntrySizeOffset);
-            uint arrOffset = accessor.ReadUInt32(HeaderAppArrOffsetOffset);
-            uint arrSize = accessor.ReadUInt32(HeaderAppArrSizeOffset);
-            if (entrySize < MinEntrySize) return null;
-
-            for (uint i = 0; i < arrSize; i++)
+            try
             {
-                long entry = arrOffset + (long)i * entrySize;
-                if (entry + entrySize > accessor.Capacity) break;
-                if (accessor.ReadUInt32(entry + EntryProcessIdOffset) != foregroundPid) continue;
+                uint foregroundPid = GetForegroundProcessId();
+                if (foregroundPid == 0) return null;
 
-                uint time0 = accessor.ReadUInt32(entry + EntryTime0Offset);
-                uint time1 = accessor.ReadUInt32(entry + EntryTime1Offset);
-                uint frames = accessor.ReadUInt32(entry + EntryFramesOffset);
-                uint frameTimeUs = accessor.ReadUInt32(entry + EntryFrameTimeOffset);
+                MemoryMappedViewAccessor? accessor = GetValidAccessor();
+                if (accessor is null) return null;
 
-                double? fps = time1 > time0 ? 1000.0 * frames / (time1 - time0) : null;
-                double? frameTimeMs = frameTimeUs > 0 ? frameTimeUs / 1000.0 : null;
+                uint entrySize = accessor.ReadUInt32(HeaderAppEntrySizeOffset);
+                uint arrOffset = accessor.ReadUInt32(HeaderAppArrOffsetOffset);
+                uint arrSize = accessor.ReadUInt32(HeaderAppArrSizeOffset);
+                if (entrySize < MinEntrySize) return null;
 
-                FrameTimeStats stats = ReadFrameTimeStats(accessor, entry, entrySize, fps);
+                for (uint i = 0; i < arrSize; i++)
+                {
+                    long entry = arrOffset + (long)i * entrySize;
+                    if (entry + entrySize > accessor.Capacity) break;
+                    if (accessor.ReadUInt32(entry + EntryProcessIdOffset) != foregroundPid) continue;
 
-                return new RtssFrameStats(
-                    fps, frameTimeMs, stats.AverageFps, stats.OnePercentLowFps, stats.PointOnePercentLowFps, stats.SampleCount);
+                    uint time0 = accessor.ReadUInt32(entry + EntryTime0Offset);
+                    uint time1 = accessor.ReadUInt32(entry + EntryTime1Offset);
+                    uint frames = accessor.ReadUInt32(entry + EntryFramesOffset);
+                    uint frameTimeUs = accessor.ReadUInt32(entry + EntryFrameTimeOffset);
+
+                    double? fps = time1 > time0 ? 1000.0 * frames / (time1 - time0) : null;
+                    double? frameTimeMs = frameTimeUs > 0 ? frameTimeUs / 1000.0 : null;
+
+                    FrameTimeStats stats = ReadFrameTimeStats(accessor, entry, entrySize, fps);
+
+                    return new RtssFrameStats(
+                        fps, frameTimeMs, stats.AverageFps, stats.OnePercentLowFps, stats.PointOnePercentLowFps, stats.SampleCount);
+                }
+
+                return null;
             }
+            catch
+            {
+                ReleaseMapping();
+                return null;
+            }
+        }
+    }
 
-            return null;
-        }
-        catch
+    /// <summary>Vue sur la mémoire partagée de RTSS, ouverte au besoin ; null (et mapping relâché) quand
+    /// elle n'est pas initialisée ou que RTSS l'a marquée pour libération.</summary>
+    private static MemoryMappedViewAccessor? GetValidAccessor()
+    {
+        if (_accessor is null)
         {
-            return null;
+            _mapping = MemoryMappedFile.OpenExisting(RtssSharedMemory.MappingName, MemoryMappedFileRights.Read);
+            _accessor = _mapping.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
         }
+
+        if (_accessor.ReadUInt32(0) == RtssSharedMemory.Signature && _accessor.ReadUInt32(4) >= RtssSharedMemory.MinVersion)
+        {
+            return _accessor;
+        }
+
+        ReleaseMapping();
+        return null;
+    }
+
+    private static void ReleaseMapping()
+    {
+        _accessor?.Dispose();
+        _mapping?.Dispose();
+        _accessor = null;
+        _mapping = null;
     }
 
     private readonly record struct FrameTimeStats(
