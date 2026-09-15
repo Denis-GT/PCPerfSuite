@@ -3,39 +3,79 @@ using System.Runtime.InteropServices;
 namespace PCPerfSuite.Core.Hardware;
 
 /// <summary>
-/// Charge CPU totale entre deux appels, calculée à partir des temps cumulés que Windows tient pour
-/// l'ensemble des processeurs logiques (GetSystemTimes), comme le Gestionnaire des tâches. Quasi gratuit :
-/// la charge suit ainsi chaque relevé sans relire tout le CPU via LibreHardwareMonitor.
+/// Charge CPU totale telle que l'affiche le Gestionnaire des tâches : le compteur de performances Windows
+/// "% Processor Utility", qui tient compte de la fréquence réelle des cœurs. Le temps processeur (GetSystemTimes,
+/// ou le "CPU Total" de LibreHardwareMonitor) restait à 1-6 % quand le Gestionnaire affichait 30-60 % sur un
+/// i5-13500T. Le compteur est ajouté par son nom anglais, donc indépendamment de la langue de Windows.
 /// </summary>
-internal sealed class CpuLoadSampler
+internal sealed class CpuLoadSampler : IDisposable
 {
-    private long _lastIdle;
-    private long _lastKernel;
-    private long _lastUser;
-    private bool _hasPrevious;
+    private const string CounterPath = @"\Processor Information(_Total)\% Processor Utility";
+    private const uint PdhFmtDouble = 0x00000200;
 
-    /// <summary>Charge en % depuis l'appel précédent ; null au premier appel ou si Windows ne répond pas.</summary>
-    public float? Sample()
+    private IntPtr _query;
+    private readonly IntPtr _counter;
+
+    public CpuLoadSampler()
     {
-        if (!GetSystemTimes(out long idle, out long kernel, out long user)) return null;
-
-        float? load = null;
-        // Le temps noyau inclut le temps d'inactivité : le temps écoulé total est donc noyau + utilisateur.
-        long total = (kernel - _lastKernel) + (user - _lastUser);
-        if (_hasPrevious && total > 0)
+        if (PdhOpenQueryW(null, IntPtr.Zero, out _query) != 0)
         {
-            long busy = total - (idle - _lastIdle);
-            load = (float)Math.Clamp(100.0 * busy / total, 0, 100);
+            _query = IntPtr.Zero;
+            return;
         }
 
-        _lastIdle = idle;
-        _lastKernel = kernel;
-        _lastUser = user;
-        _hasPrevious = true;
-        return load;
+        if (PdhAddEnglishCounterW(_query, CounterPath, IntPtr.Zero, out _counter) != 0)
+        {
+            Dispose();
+            return;
+        }
+
+        // Un compteur de taux se calcule entre deux collectes : celle-ci sert de point de départ au premier relevé.
+        PdhCollectQueryData(_query);
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetSystemTimes(out long idleTime, out long kernelTime, out long userTime);
+    /// <summary>Charge en % depuis l'appel précédent ; null si le compteur est indisponible ou pas encore calculable.</summary>
+    public float? Sample()
+    {
+        if (_query == IntPtr.Zero) return null;
+        if (PdhCollectQueryData(_query) != 0) return null;
+        if (PdhGetFormattedCounterValue(_counter, PdhFmtDouble, IntPtr.Zero, out PdhFmtCounterValue value) != 0
+            || value.CStatus != 0)
+        {
+            return null;
+        }
+
+        // L'utilité dépasse 100 % quand les cœurs tournent au-dessus de leur fréquence nominale : le Gestionnaire
+        // des tâches plafonne aussi à 100.
+        return (float)Math.Clamp(value.DoubleValue, 0, 100);
+    }
+
+    public void Dispose()
+    {
+        if (_query == IntPtr.Zero) return;
+        PdhCloseQuery(_query);
+        _query = IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PdhFmtCounterValue
+    {
+        public uint CStatus;
+        public double DoubleValue;
+    }
+
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PdhOpenQueryW(string? dataSource, IntPtr userData, out IntPtr query);
+
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
+    private static extern uint PdhAddEnglishCounterW(IntPtr query, string fullCounterPath, IntPtr userData, out IntPtr counter);
+
+    [DllImport("pdh.dll")]
+    private static extern uint PdhCollectQueryData(IntPtr query);
+
+    [DllImport("pdh.dll")]
+    private static extern uint PdhGetFormattedCounterValue(IntPtr counter, uint format, IntPtr type, out PdhFmtCounterValue value);
+
+    [DllImport("pdh.dll")]
+    private static extern uint PdhCloseQuery(IntPtr query);
 }

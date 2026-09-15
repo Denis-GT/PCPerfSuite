@@ -444,6 +444,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _cpuLoad.Dispose();
         _computer.Close();
     }
 }
