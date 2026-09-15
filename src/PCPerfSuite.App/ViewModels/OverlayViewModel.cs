@@ -39,9 +39,29 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
     [ObservableProperty] private bool isRtssDetected;
-    [ObservableProperty] private RefreshRateOption selectedRefreshRate;
 
-    public IReadOnlyList<RefreshRateOption> RefreshRateOptions => RefreshRates.Overlay;
+    private int _refreshMs = 1000;
+
+    /// <summary>Cadence de l'overlay, saisie librement en millisecondes. Elle ne peut pas descendre
+    /// sous celle du Monitoring (les valeurs en viennent), mais elle peut être plus lente.</summary>
+    public int RefreshMs
+    {
+        get => _refreshMs;
+        set
+        {
+            int clamped = RefreshRates.Clamp(value);
+            bool changed = SetProperty(ref _refreshMs, clamped);
+
+            if (clamped != value) OnPropertyChanged(nameof(RefreshMs));
+            if (!changed) return;
+
+            // Repart de zéro pour que la nouvelle cadence s'applique dès le prochain relevé.
+            _lastRenderTick = 0;
+            Persist();
+        }
+    }
+
+    public string RefreshHint => RefreshRates.Hint;
 
     public MetricSelectionViewModel Metrics { get; }
     public OverlayAppearanceViewModel Appearance { get; }
@@ -62,7 +82,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         useRtss = settings.UseRtss;
         useWindow = settings.UseWindow;
         oneLinePerMetric = settings.OneLinePerMetric;
-        selectedRefreshRate = RefreshRates.Resolve(RefreshRates.Overlay, settings.RefreshMs);
+        _refreshMs = RefreshRates.Clamp(settings.RefreshMs);
 
         Metrics = new MetricSelectionViewModel(settings.MetricIds ?? LegacyMetricIds(settings));
         Metrics.SelectionChanged += OnDisplayOptionsChanged;
@@ -113,13 +133,6 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
     partial void OnOneLinePerMetricChanged(bool value) => OnDisplayOptionsChanged();
 
-    partial void OnSelectedRefreshRateChanged(RefreshRateOption value)
-    {
-        // Repart de zéro pour que la nouvelle cadence s'applique dès le prochain relevé.
-        _lastRenderTick = 0;
-        Persist();
-    }
-
     private void OnDisplayOptionsChanged()
     {
         Persist();
@@ -131,7 +144,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         _lastSample = sample;
 
         long now = Environment.TickCount64;
-        if (now - _lastRenderTick < SelectedRefreshRate.Milliseconds * RateTolerance) return;
+        if (now - _lastRenderTick < RefreshMs * RateTolerance) return;
         _lastRenderTick = now;
 
         Render();
@@ -202,7 +215,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         settings.Overlay.UseRtss = UseRtss;
         settings.Overlay.UseWindow = UseWindow;
         settings.Overlay.OneLinePerMetric = OneLinePerMetric;
-        settings.Overlay.RefreshMs = SelectedRefreshRate.Milliseconds;
+        settings.Overlay.RefreshMs = RefreshMs;
         settings.Overlay.MetricIds = Metrics.SelectedIds;
 
         OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();

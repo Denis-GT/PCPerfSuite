@@ -124,13 +124,18 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Rafraîchissement de l'overlay" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Indépendant de celui du Monitoring, sans pouvoir aller plus vite que lui (les valeurs viennent de là)." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0">
+                                    <Run Text="Indépendant de celui du Monitoring, sans pouvoir aller plus vite que lui (les valeurs viennent de là) —"/>
+                                    <Run Text="{Binding RefreshHint, Mode=OneWay}"/>
+                                    <Run Text="."/>
+                                </TextBlock>
                             </StackPanel>
-                            <Border Grid.Column="1" Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}"
-                                    BorderThickness="1" CornerRadius="10" Padding="3" VerticalAlignment="Center">
-                                <ListBox Style="{StaticResource PillSelector}" DisplayMemberPath="Label"
-                                         ItemsSource="{Binding RefreshRateOptions}" SelectedItem="{Binding SelectedRefreshRate}"/>
-                            </Border>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                         controls:TextBoxBehaviors.CommitOnEnter="True"
+                                         Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
+                                <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Margin="0,0,0,18">

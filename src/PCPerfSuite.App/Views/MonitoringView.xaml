@@ -15,10 +15,11 @@
                 <TextBlock Grid.Column="0" Text="Vue d'ensemble des composants." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Actualisation :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="3">
-                        <ListBox Style="{StaticResource PillSelector}" DisplayMemberPath="Label"
-                                 ItemsSource="{Binding RefreshRateOptions}" SelectedItem="{Binding SelectedRefreshRate}"/>
-                    </Border>
+                    <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                             controls:TextBoxBehaviors.CommitOnEnter="True"
+                             ToolTip="{Binding RefreshHint}"
+                             Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
+                    <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                 </StackPanel>
             </Grid>
 

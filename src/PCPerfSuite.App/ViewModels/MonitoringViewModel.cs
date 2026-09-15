@@ -134,11 +134,31 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     /// <summary>Même relevé que SnapshotUpdated, complété des FPS RTSS et de l'heure : ce que lit le catalogue de métriques.</summary>
     public event Action<MetricSample>? MetricsUpdated;
 
-    /// <summary>Propriété d'instance (et non statique) : c'est la seule forme qu'un {Binding} sait
-    /// résoudre — sinon le sélecteur de cadence s'affiche vide et n'est plus modifiable.</summary>
-    public IReadOnlyList<RefreshRateOption> RefreshRateOptions => RefreshRates.Monitoring;
+    private int _refreshMs = 1000;
 
-    [ObservableProperty] private RefreshRateOption selectedRefreshRate;
+    /// <summary>Cadence de rafraîchissement, saisie librement en millisecondes. La valeur est ramenée
+    /// dans les bornes acceptables et l'affichage suit (taper 10 affiche 100, le minimum retenu).</summary>
+    public int RefreshMs
+    {
+        get => _refreshMs;
+        set
+        {
+            int clamped = RefreshRates.Clamp(value);
+            bool changed = SetProperty(ref _refreshMs, clamped);
+
+            // Saisie hors bornes : on renotifie pour que le champ affiche la valeur réellement retenue.
+            if (clamped != value) OnPropertyChanged(nameof(RefreshMs));
+            if (!changed) return;
+
+            _timer.Interval = TimeSpan.FromMilliseconds(clamped);
+
+            AppSettings settings = AppSettingsStore.Load();
+            settings.MonitoringRefreshMs = clamped;
+            AppSettingsStore.Save(settings);
+        }
+    }
+
+    public string RefreshHint => RefreshRates.Hint;
 
     public MetricSelectionViewModel MyMetrics { get; }
     public ObservableCollection<MetricTileViewModel> MyMetricTiles { get; } = new();
@@ -186,7 +206,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _hardware = hardware;
 
         AppSettings settings = AppSettingsStore.Load();
-        selectedRefreshRate = RefreshRates.Resolve(RefreshRates.Monitoring, settings.MonitoringRefreshMs);
+        _refreshMs = RefreshRates.Clamp(settings.MonitoringRefreshMs);
 
         MyMetrics = new MetricSelectionViewModel(settings.MonitoringMetricIds ?? MetricCatalog.DefaultMonitoringIds);
         MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
@@ -194,21 +214,12 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(selectedRefreshRate.Milliseconds),
+            Interval = TimeSpan.FromMilliseconds(_refreshMs),
         };
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
 
         _ = RefreshAsync();
-    }
-
-    partial void OnSelectedRefreshRateChanged(RefreshRateOption value)
-    {
-        _timer.Interval = TimeSpan.FromMilliseconds(value.Milliseconds);
-
-        AppSettings settings = AppSettingsStore.Load();
-        settings.MonitoringRefreshMs = value.Milliseconds;
-        AppSettingsStore.Save(settings);
     }
 
     private void OnMyMetricsSelectionChanged()
