@@ -150,6 +150,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     public void SetManualInterval(SensorGroup group, TimeSpan? interval)
         => _schedules[(int)group].ManualInterval = interval;
 
+    /// <summary>Cadence actuelle d'un groupe, sans attendre le prochain relevé (après un changement de réglage).</summary>
+    public SensorGroupReadStatus GetGroupStatus(SensorGroup group) => _schedules[(int)group].GetStatus();
+
     private static SensorGroup GroupOf(HardwareType type) => type switch
     {
         HardwareType.Cpu => SensorGroup.Cpu,

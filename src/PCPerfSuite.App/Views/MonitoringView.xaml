@@ -20,7 +20,7 @@
                              ToolTip="{Binding RefreshHint}"
                              Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
                     <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                    <TextBlock Text="Par capteur" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
+                    <TextBlock Text="Cadence par capteur" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
                     <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
                               ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
                     <TextBlock Text="Personnaliser" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
@@ -39,45 +39,47 @@
                     <Grid Margin="0,12,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="110"/>
-                            <ColumnDefinition Width="130"/>
-                            <ColumnDefinition Width="130"/>
-                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="380"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Groupe" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="1" Text="Automatique" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="2" Text="Cadence imposée" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="3" Text="Cadence appliquée" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="4" Text="Coût moyen" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="1" Text="Auto" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="2" Text="Relecture" Style="{StaticResource Caption}" FontSize="10.5"/>
                     </Grid>
                     <ItemsControl ItemsSource="{Binding SensorCadences}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,5,0,5">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="110"/>
-                                        <ColumnDefinition Width="130"/>
-                                        <ColumnDefinition Width="130"/>
-                                        <ColumnDefinition Width="90"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
-                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
-                                    </StackPanel>
-                                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsAuto}"
-                                              VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
-                                                 controls:TextBoxBehaviors.CommitOnEnter="True"
-                                                 IsEnabled="{Binding IsAuto, Converter={StaticResource InverseBoolean}}"
-                                                 Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
-                                        <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="3" Text="{Binding CadenceDisplay}" Style="{StaticResource Body}" FontSize="12.5" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="4" Text="{Binding AverageCostDisplay}" Style="{StaticResource Body}" FontSize="12.5"
-                                               TextAlignment="Right" VerticalAlignment="Center"/>
-                                </Grid>
+                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="380"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsAuto}"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Left"
+                                                  ToolTip="Auto : l'app espace elle-même la lecture de ce groupe si elle coûte cher"/>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <!-- Auto : ce que l'app a décidé. Sinon : l'intervalle choisi. -->
+                                            <TextBlock Text="{Binding StatusText}" Style="{StaticResource Body}" FontSize="12.5"
+                                                       Visibility="{Binding IsAuto, Converter={StaticResource BoolToVisibility}}"/>
+                                            <StackPanel Orientation="Horizontal"
+                                                        Visibility="{Binding IsAuto, Converter={StaticResource InverseBoolToVisibility}}">
+                                                <TextBlock Text="Relu toutes les" Style="{StaticResource Body}" FontSize="12.5"
+                                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                                         controls:TextBoxBehaviors.CommitOnEnter="True"
+                                                         Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
+                                                <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding ReasonText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

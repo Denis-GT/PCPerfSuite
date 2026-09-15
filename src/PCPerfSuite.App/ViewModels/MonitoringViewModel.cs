@@ -147,10 +147,15 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
     public string Description { get; }
 
     [ObservableProperty] private bool isAuto;
-    [ObservableProperty] private string cadenceDisplay = "--";
-    [ObservableProperty] private string averageCostDisplay = "--";
+
+    /// <summary>Ce qui se passe réellement pour ce groupe, en clair.</summary>
+    [ObservableProperty] private string statusText = "…";
+
+    /// <summary>Pourquoi : coût mesuré de la lecture, ou effet de l'intervalle fixe.</summary>
+    [ObservableProperty] private string reasonText = "Mesure du coût de lecture en cours…";
 
     private int _manualMs;
+    private int _lastRefreshMs = 1000;
 
     /// <summary>Cadence imposée hors automatique, bornée comme l'actualisation (et ramenée dans ces bornes à l'affichage).</summary>
     public int ManualMs
@@ -192,13 +197,28 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
 
     public void Apply(SensorGroupReadStatus status, int refreshMs)
     {
-        // Même marge de 10 % que l'échéancier : une cadence à peine plus lente que l'actualisation revient
-        // à relire le groupe à chaque relevé.
+        _lastRefreshMs = refreshMs;
+
+        // Un groupe ne peut pas être relu plus souvent que l'actualisation. Même marge de 10 % que l'échéancier :
+        // une cadence à peine plus lente que l'actualisation revient à relire le groupe à chaque relevé.
         double intervalMs = status.Interval.TotalMilliseconds;
-        CadenceDisplay = intervalMs * 0.9 <= refreshMs ? "à chaque relevé"
-            : intervalMs >= 1000 ? $"toutes les {intervalMs / 1000:0.#} s"
-            : $"toutes les {intervalMs:0} ms";
-        AverageCostDisplay = status.AverageReadDuration is { } cost ? $"{cost.TotalMilliseconds:0.00} ms" : "--";
+        bool everyRefresh = intervalMs * 0.9 <= refreshMs;
+        string? cost = status.AverageReadDuration is { } duration ? $"{duration.TotalMilliseconds:0.0} ms" : null;
+
+        StatusText = everyRefresh
+            ? $"Relu à chaque actualisation ({refreshMs} ms)"
+            : intervalMs >= 1000 ? $"Relu toutes les {intervalMs / 1000:0.#} s" : $"Relu toutes les {intervalMs:0} ms";
+
+        ReasonText = (IsAuto, everyRefresh, cost) switch
+        {
+            (true, _, null) => "Mesure du coût de lecture en cours…",
+            (true, true, _) => $"Lecture rapide ({cost}) : pas besoin de l'espacer.",
+            (true, false, _) => $"Lecture coûteuse ({cost}) : espacée pour ne pas y passer plus de " +
+                                $"{HardwareMonitorService.AutoReadBudget * 100:0} % du temps.",
+            (false, true, _) => "Intervalle inférieur ou égal à l'actualisation : aucun effet.",
+            (false, false, null) => "Intervalle fixe.",
+            (false, false, _) => $"Intervalle fixe · lecture {cost}.",
+        };
     }
 
     private void ApplyAndSave()
@@ -210,6 +230,9 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
         if (manual is null) settings.SensorGroupIntervalsMs.Remove(Group.ToString());
         else settings.SensorGroupIntervalsMs[Group.ToString()] = ManualMs;
         AppSettingsStore.Save(settings);
+
+        // Le texte suit tout de suite le réglage, sans attendre le prochain relevé.
+        Apply(_hardware.GetGroupStatus(Group), _lastRefreshMs);
     }
 }
 
@@ -286,7 +309,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             foreach (SensorGroupCadenceViewModel cadence in SensorCadences)
             {
                 cadence.ManualMs = clamped;
+                cadence.Apply(_hardware.GetGroupStatus(cadence.Group), clamped);
             }
+            OnPropertyChanged(nameof(SensorCadencesHint));
         }
     }
 
@@ -318,10 +343,11 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool isCustomizingCadences;
 
     public string SensorCadencesHint =>
-        $"En automatique, un groupe est relu d'autant moins souvent que sa lecture coûte cher : elle ne doit pas occuper " +
-        $"plus de {HardwareMonitorService.AutoReadBudget * 100:0} % du temps (au plus toutes les " +
-        $"{HardwareMonitorService.MaxAutoInterval.TotalSeconds:0} s). La charge CPU et les FPS sont lus à chaque relevé. " +
-        "Changer l'actualisation recopie sa valeur dans la cadence imposée de chaque groupe.";
+        $"Un groupe n'est jamais relu plus souvent que l'actualisation ({RefreshMs} ms) : ce réglage sert seulement à en " +
+        "relire certains moins souvent. En Auto, l'app mesure le coût de lecture de chaque groupe et n'espace que ceux qui " +
+        $"coûtent cher (pas plus de {HardwareMonitorService.AutoReadBudget * 100:0} % du temps) : avec une actualisation " +
+        "lente, tout reste donc relu à chaque fois, c'est normal. Sans Auto, tu fixes l'intervalle. La charge CPU et les " +
+        "FPS suivent toujours l'actualisation.";
 
     public MonitoringViewModel(HardwareMonitorService hardware)
     {
