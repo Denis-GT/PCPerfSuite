@@ -4,38 +4,83 @@ App Windows (WPF, .NET 8) de monitoring et de tuning PC. Construite pour ta conf
 (i5-14600K, RTX 5070 Ti, ASUS TUF B760-PLUS WIFI) mais faite pour rester compatible
 avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 
-## Ce qui est livré dans cette v1 (MVP)
+## Ce que fait l'app
 
 - **Monitoring** — dashboard temps réel plus complet et plus lisible que le Gestionnaire
   des tâches : CPU (charge, température, puissance, fréquence), GPU (charge, températures
-  cœur + hot spot, horloges cœur/mémoire, VRAM, ventilo), RAM, carte mère, et la liste de
-  tous les ventilateurs détectés avec RPM + %.
+  cœur + hot spot, horloges cœur/mémoire, VRAM, ventilo), RAM, carte mère, réseau, disques
+  (débits, température, santé SMART) et la liste de tous les ventilateurs détectés avec
+  RPM + %. La tuile « Mes métriques » se compose librement dans le catalogue de métriques,
+  et la cadence de rafraîchissement se choisit en haut de l'onglet (250 ms → 5 s).
 - **Nettoyage** — cache shaders NVIDIA/AMD/Intel, cache shaders DirectX (D3DSCache), cache
   Steam, fichiers temporaires (%TEMP% et système), Prefetch, cache Windows Update, rapports
   d'erreurs Windows, cache des miniatures, cache Delivery Optimization, + un bouton "Vider
   la corbeille". Chaque catégorie affiche la taille réelle occupée et propose "Ouvrir le
   dossier" et "Nettoyer".
+- **Stockage** — carte proportionnelle (treemap) de ce qui occupe un disque, avec menu
+  contextuel (ouvrir, explorer, supprimer) sur chaque bloc.
 - **Paramètres Windows** — y compris les réglages masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
   par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
+- **Ventilateurs** — courbes température → % par ventilateur piloté par la carte mère
+  (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O),
+  avec modes Auto / Manuel / Courbe et presets Silencieux / Équilibré / Perf.
+- **GPU** — overclocking NVAPI complet : décalage d'horloge cœur et mémoire, limite de
+  puissance, limite de température, surtension cœur quand la carte l'accepte, plus la
+  courbe de ventilation GPU. Détail plus bas.
+- **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
+  transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
+  Détail plus bas.
 
-## Prévu ensuite (pas encore dans cette v1)
+## Overlay en jeu
 
-Les onglets "Ventilateurs", "GPU" et "Overlay" sont déjà dans l'app (avec le détail de ce
-qui est prévu) mais pas encore fonctionnels :
+Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
 
-1. **Courbes de ventilation** (CPU/boîtier/watercooling) — nécessite d'aller chercher,
-   pour ta carte mère précise, quels canaux de la puce Super I/O LibreHardwareMonitor sait
-   piloter en écriture (pas juste lire). C'est variable d'un modèle à l'autre.
-2. **Overclock/contrôle GPU** — fréquences, tension, power limit et courbe ventilo GPU via
-   NVAPI pour ta RTX 5070 Ti (AMD/Intel ensuite via ADL/Intel Control Library).
-3. **Overlay façon MSI Afterburner** — le plus gros morceau technique. RTSS utilise un
-   pilote noyau pour s'accrocher à n'importe quel jeu, y compris en plein écran exclusif.
-   Sans réinventer ça, on commencera par un overlay fenêtre transparente toujours au-dessus
-   (fonctionne en jeu fenêtré/sans bordure, qui couvre la grande majorité des jeux
-   modernes), avec police/taille/couleur/position personnalisables par métrique.
+1. **RTSS** (RivaTuner Statistics Server, le moteur d'overlay de MSI Afterburner).
+   PCPerfSuite écrit le texte dans la mémoire partagée `RTSSSharedMemoryV2` que RTSS relit
+   et dessine lui-même à l'intérieur du jeu — aucune injection de notre côté. C'est le seul
+   canal qui fonctionne en **plein écran exclusif**. RTSS doit être installé et lancé
+   (gratuit, guru3d.com). Les couleurs et la taille du texte lui sont transmises via ses
+   balises de mise en forme (`<C=AARRGGBB>`, `<S=nnn>`) ; la police, elle, reste celle
+   configurée dans RTSS. Si une version trop ancienne de RTSS affichait les balises en
+   clair, l'envoi des couleurs se désactive d'un interrupteur.
+2. **Fenêtre PCPerfSuite** : une fenêtre transparente, sans bordure, toujours au-dessus et
+   traversante pour la souris (`WS_EX_TRANSPARENT`/`WS_EX_NOACTIVATE`/`WS_EX_TOOLWINDOW`).
+   Rien à installer, police/taille/couleurs/position/opacité entièrement libres, mais elle
+   n'apparaît **pas** en plein écran exclusif (limite de Windows) — en fenêtré ou sans
+   bordure, c'est-à-dire la grande majorité des jeux récents, elle fonctionne.
+
+Réglages disponibles : métriques affichées (même catalogue que le Monitoring), une ligne
+par métrique ou une ligne par catégorie façon Afterburner, **cadence propre à l'overlay**
+(indépendante de celle du Monitoring, sans pouvoir aller plus vite que lui puisque les
+valeurs en viennent), police, taille, **une couleur par catégorie** (CPU, GPU, RAM, NET…)
+pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran
+(grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
+l'overlay affichera.
+
+## Overclocking GPU
+
+Tout passe par NVAPI (NvAPIWrapper.Net), sans pilote ni service supplémentaire :
+
+- **Horloges cœur et mémoire** : décalage (offset) en MHz appliqué à l'état P0 via
+  l'API P-States 2.0 (`NvAPI_GPU_Get/SetPstates20`) — exactement le mécanisme des curseurs
+  « Core Clock / Memory Clock » de MSI Afterburner, valable de Kepler aux cartes actuelles.
+  Les bornes des curseurs sont celles que le pilote annonce pour ta carte.
+- **Limite de puissance** en % (power limit).
+- **Limite de température** en °C (thermal policies).
+- **Surtension cœur** en % : l'API correspondante est réservée aux GPU Pascal (GTX 10xx),
+  donc le curseur n'apparaît que si la carte répond réellement à cet appel.
+- **Ventilateur** : Auto / Manuel / Courbe, avec passage forcé à 100 % au-delà de 88 °C.
+
+Sécurité : par défaut **rien n'est réappliqué au démarrage et tout est rendu au pilote en
+quittant**. La case « Appliquer au démarrage » rend l'overclock persistant dans les deux
+sens (réappliqué au lancement, conservé à la fermeture). Un décalage trop ambitieux fige
+l'écran ou fait planter le pilote sans rien casser : un redémarrage remet tout d'origine,
+et l'overclock n'est pas réappliqué tant que cette case est décochée. Monte par paliers de
+15 à 25 MHz et teste entre chaque. Chaque réglage refusé par le pilote est signalé dans
+l'onglet plutôt que d'échouer en silence.
 
 ## Points d'attention importants
 
@@ -50,10 +95,12 @@ qui est prévu) mais pas encore fonctionnels :
   à toi de juger le compromis sécurité/monitoring.
 - Les valeurs manquantes s'affichent en `--` plutôt qu'un plantage : selon ta carte mère,
   tous les capteurs ne sont pas forcément exposés par LibreHardwareMonitorLib.
+- Les réglages sont stockés dans
+  `%LOCALAPPDATA%\PCPerfSuite\settings.json` (lisible et modifiable à la main).
 
 ## Compiler et lancer
 
-Prérequis : SDK .NET 8 (présent sur ta machine).
+Prérequis : SDK .NET 8.
 
 ```
 cd PCPerfSuite
@@ -65,6 +112,7 @@ Puis lance `src\PCPerfSuite.App\bin\Release\net8.0-windows\PCPerfSuite.exe` (cli
 Exécuter en tant qu'administrateur si l'invite UAC ne se déclenche pas automatiquement), ou
 ouvre `PCPerfSuite.sln` dans Visual Studio et F5.
 
-Comme ce projet n'a pas encore pu être compilé sur une vraie machine Windows depuis cette
-session, il est possible qu'une erreur de build apparaisse au premier essai (version exacte
-d'un package NuGet, détail d'API) — si ça arrive, copie-colle l'erreur, je corrige.
+La solution compile sans erreur (C# et XAML), mais elle n'a pas pu être *exécutée* sur une
+vraie machine Windows depuis cette session : le comportement des appels NVAPI dépend de ta
+carte et de ton pilote. Si un réglage ne prend pas, l'onglet GPU affiche le refus — copie
+le message, on ajuste.

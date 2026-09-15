@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.Core.PowerSettings;
 
@@ -20,10 +21,10 @@ public sealed class AppSettings
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
 
-    /// <summary>Réglages de contrôle GPU (limite de puissance + ventilateurs NVAPI).</summary>
+    /// <summary>Réglages de contrôle GPU (limite de puissance, overclocking, ventilateurs NVAPI).</summary>
     public GpuControlSettings Gpu { get; set; } = new();
 
-    /// <summary>Réglages de l'overlay en jeu (poussé dans RTSS).</summary>
+    /// <summary>Réglages de l'overlay en jeu (RTSS et/ou fenêtre PCPerfSuite).</summary>
     public OverlaySettings Overlay { get; set; } = new();
 }
 
@@ -37,6 +38,22 @@ public sealed class GpuControlSettings
     public float FanManualPercent { get; set; } = 60;
     public FanTempSource FanSource { get; set; } = FanTempSource.GpuCore;
     public List<FanCurvePoint> FanPoints { get; set; } = FanCurveMath.EquilibrePoints();
+
+    /// <summary>Décalage d'horloge cœur, en MHz (0 = fréquences d'origine).</summary>
+    public int CoreClockOffsetMhz { get; set; }
+
+    /// <summary>Décalage d'horloge mémoire, en MHz (0 = fréquences d'origine).</summary>
+    public int MemoryClockOffsetMhz { get; set; }
+
+    /// <summary>Limite de température en °C — null tant que l'utilisateur n'y a pas touché.</summary>
+    public int? TemperatureLimitC { get; set; }
+
+    /// <summary>Surtension cœur en % (API réservée aux GPU Pascal) — null si jamais modifiée.</summary>
+    public int? VoltageBoostPercent { get; set; }
+
+    /// <summary>Réapplique l'overclock au lancement de l'app — et, dans ce cas seulement, le laisse en
+    /// place en quittant. Décoché (défaut), la carte repart toujours d'origine.</summary>
+    public bool ApplyOverclockAtStartup { get; set; }
 }
 
 public sealed class OverlaySettings
@@ -50,11 +67,62 @@ public sealed class OverlaySettings
     /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
     public bool OneLinePerMetric { get; set; }
 
+    /// <summary>Cadence de rafraîchissement de l'overlay, en millisecondes. Plancher : la cadence du
+    /// monitoring, qui est la source des valeurs.</summary>
+    public int RefreshMs { get; set; } = 1000;
+
+    /// <summary>Pousse le texte dans l'overlay de RTSS (fonctionne en plein écran exclusif).</summary>
+    public bool UseRtss { get; set; } = true;
+
+    /// <summary>Affiche l'overlay fenêtre de PCPerfSuite (jeux fenêtrés/sans bordure, police et
+    /// couleurs entièrement personnalisables).</summary>
+    public bool UseWindow { get; set; }
+
+    public OverlayAppearanceSettings Appearance { get; set; } = new();
+
     // Anciens interrupteurs, lus uniquement pour la migration : remis à null (donc retirés du JSON) dès
     // que MetricIds est enregistré.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowCpu { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowGpu { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? ShowRam { get; set; }
+}
+
+/// <summary>Apparence de l'overlay : police, taille et couleurs. Les couleurs sont stockées en
+/// "#RRGGBB" pour rester lisibles/modifiables à la main dans settings.json.</summary>
+public sealed class OverlayAppearanceSettings
+{
+    public string FontFamily { get; set; } = "Consolas";
+
+    /// <summary>Taille de police de l'overlay fenêtre, en pixels.</summary>
+    public double FontSize { get; set; } = 18;
+
+    /// <summary>Taille du texte envoyé à RTSS, en % de la police configurée dans RTSS (balise
+    /// &lt;S=...&gt;). 100 = taille RTSS d'origine.</summary>
+    public int RtssSizePercent { get; set; } = 100;
+
+    /// <summary>Colore le nom de chaque ligne (CPU, RAM, NET...) avec la couleur de sa catégorie.</summary>
+    public bool UseCategoryColors { get; set; } = true;
+
+    /// <summary>Envoie aussi les couleurs à RTSS via ses balises de mise en forme. À décocher si une
+    /// version de RTSS trop ancienne affiche les balises en clair au lieu de les interpréter.</summary>
+    public bool SendColorsToRtss { get; set; } = true;
+
+    /// <summary>Couleur des valeurs (les libellés, eux, prennent la couleur de leur catégorie).</summary>
+    public string ValueColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Une catégorie absente garde la
+    /// couleur par défaut du catalogue.</summary>
+    public Dictionary<string, string> CategoryColors { get; set; } = new();
+
+    public OverlayAnchor Anchor { get; set; } = OverlayAnchor.TopLeft;
+
+    /// <summary>Marge depuis le bord de l'écran, en pixels (overlay fenêtre).</summary>
+    public int MarginX { get; set; } = 24;
+
+    public int MarginY { get; set; } = 24;
+
+    /// <summary>Opacité du fond noir derrière le texte de l'overlay fenêtre (0 = aucun fond).</summary>
+    public double BackgroundOpacity { get; set; } = 0.45;
 }
 
 /// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>
