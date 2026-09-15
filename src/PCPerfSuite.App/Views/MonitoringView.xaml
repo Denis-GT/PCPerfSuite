@@ -333,6 +333,62 @@
                 </StackPanel>
             </Border>
 
+            <!-- Temps de lecture des capteurs : pour fixer l'actualisation minimale sur des mesures réelles. -->
+            <Border Style="{StaticResource Card}" Margin="0,4,0,16">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Temps de lecture des capteurs" Style="{StaticResource H2}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <Run Text="Ticks sautés :"/>
+                                <Run Text="{Binding SkippedTicks, Mode=OneWay}"/>
+                            </TextBlock>
+                            <Button Content="Réinitialiser" Style="{StaticResource GhostButton}" Command="{Binding ResetReadTimingsCommand}"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="{Binding ReadTimingsHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+                    <Grid Margin="0,12,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="1" Text="Cadence" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="2" Text="Dernière" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Text="Moyenne" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="4" Text="Max" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding ReadTimings}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3,0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Body}" FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Cadence}" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding LastDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding AverageDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding MaxDisplay}" Style="{StaticResource Body}" FontSize="12.5" TextAlignment="Right" FontWeight="SemiBold"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
                        Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}" Margin="0,0,0,20"/>
         </StackPanel>

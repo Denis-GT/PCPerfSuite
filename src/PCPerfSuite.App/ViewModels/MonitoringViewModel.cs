@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -122,12 +123,49 @@ public sealed partial class MetricTileViewModel : ObservableObject
     }
 }
 
+/// <summary>Ligne du tableau "Temps de lecture des capteurs" : dernière durée, moyenne et pire cas
+/// sur les <see cref="Window"/> dernières lectures.</summary>
+public sealed partial class ReadTimingViewModel : ObservableObject
+{
+    public const int Window = 100;
+
+    private readonly SampleHistory _durationsMs = new(Window);
+
+    public string Key { get; }
+    public string Name { get; }
+    public string Cadence { get; }
+
+    [ObservableProperty] private string lastDisplay = "--";
+    [ObservableProperty] private string averageDisplay = "--";
+    [ObservableProperty] private string maxDisplay = "--";
+
+    public ReadTimingViewModel(string key, string name, string cadence)
+    {
+        Key = key;
+        Name = name;
+        Cadence = cadence;
+    }
+
+    public void Record(TimeSpan duration)
+    {
+        _durationsMs.Push(duration.TotalMilliseconds);
+        LastDisplay = Format(duration.TotalMilliseconds);
+        AverageDisplay = Format(_durationsMs.Average() ?? 0);
+        MaxDisplay = Format(_durationsMs.Max());
+    }
+
+    private static string Format(double ms) => $"{ms:0.00} ms";
+}
+
 public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 {
+    private const string EveryTickCadence = "à chaque relevé";
+
     private readonly HardwareMonitorService _hardware;
     private readonly DiskHealthService _diskHealth = new();
     private readonly DispatcherTimer _timer;
     private MetricSample? _lastSample;
+    private bool _isRefreshing;
 
     public event Action<HardwareSnapshot>? SnapshotUpdated;
 
@@ -201,6 +239,16 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string? errorMessage;
 
+    /// <summary>Ticks ignorés parce que la lecture précédente n'était pas terminée.</summary>
+    [ObservableProperty] private int skippedTicks;
+
+    public ObservableCollection<ReadTimingViewModel> ReadTimings { get; } = new();
+
+    public string ReadTimingsHint =>
+        $"Moyenne et max sur les {ReadTimingViewModel.Window} dernières lectures. Si le max du relevé complet dépasse " +
+        $"l'actualisation, des ticks sont sautés. Carte mère, disques et réseau ne sont relus que toutes les " +
+        $"{HardwareMonitorService.SlowHardwareInterval.TotalSeconds:0.#} s : le max du relevé complet correspond aux ticks où ils le sont.";
+
     public MonitoringViewModel(HardwareMonitorService hardware)
     {
         _hardware = hardware;
@@ -257,17 +305,69 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     private async Task RefreshAsync()
     {
+        // Le timer continue de sonner pendant la lecture. Si la précédente n'est pas terminée, on saute ce
+        // tick : sinon les lectures s'empilent en parallèle sur LibreHardwareMonitor, qui n'est pas prévu
+        // pour ça, et l'interface accumule un retard qu'elle ne rattrape jamais.
+        if (_isRefreshing)
+        {
+            SkippedTicks++;
+            return;
+        }
+
+        _isRefreshing = true;
         try
         {
-            (HardwareSnapshot snapshot, RtssFrameStats? game) = await Task.Run(
-                () => (_hardware.GetSnapshot(), RtssFrameStatsReader.TryReadForeground()));
+            (HardwareSnapshot snapshot, RtssFrameStats? game, TimeSpan rtssDuration) = await Task.Run(() =>
+            {
+                HardwareSnapshot hardware = _hardware.GetSnapshot();
+                long rtssStart = Stopwatch.GetTimestamp();
+                RtssFrameStats? frames = RtssFrameStatsReader.TryReadForeground();
+                return (hardware, frames, Stopwatch.GetElapsedTime(rtssStart));
+            });
             Apply(snapshot, game);
+            RecordReadTimings(snapshot, rtssDuration);
             ErrorMessage = null;
         }
         catch (Exception ex)
         {
             ErrorMessage = $"Lecture des capteurs impossible : {ex.Message}";
         }
+        finally
+        {
+            _isRefreshing = false;
+        }
+    }
+
+    private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan rtssDuration)
+    {
+        string slowCadence = $"toutes les {HardwareMonitorService.SlowHardwareInterval.TotalSeconds:0.#} s";
+
+        foreach (HardwareReadTiming timing in snapshot.ReadTimings)
+        {
+            ReadTimingRow(timing.Identifier, timing.Name, timing.IsSlow ? slowCadence : EveryTickCadence).Record(timing.Duration);
+        }
+
+        ReadTimingRow("snapshot", "Relevé complet (GetSnapshot)", EveryTickCadence).Record(snapshot.ReadDuration);
+        ReadTimingRow("rtss", "FPS (RTSS)", EveryTickCadence).Record(rtssDuration);
+    }
+
+    private ReadTimingViewModel ReadTimingRow(string key, string name, string cadence)
+    {
+        ReadTimingViewModel? row = ReadTimings.FirstOrDefault(r => r.Key == key);
+        if (row is null)
+        {
+            row = new ReadTimingViewModel(key, name, cadence);
+            ReadTimings.Add(row);
+        }
+        return row;
+    }
+
+    /// <summary>Repart de zéro, par exemple pour mesurer après avoir changé l'actualisation.</summary>
+    [RelayCommand]
+    private void ResetReadTimings()
+    {
+        ReadTimings.Clear();
+        SkippedTicks = 0;
     }
 
     private void Apply(HardwareSnapshot s, RtssFrameStats? game)
