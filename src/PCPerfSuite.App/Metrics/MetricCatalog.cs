@@ -110,6 +110,9 @@ public static class MetricCatalog
         Rate("net.download", Network, "Débit descendant total", "recep", s => s.Hardware.Network.DownloadBytesPerSecond),
 
         Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps),
+        Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps),
+        Numeric("game.fps.low1", Game, "FPS 1% low", "1%", "FPS", "0", s => s.Game?.OnePercentLowFps),
+        Numeric("game.fps.low01", Game, "FPS 0.1% low", "0.1%", "FPS", "0", s => s.Game?.PointOnePercentLowFps),
         Numeric("game.frametime", Game, "Temps de frame", "frame", "ms", "0.0", s => s.Game?.FrameTimeMs),
 
         new MetricDefinition
