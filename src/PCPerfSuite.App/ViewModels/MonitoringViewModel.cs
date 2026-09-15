@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -11,6 +12,8 @@ using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
 
+/// <summary>Ligne de "Disques" : occupation, usure et test de santé. Débits et température sont des capteurs
+/// comme les autres, affichables en tuiles graphiques.</summary>
 public sealed partial class DiskItemViewModel : ObservableObject
 {
     private readonly DiskHealthService _health;
@@ -19,21 +22,12 @@ public sealed partial class DiskItemViewModel : ObservableObject
 
     [ObservableProperty] private string name = "…";
     [ObservableProperty] private double usedPercent;
-    [ObservableProperty] private double? readRateBytesPerSecond;
-    [ObservableProperty] private double? writeRateBytesPerSecond;
-    [ObservableProperty] private double? temperatureC;
     [ObservableProperty] private double? remainingLifePercent;
-
-    public SampleHistory ReadHistory { get; } = new();
-    public SampleHistory WriteHistory { get; } = new();
 
     [ObservableProperty] private bool isTesting;
     [ObservableProperty] private DiskHealthStatus? healthStatus;
     [ObservableProperty] private string? healthSummary;
 
-    public string ReadRateDisplay => ByteFormatter.FormatRate(ReadRateBytesPerSecond);
-    public string WriteRateDisplay => ByteFormatter.FormatRate(WriteRateBytesPerSecond);
-    public string TemperatureDisplay => TemperatureC is { } t ? $"{t:0.#} °C" : "--";
     public string RemainingLifeDisplay => RemainingLifePercent is { } l ? $"{l:0}%" : "--";
     public string TestButtonLabel => IsTesting ? "Test en cours…" : "Tester l'état";
 
@@ -47,17 +41,9 @@ public sealed partial class DiskItemViewModel : ObservableObject
     {
         Name = s.Name;
         UsedPercent = s.UsedPercent ?? 0;
-        ReadRateBytesPerSecond = s.ReadRateBytesPerSecond;
-        WriteRateBytesPerSecond = s.WriteRateBytesPerSecond;
-        TemperatureC = s.TemperatureC;
         RemainingLifePercent = s.RemainingLifePercent;
-        ReadHistory.Push(s.ReadRateBytesPerSecond);
-        WriteHistory.Push(s.WriteRateBytesPerSecond);
     }
 
-    partial void OnReadRateBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(ReadRateDisplay));
-    partial void OnWriteRateBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(WriteRateDisplay));
-    partial void OnTemperatureCChanged(double? value) => OnPropertyChanged(nameof(TemperatureDisplay));
     partial void OnRemainingLifePercentChanged(double? value) => OnPropertyChanged(nameof(RemainingLifeDisplay));
     partial void OnIsTestingChanged(bool value) => OnPropertyChanged(nameof(TestButtonLabel));
 
@@ -105,49 +91,48 @@ public sealed partial class DiskItemViewModel : ObservableObject
     }
 }
 
-/// <summary>Tuile de "Mes métriques", mise à jour en place à chaque relevé plutôt que recréée (pas de clignotement).</summary>
+/// <summary>Tuile graphique d'un capteur : valeur courante et courbe de son historique, dans la couleur de sa
+/// catégorie. Mise à jour en place à chaque relevé plutôt que recréée (pas de clignotement).</summary>
 public sealed partial class MetricTileViewModel : ObservableObject
 {
     public MetricDefinition Definition { get; }
     public string Label => Definition.Label;
     public string CategoryName => Definition.Category.Name;
-    public bool IsPercent => Definition.IsPercent;
+
+    /// <summary>Historique tenu par le MonitoringViewModel pour tous les capteurs, affichés ou non.</summary>
+    public SampleHistory History { get; }
+
+    public Brush LineBrush { get; }
+    public Brush FillBrush { get; }
+
+    public bool AutoScale => Definition.GraphMaximum is null;
+    public double GraphMaximum => Definition.GraphMaximum ?? 100;
+    public double MinimumScale => Definition.GraphMinimumScale;
 
     [ObservableProperty] private string displayValue = "--";
     [ObservableProperty] private string unit = "";
-    [ObservableProperty] private double percent;
 
-    public MetricTileViewModel(MetricDefinition definition) => Definition = definition;
+    public MetricTileViewModel(MetricDefinition definition, SampleHistory history)
+    {
+        Definition = definition;
+        History = history;
+
+        var color = (Color)ColorConverter.ConvertFromString(definition.Category.DefaultColor);
+        LineBrush = Frozen(new SolidColorBrush(color));
+        FillBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x30, color.R, color.G, color.B)));
+    }
 
     public void Apply(MetricSample sample)
     {
         MetricReading reading = Definition.Read(sample);
         DisplayValue = reading.Value;
         Unit = reading.Unit;
-        Percent = reading.Number ?? 0;
     }
-}
 
-/// <summary>Ligne de "Ventilateurs détectés", mise à jour en place pour que son graphique garde son historique.</summary>
-public sealed partial class FanItemViewModel : ObservableObject
-{
-    public string SensorId { get; }
-    public SampleHistory RpmHistory { get; } = new();
-
-    [ObservableProperty] private string sensorName = "";
-    [ObservableProperty] private string hardwareName = "";
-    [ObservableProperty] private double? rpm;
-    [ObservableProperty] private double? percentControl;
-
-    public FanItemViewModel(string sensorId) => SensorId = sensorId;
-
-    public void Apply(FanReading reading)
+    private static Brush Frozen(SolidColorBrush brush)
     {
-        SensorName = reading.SensorName;
-        HardwareName = reading.HardwareName;
-        Rpm = reading.Rpm;
-        PercentControl = reading.PercentControl;
-        RpmHistory.Push(reading.Rpm);
+        brush.Freeze();
+        return brush;
     }
 }
 
@@ -265,6 +250,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     private readonly HardwareMonitorService _hardware;
     private readonly DiskHealthService _diskHealth = new();
     private readonly DispatcherTimer _timer;
+    private readonly Dictionary<string, SampleHistory> _histories = new();
     private MetricSample? _lastSample;
     private bool _isRefreshing;
 
@@ -294,70 +280,24 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             AppSettings settings = AppSettingsStore.Load();
             settings.MonitoringRefreshMs = clamped;
             AppSettingsStore.Save(settings);
+
+            // L'actualisation globale fait référence : sa valeur est recopiée dans la cadence imposée de chaque
+            // groupe, celle qu'appliquent les groupes hors automatique.
+            foreach (SensorGroupCadenceViewModel cadence in SensorCadences)
+            {
+                cadence.ManualMs = clamped;
+            }
         }
     }
 
     public string RefreshHint => RefreshRates.Hint;
 
+    /// <summary>Capteurs proposés en tuiles graphiques : le catalogue partagé avec l'overlay (sauf ce qui n'a pas
+    /// de courbe), plus les capteurs propres à la machine ajoutés au fil des relevés.</summary>
     public MetricSelectionViewModel MyMetrics { get; }
     public ObservableCollection<MetricTileViewModel> MyMetricTiles { get; } = new();
     [ObservableProperty] private bool isCustomizingMyMetrics;
 
-    [ObservableProperty] private string cpuName = "…";
-    [ObservableProperty] private double cpuLoad;
-    [ObservableProperty] private double? cpuTemp;
-    [ObservableProperty] private double? cpuPower;
-    [ObservableProperty] private double? cpuClock;
-
-    [ObservableProperty] private bool hasGpu;
-    [ObservableProperty] private string gpuName = "…";
-    [ObservableProperty] private string gpuVendor = "";
-    [ObservableProperty] private double gpuLoad;
-    [ObservableProperty] private double? gpuTemp;
-    [ObservableProperty] private double? gpuHotspot;
-    [ObservableProperty] private double? gpuCoreClock;
-    [ObservableProperty] private double? gpuMemClock;
-    [ObservableProperty] private double? gpuPower;
-    [ObservableProperty] private double? gpuVramUsed;
-    [ObservableProperty] private double? gpuVramTotal;
-    [ObservableProperty] private double gpuVramLoad;
-    [ObservableProperty] private double? gpuFanRpm;
-
-    [ObservableProperty] private double memLoad;
-    [ObservableProperty] private double? memUsedGb;
-    [ObservableProperty] private double? memTotalGb;
-
-    [ObservableProperty] private string motherboardName = "…";
-    [ObservableProperty] private string motherboardTempLabel = "Température système";
-    [ObservableProperty] private double? motherboardTemp;
-    [ObservableProperty] private string motherboardVrmLabel = "VRM";
-    [ObservableProperty] private double? motherboardVrmTemp;
-
-    [ObservableProperty] private double? netDownload;
-    [ObservableProperty] private double? netUpload;
-
-    public string NetDownloadDisplay => ByteFormatter.FormatRate(NetDownload);
-    public string NetUploadDisplay => ByteFormatter.FormatRate(NetUpload);
-
-    partial void OnNetDownloadChanged(double? value) => OnPropertyChanged(nameof(NetDownloadDisplay));
-    partial void OnNetUploadChanged(double? value) => OnPropertyChanged(nameof(NetUploadDisplay));
-
-    // Historiques des graphiques, tenus ici plutôt que dans les Sparkline pour ne pas dépendre de la vue.
-    public SampleHistory CpuLoadHistory { get; } = new();
-    public SampleHistory CpuTempHistory { get; } = new();
-    public SampleHistory CpuPowerHistory { get; } = new();
-    public SampleHistory GpuLoadHistory { get; } = new();
-    public SampleHistory GpuTempHistory { get; } = new();
-    public SampleHistory GpuPowerHistory { get; } = new();
-    public SampleHistory MemLoadHistory { get; } = new();
-    public SampleHistory MotherboardTempHistory { get; } = new();
-    public SampleHistory MotherboardVrmTempHistory { get; } = new();
-    public SampleHistory NetDownloadHistory { get; } = new();
-    public SampleHistory NetUploadHistory { get; } = new();
-
-    public ObservableCollectionEx<FanItemViewModel> Fans { get; } = new();
-    public ObservableCollectionEx<SensorReading> MotherboardOtherTemps { get; } = new();
-    public ObservableCollectionEx<SensorReading> MotherboardVoltages { get; } = new();
     public ObservableCollectionEx<DiskItemViewModel> Disks { get; } = new();
 
     [ObservableProperty] private string? errorMessage;
@@ -375,10 +315,13 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     /// <summary>Un groupe par ligne, dans l'ordre de <see cref="SensorGroup"/>.</summary>
     public IReadOnlyList<SensorGroupCadenceViewModel> SensorCadences { get; }
 
+    [ObservableProperty] private bool isCustomizingCadences;
+
     public string SensorCadencesHint =>
         $"En automatique, un groupe est relu d'autant moins souvent que sa lecture coûte cher : elle ne doit pas occuper " +
         $"plus de {HardwareMonitorService.AutoReadBudget * 100:0} % du temps (au plus toutes les " +
-        $"{HardwareMonitorService.MaxAutoInterval.TotalSeconds:0} s). La charge CPU et les FPS sont lus à chaque relevé.";
+        $"{HardwareMonitorService.MaxAutoInterval.TotalSeconds:0} s). La charge CPU et les FPS sont lus à chaque relevé. " +
+        "Changer l'actualisation recopie sa valeur dans la cadence imposée de chaque groupe.";
 
     public MonitoringViewModel(HardwareMonitorService hardware)
     {
@@ -393,7 +336,11 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
                 settings.SensorGroupIntervalsMs.TryGetValue(group.ToString(), out int ms) ? ms : null))
             .ToArray();
 
-        MyMetrics = new MetricSelectionViewModel(settings.MonitoringMetricIds ?? MetricCatalog.DefaultMonitoringIds);
+        // Première ouverture des tuiles graphiques : ce qu'affichaient les anciennes cartes, plus les tuiles
+        // "Mes métriques" déjà choisies.
+        IEnumerable<string> sensorIds = settings.MonitoringSensorIds
+            ?? MetricCatalog.DefaultMonitoringIds.Union(settings.MonitoringMetricIds ?? Enumerable.Empty<string>());
+        MyMetrics = new MetricSelectionViewModel(sensorIds, MetricCatalog.All.Where(m => m.HasGraph));
         MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
         SyncMyMetricTiles();
 
@@ -412,7 +359,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         SyncMyMetricTiles();
 
         AppSettings settings = AppSettingsStore.Load();
-        settings.MonitoringMetricIds = MyMetrics.SelectedIds;
+        settings.MonitoringSensorIds = MyMetrics.SelectedIds;
         AppSettingsStore.Save(settings);
     }
 
@@ -429,15 +376,25 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             }
         }
 
-        // Les tuiles restantes sont déjà dans l'ordre du catalogue : il suffit d'insérer les nouvelles à leur rang.
+        // Les tuiles restantes sont déjà dans l'ordre d'affichage : il suffit d'insérer les nouvelles à leur rang.
         for (int i = 0; i < selected.Count; i++)
         {
             if (i < MyMetricTiles.Count && MyMetricTiles[i].Definition == selected[i]) continue;
 
-            var tile = new MetricTileViewModel(selected[i]);
+            var tile = new MetricTileViewModel(selected[i], GetHistory(selected[i].Id));
             if (_lastSample is not null) tile.Apply(_lastSample);
             MyMetricTiles.Insert(i, tile);
         }
+    }
+
+    private SampleHistory GetHistory(string metricId)
+    {
+        if (!_histories.TryGetValue(metricId, out SampleHistory? history))
+        {
+            history = new SampleHistory();
+            _histories[metricId] = history;
+        }
+        return history;
     }
 
     private async Task RefreshAsync()
@@ -491,7 +448,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         ReadTimingRow("snapshot", "Relevé complet (GetSnapshot)").Record(snapshot.ReadDuration);
         ReadTimingRow("rtss", "FPS (RTSS)").Record(rtssDuration);
 
-        // Sur le thread de l'interface : valeurs affichées, historiques des graphiques et tous les abonnés
+        // Sur le thread de l'interface : tuiles, historiques des graphiques et tous les abonnés
         // (onglet GPU, courbes de ventilateurs, overlay). Le dessin qui suit n'est pas compté.
         ReadTimingRow("ui", "Interface et abonnés (Apply)").Record(applyDuration);
     }
@@ -517,61 +474,20 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     private void Apply(HardwareSnapshot s, RtssFrameStats? game)
     {
-        CpuName = s.Cpu.Name;
-        CpuLoad = s.Cpu.LoadPercent ?? 0;
-        CpuTemp = s.Cpu.PackageTempC;
-        CpuPower = s.Cpu.PowerWatts;
-        CpuClock = s.Cpu.MaxClockMhz;
-        CpuLoadHistory.Push(CpuLoad);
-        CpuTempHistory.Push(CpuTemp);
-        CpuPowerHistory.Push(CpuPower);
-
-        HasGpu = s.Gpu is not null;
-        if (s.Gpu is { } gpu)
-        {
-            GpuName = gpu.Name;
-            GpuVendor = gpu.Vendor;
-            GpuLoad = gpu.LoadPercent ?? 0;
-            GpuTemp = gpu.CoreTempC;
-            GpuHotspot = gpu.HotSpotTempC;
-            GpuCoreClock = gpu.CoreClockMhz;
-            GpuMemClock = gpu.MemoryClockMhz;
-            GpuPower = gpu.PowerWatts;
-            GpuVramUsed = gpu.VramUsedMb;
-            GpuVramTotal = gpu.VramTotalMb;
-            GpuVramLoad = gpu.VramUsedMb is { } used && gpu.VramTotalMb is { } total and > 0
-                ? used / total * 100 : 0;
-            GpuFanRpm = gpu.FanRpm;
-            GpuLoadHistory.Push(GpuLoad);
-            GpuTempHistory.Push(GpuTemp);
-            GpuPowerHistory.Push(GpuPower);
-        }
-
-        MemLoad = s.Memory.LoadPercent ?? 0;
-        MemUsedGb = s.Memory.UsedGb;
-        MemTotalGb = s.Memory.TotalGb;
-        MemLoadHistory.Push(MemLoad);
-
-        MotherboardName = s.Motherboard.Name;
-        MotherboardTempLabel = s.Motherboard.SystemTempLabel;
-        MotherboardTemp = s.Motherboard.SystemTempC;
-        MotherboardVrmLabel = s.Motherboard.VrmTempLabel;
-        MotherboardVrmTemp = s.Motherboard.VrmTempC;
-        MotherboardTempHistory.Push(MotherboardTemp);
-        MotherboardVrmTempHistory.Push(MotherboardVrmTemp);
-
-        NetDownload = s.Network.DownloadBytesPerSecond;
-        NetUpload = s.Network.UploadBytesPerSecond;
-        NetDownloadHistory.Push(NetDownload);
-        NetUploadHistory.Push(NetUpload);
-        MotherboardOtherTemps.ReplaceAll(s.Motherboard.OtherTemperatures);
-        MotherboardVoltages.ReplaceAll(s.Motherboard.Voltages);
-
-        ApplyFans(s.Fans);
         ApplyDisks(s.Disks);
 
         var sample = new MetricSample { Hardware = s, Game = game, LocalTime = DateTime.Now };
         _lastSample = sample;
+
+        // Capteurs propres à la machine, découverts au fil des relevés (un disque branché en cours de route...).
+        MyMetrics.AddDefinitions(MonitoringSensorCatalog.FromSnapshot(s));
+
+        // Historique tenu pour tous les capteurs, affichés ou non : une tuile qu'on active a déjà sa courbe.
+        foreach (MetricDefinition definition in MyMetrics.Definitions)
+        {
+            GetHistory(definition.Id).Push(definition.Read(sample).Number);
+        }
+
         foreach (MetricTileViewModel tile in MyMetricTiles)
         {
             tile.Apply(sample);
@@ -579,29 +495,6 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         SnapshotUpdated?.Invoke(s);
         MetricsUpdated?.Invoke(sample);
-    }
-
-    private void ApplyFans(IReadOnlyList<FanReading> readings)
-    {
-        // Réconciliation par capteur, comme les disques : une ligne recréée à chaque tick perdrait son historique.
-        for (int i = Fans.Count - 1; i >= 0; i--)
-        {
-            if (readings.All(r => r.SensorId != Fans[i].SensorId))
-            {
-                Fans.RemoveAt(i);
-            }
-        }
-
-        foreach (FanReading reading in readings)
-        {
-            FanItemViewModel? existing = Fans.FirstOrDefault(f => f.SensorId == reading.SensorId);
-            if (existing is null)
-            {
-                existing = new FanItemViewModel(reading.SensorId);
-                Fans.Add(existing);
-            }
-            existing.Apply(reading);
-        }
     }
 
     private void ApplyDisks(IReadOnlyList<DiskSnapshot> snapshots)
