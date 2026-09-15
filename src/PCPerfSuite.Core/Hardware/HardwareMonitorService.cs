@@ -16,12 +16,19 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly UpdateVisitor _visitor = new();
     private bool _disposed;
 
-    /// <summary>Cadence de relecture du matériel dont les capteurs bougent lentement ou dont les débits
-    /// sont de toute façon moyennés (carte mère, disques, réseau). CPU, GPU et RAM sont relus à chaque relevé.</summary>
+    /// <summary>Cadence de relecture du CPU par LibreHardwareMonitor. Sur Intel, il lit chaque cœur en y
+    /// déplaçant son thread, ce qui a été mesuré à ~30 ms en moyenne et 80 ms au pire sur un i5-13500T :
+    /// température, puissance et fréquence suivent donc cette cadence, et la charge est calculée à chaque
+    /// relevé par <see cref="CpuLoadSampler"/>, pour quasiment rien.</summary>
+    public static readonly TimeSpan CpuSensorInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Cadence de relecture de la carte mère, des disques et du réseau : valeurs lentes ou débits
+    /// déjà moyennés. Leur lecture est rapide mais n'a pas d'intérêt plus souvent. GPU et RAM sont relus à chaque relevé.</summary>
     public static readonly TimeSpan SlowHardwareInterval = TimeSpan.FromSeconds(1);
 
-    private long _lastSlowUpdateTimestamp;
-    private bool _slowHardwareRead;
+    private readonly ReadSchedule _cpuSchedule = new(CpuSensorInterval);
+    private readonly ReadSchedule _slowSchedule = new(SlowHardwareInterval);
+    private readonly CpuLoadSampler _cpuLoad = new();
 
     public HardwareMonitorService()
     {
@@ -42,16 +49,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         long start = Stopwatch.GetTimestamp();
 
-        // Marge de 10 % : le timer de l'interface n'est pas exact à la milliseconde, et sans marge un
-        // relevé arrivé à 998 ms repousserait la relecture au tick suivant (2 s à la cadence par défaut).
-        bool readSlowHardware = !_slowHardwareRead
-            || Stopwatch.GetElapsedTime(_lastSlowUpdateTimestamp) >= SlowHardwareInterval * 0.9;
+        float? cpuLoad = _cpuLoad.Sample();
 
         var timings = new List<HardwareReadTiming>();
         foreach (IHardware hardware in _computer.Hardware)
         {
-            bool slow = IsSlowHardware(hardware.HardwareType);
-            if (slow && !readSlowHardware) continue;
+            ReadSchedule? schedule = ScheduleFor(hardware.HardwareType);
+            if (schedule is not null && !schedule.IsDue(start)) continue;
 
             long hardwareStart = Stopwatch.GetTimestamp();
             hardware.Accept(_visitor);
@@ -59,16 +63,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             {
                 Identifier = hardware.Identifier.ToString(),
                 Name = hardware.Name,
-                IsSlow = slow,
+                ReadInterval = schedule?.Interval ?? TimeSpan.Zero,
                 Duration = Stopwatch.GetElapsedTime(hardwareStart),
             });
         }
 
-        if (readSlowHardware)
-        {
-            _lastSlowUpdateTimestamp = start;
-            _slowHardwareRead = true;
-        }
+        // Après la boucle seulement : tout le matériel d'un même groupe voit ainsi la même échéance.
+        if (_cpuSchedule.IsDue(start)) _cpuSchedule.MarkRead(start);
+        if (_slowSchedule.IsDue(start)) _slowSchedule.MarkRead(start);
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
@@ -84,7 +86,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             switch (hardware.HardwareType)
             {
                 case HardwareType.Cpu:
-                    cpu = ReadCpu(hardware);
+                    cpu = ReadCpu(hardware, cpuLoad);
                     break;
 
                 case HardwareType.GpuNvidia:
@@ -132,15 +134,40 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         };
     }
 
-    private static bool IsSlowHardware(HardwareType type) => type switch
+    /// <summary>Échéancier du matériel, null pour celui relu à chaque relevé (GPU, RAM).</summary>
+    private ReadSchedule? ScheduleFor(HardwareType type) => type switch
     {
-        HardwareType.Cpu or HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel or HardwareType.Memory => false,
-        _ => true,
+        HardwareType.Cpu => _cpuSchedule,
+        HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel or HardwareType.Memory => null,
+        _ => _slowSchedule,
     };
 
-    private static CpuSnapshot ReadCpu(IHardware hardware)
+    private sealed class ReadSchedule
     {
-        float? load = FindSensor(hardware, SensorType.Load, "CPU Total")?.Value
+        private long _lastReadTimestamp;
+        private bool _hasRead;
+
+        public ReadSchedule(TimeSpan interval) => Interval = interval;
+
+        public TimeSpan Interval { get; }
+
+        // Marge de 10 % : le timer de l'interface n'est pas exact à la milliseconde, et sans marge un relevé
+        // arrivé à 998 ms pour une cadence d'1 s repousserait la relecture d'un tick entier.
+        public bool IsDue(long timestamp)
+            => !_hasRead || Stopwatch.GetElapsedTime(_lastReadTimestamp, timestamp) >= Interval * 0.9;
+
+        public void MarkRead(long timestamp)
+        {
+            _lastReadTimestamp = timestamp;
+            _hasRead = true;
+        }
+    }
+
+    private static CpuSnapshot ReadCpu(IHardware hardware, float? sampledLoad)
+    {
+        // Charge mesurée à chaque relevé quand Windows la fournit, sinon celle de LibreHardwareMonitor (relue moins souvent).
+        float? load = sampledLoad
+                       ?? FindSensor(hardware, SensorType.Load, "CPU Total")?.Value
                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
 
         float? package = FindSensor(hardware, SensorType.Temperature, "CPU Package")?.Value;

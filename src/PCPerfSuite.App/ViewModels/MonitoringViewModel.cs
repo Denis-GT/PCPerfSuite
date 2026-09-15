@@ -296,7 +296,8 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     public string ReadTimingsHint =>
         $"Moyenne et max sur les {ReadTimingViewModel.Window} dernières lectures. Si le max du relevé complet dépasse " +
-        $"l'actualisation, des ticks sont sautés. Carte mère, disques et réseau ne sont relus que toutes les " +
+        $"l'actualisation, des ticks sont sautés. Le CPU n'est relu que toutes les {HardwareMonitorService.CpuSensorInterval.TotalMilliseconds:0} ms " +
+        $"(sa charge reste calculée à chaque relevé), carte mère, disques et réseau toutes les " +
         $"{HardwareMonitorService.SlowHardwareInterval.TotalSeconds:0.#} s : le max du relevé complet correspond aux ticks où ils le sont.";
 
     public MonitoringViewModel(HardwareMonitorService hardware)
@@ -390,16 +391,19 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan rtssDuration)
     {
-        string slowCadence = $"toutes les {HardwareMonitorService.SlowHardwareInterval.TotalSeconds:0.#} s";
-
         foreach (HardwareReadTiming timing in snapshot.ReadTimings)
         {
-            ReadTimingRow(timing.Identifier, timing.Name, timing.IsSlow ? slowCadence : EveryTickCadence).Record(timing.Duration);
+            ReadTimingRow(timing.Identifier, timing.Name, CadenceLabel(timing.ReadInterval)).Record(timing.Duration);
         }
 
         ReadTimingRow("snapshot", "Relevé complet (GetSnapshot)", EveryTickCadence).Record(snapshot.ReadDuration);
         ReadTimingRow("rtss", "FPS (RTSS)", EveryTickCadence).Record(rtssDuration);
     }
+
+    private static string CadenceLabel(TimeSpan interval) =>
+        interval == TimeSpan.Zero ? EveryTickCadence
+        : interval.TotalSeconds >= 1 ? $"toutes les {interval.TotalSeconds:0.#} s"
+        : $"toutes les {interval.TotalMilliseconds:0} ms";
 
     private ReadTimingViewModel ReadTimingRow(string key, string name, string cadence)
     {

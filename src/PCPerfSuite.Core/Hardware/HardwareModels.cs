@@ -114,8 +114,8 @@ public sealed class HardwareReadTiming
     public required string Identifier { get; init; }
     public required string Name { get; init; }
 
-    /// <summary>Vrai pour le matériel relu seulement toutes les <see cref="HardwareMonitorService.SlowHardwareInterval"/>.</summary>
-    public bool IsSlow { get; init; }
+    /// <summary>Cadence de relecture de ce matériel, <see cref="TimeSpan.Zero"/> s'il est relu à chaque relevé.</summary>
+    public TimeSpan ReadInterval { get; init; }
     public TimeSpan Duration { get; init; }
 }
 
