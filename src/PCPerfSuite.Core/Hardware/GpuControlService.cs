@@ -1,3 +1,4 @@
+using System.Globalization;
 using NvAPIWrapper;
 using NvAPIWrapper.GPU;
 using NvAPIWrapper.Native.GPU;
@@ -21,7 +22,7 @@ namespace PCPerfSuite.Core.Hardware;
 /// refuse ou si la fonction n'existe pas sur cette carte (NVIDIANotSupportedException n'hérite PAS de
 /// NVIDIAApiException, d'où les catch larges).
 /// </summary>
-public sealed class GpuControlService : IDisposable
+public sealed class GpuControlService : IFanController, IDisposable
 {
     /// <summary>État P0 : l'état "3D performance", le seul que l'on overclocke (comme Afterburner).</summary>
     private const PerformanceStateId OverclockState = PerformanceStateId.P0_3DPerformance;
@@ -173,6 +174,31 @@ public sealed class GpuControlService : IDisposable
             VoltageBoostSupported = voltage.Ok,
             VoltageBoostPercent = voltage.Percent,
         };
+    }
+
+    /// <summary>Ce qui bride la carte à l'instant T (puissance, température, tension...). Null si
+    /// l'information n'est pas exposée par le pilote.</summary>
+    public GpuPerformanceLimit? GetActiveLimit()
+    {
+        if (_gpu is not { } gpu) return null;
+
+        try
+        {
+            PerformanceLimit limit = gpu.PerformanceControl.CurrentActiveLimit;
+
+            GpuPerformanceLimit result = GpuPerformanceLimit.None;
+            if (limit.HasFlag(PerformanceLimit.PowerLimit)) result |= GpuPerformanceLimit.Power;
+            if (limit.HasFlag(PerformanceLimit.TemperatureLimit)) result |= GpuPerformanceLimit.Temperature;
+            if (limit.HasFlag(PerformanceLimit.VoltageLimit)) result |= GpuPerformanceLimit.Voltage;
+            if (limit.HasFlag(PerformanceLimit.NoLoadLimit)) result |= GpuPerformanceLimit.NoLoad;
+            if (limit.HasFlag(PerformanceLimit.Unknown8)) result |= GpuPerformanceLimit.Other;
+
+            return result;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Applique les décalages d'horloge cœur et mémoire (en MHz) sur l'état P0. Les deux sont
@@ -370,6 +396,24 @@ public sealed class GpuControlService : IDisposable
         {
             return (false, 0);
         }
+    }
+
+    /// <summary>Préfixe des identifiants de ventilateur GPU côté onglet Ventilateurs : distingue un
+    /// cooler NVAPI d'un capteur de contrôle de carte mère dans le même fichier de réglages.</summary>
+    public const string FanIdPrefix = "gpu:";
+
+    public static string FanId(int coolerId) => FanIdPrefix + coolerId.ToString(CultureInfo.InvariantCulture);
+
+    bool IFanController.TrySetPercent(string fanId, float percent)
+        => TryParseCoolerId(fanId, out int coolerId) && TrySetFanPercent(coolerId, (int)Math.Round(percent));
+
+    bool IFanController.TrySetAuto(string fanId) => TryParseCoolerId(fanId, out _) && TryRestoreFanAuto();
+
+    private static bool TryParseCoolerId(string fanId, out int coolerId)
+    {
+        coolerId = 0;
+        return fanId.StartsWith(FanIdPrefix, StringComparison.Ordinal)
+               && int.TryParse(fanId.AsSpan(FanIdPrefix.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out coolerId);
     }
 
     public bool TrySetFanPercent(int coolerId, int percent)

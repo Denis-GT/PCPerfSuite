@@ -11,7 +11,8 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   cœur + hot spot, horloges cœur/mémoire, VRAM, ventilo), RAM, carte mère, réseau, disques
   (débits, température, santé SMART) et la liste de tous les ventilateurs détectés avec
   RPM + %. La tuile « Mes métriques » se compose librement dans le catalogue de métriques,
-  et la cadence de rafraîchissement se choisit en haut de l'onglet (250 ms → 5 s).
+  et la cadence de rafraîchissement se saisit librement en millisecondes en haut de l'onglet
+  (de 100 à 60000 ms).
 - **Nettoyage** — cache shaders NVIDIA/AMD/Intel, cache shaders DirectX (D3DSCache), cache
   Steam, fichiers temporaires (%TEMP% et système), Prefetch, cache Windows Update, rapports
   d'erreurs Windows, cache des miniatures, cache Delivery Optimization, + un bouton "Vider
@@ -24,12 +25,14 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
-- **Ventilateurs** — courbes température → % par ventilateur piloté par la carte mère
-  (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O),
-  avec modes Auto / Manuel / Courbe et presets Silencieux / Équilibré / Perf.
+- **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit : ceux de la carte
+  mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
+  celui du GPU** (NVAPI). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
+  température (CPU, GPU, la plus chaude des deux, carte mère), hystérésis, vitesses mini/maxi et
+  arrêt complet à froid. Détail plus bas.
 - **GPU** — overclocking NVAPI complet : décalage d'horloge cœur et mémoire, limite de
-  puissance, limite de température, surtension cœur quand la carte l'accepte, plus la
-  courbe de ventilation GPU. Détail plus bas.
+  puissance, limite de température, surtension cœur quand la carte l'accepte, profils
+  enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
   transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
   Détail plus bas.
@@ -60,6 +63,12 @@ pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l
 (grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
 l'overlay affichera.
 
+Côté jeu, en plus du FPS instantané et du temps de frame, le catalogue propose le **FPS moyen**,
+le **1% low** et le **0.1% low**, calculés à partir de l'historique des 1024 derniers temps de frame
+que RTSS tient à jour — la même matière première que les outils de benchmark. Un centile n'est
+affiché qu'avec assez d'images derrière lui (100 pour le 1%, 1000 pour le 0.1%) : sinon la valeur
+reste à `--` plutôt que d'annoncer un chiffre inventé.
+
 ## Overclocking GPU
 
 Tout passe par NVAPI (NvAPIWrapper.Net), sans pilote ni service supplémentaire :
@@ -72,7 +81,32 @@ Tout passe par NVAPI (NvAPIWrapper.Net), sans pilote ni service supplémentaire 
 - **Limite de température** en °C (thermal policies).
 - **Surtension cœur** en % : l'API correspondante est réservée aux GPU Pascal (GTX 10xx),
   donc le curseur n'apparaît que si la carte répond réellement à cet appel.
-- **Ventilateur** : Auto / Manuel / Courbe, avec passage forcé à 100 % au-delà de 88 °C.
+- **Profils** : les réglages courants s'enregistrent sous un nom et se rappellent en un clic
+  (un profil du même nom est remplacé).
+- **Ce qui bride la carte** en direct (puissance, température, tension, pas de charge), comme la
+  ligne « perf cap » de GPU-Z, plus les relevés charge / températures / horloges / VRAM.
+- Après chaque application, l'onglet affiche **ce que le pilote a réellement retenu** : il rabote
+  une demande hors plage sans prévenir, ce qui explique un overclock « qui ne monte pas ».
+
+Le ventilateur du GPU n'est pas dans cet onglet : il est dans **Ventilateurs** avec tous les autres
+(avec passage forcé à 100 % au-delà de 88 °C tant que l'app le pilote).
+
+## Courbes de ventilation
+
+Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
+
+- **Modes** Auto (firmware) / Manuel / Courbe, et presets Silencieux / Équilibré / Perf.
+- **Éditeur de courbe** : on glisse un point dans les deux axes, on en ajoute un au double-clic,
+  on en retire un au clic droit (de 2 à 12 points).
+- **Source de température** par ventilateur : CPU, GPU, la plus chaude des deux (le bon choix pour
+  un ventilateur de boîtier) ou la carte mère.
+- **Hystérésis** en °C : le ventilateur ne ralentit qu'une fois la température retombée d'autant,
+  ce qui l'empêche de « pomper » autour d'un point de la courbe.
+- **Vitesses mini et maxi**, pour un ventilateur qui cale trop bas ou qu'on ne veut jamais entendre
+  à fond.
+- **Arrêt complet à froid (0 RPM)** sous une température au choix — désactivé par défaut, tous les
+  ventilateurs ne redémarrant pas proprement.
+- **Appliquer à tous** recopie une courbe et ses réglages sur les autres ventilateurs.
 
 Sécurité : par défaut **rien n'est réappliqué au démarrage et tout est rendu au pilote en
 quittant**. La case « Appliquer au démarrage » rend l'overclock persistant dans les deux

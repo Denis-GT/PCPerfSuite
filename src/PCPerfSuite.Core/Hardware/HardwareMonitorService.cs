@@ -9,7 +9,7 @@ namespace PCPerfSuite.Core.Hardware;
 /// capteurs (le pilote WinRing0 embarqué par la lib s'installe/se charge au
 /// premier accès).
 /// </summary>
-public sealed class HardwareMonitorService : IDisposable
+public sealed class HardwareMonitorService : IFanController, IDisposable
 {
     private readonly Computer _computer;
     private readonly UpdateVisitor _visitor = new();
@@ -336,6 +336,10 @@ public sealed class HardwareMonitorService : IDisposable
         control.SetSoftware(clamped);
         return true;
     }
+
+    bool IFanController.TrySetPercent(string fanId, float percent) => TrySetFanPercent(fanId, percent);
+
+    bool IFanController.TrySetAuto(string fanId) => TrySetFanAuto(fanId);
 
     /// <summary>Rend le pilotage du ventilateur au firmware de la carte mère (courbe BIOS par défaut).</summary>
     public bool TrySetFanAuto(string controlSensorId)

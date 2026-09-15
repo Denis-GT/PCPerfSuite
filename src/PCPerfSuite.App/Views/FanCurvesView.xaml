@@ -5,10 +5,10 @@
              xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels">
 
     <ScrollViewer Padding="32,28,32,28">
-        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+        <StackPanel MaxWidth="880" HorizontalAlignment="Left">
             <TextBlock Text="Ventilateurs" Style="{StaticResource H1}"/>
             <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap"
-                       Text="Courbe température → vitesse par ventilateur, appliquée en continu tant que PCPerfSuite tourne. En mode Auto, le firmware de la carte mère reprend la main ; à la fermeture de l'app, tous les ventilateurs repassent automatiquement en Auto."/>
+                       Text="Tous les ventilateurs pilotables au même endroit : ceux de la carte mère et celui du GPU. Courbe température → vitesse appliquée en continu tant que PCPerfSuite tourne. En mode Auto, le firmware (BIOS ou VBIOS) reprend la main ; à la fermeture de l'app, tous les ventilateurs repassent automatiquement en Auto."/>
 
             <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,0,0,16"
                        Text="Aucun ventilateur pilotable détecté — vérifie que l'app tourne en administrateur et que ta carte mère expose un contrôle logiciel via LibreHardwareMonitor."
@@ -27,20 +27,20 @@
                                     <TextBlock Grid.Column="0" Text="{Binding DisplayName}" Style="{StaticResource H2}" VerticalAlignment="Center"/>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                                         <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,16,0">
-                                            <Run Text="{Binding Rpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
+                                            <Run Text="{Binding Rpm, Converter={StaticResource Metric}, ConverterParameter=' RPM', Mode=OneWay}"/>
                                         </TextBlock>
                                         <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center">
-                                            <Run Text="{Binding CurrentPercent, Converter={StaticResource Metric}, ConverterParameter=%, Mode=OneWay}"/>
+                                            <Run Text="{Binding CurrentPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
                                         </TextBlock>
                                     </StackPanel>
                                 </Grid>
 
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                                    <RadioButton Content="Auto" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId}"
+                                    <RadioButton Content="Auto" Style="{StaticResource NavItem}" GroupName="{Binding FanId}"
                                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Auto}"/>
-                                    <RadioButton Content="Manuel" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId}"
+                                    <RadioButton Content="Manuel" Style="{StaticResource NavItem}" GroupName="{Binding FanId}"
                                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Manual}"/>
-                                    <RadioButton Content="Courbe" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId}"
+                                    <RadioButton Content="Courbe" Style="{StaticResource NavItem}" GroupName="{Binding FanId}"
                                                  IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Curve}"/>
                                 </StackPanel>
 
@@ -50,7 +50,7 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="46"/>
                                     </Grid.ColumnDefinitions>
-                                    <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding ManualPercent}" VerticalAlignment="Center"/>
+                                    <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding ManualPercent, Delay=200}" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
                                                Text="{Binding ManualPercent, StringFormat={}{0:0}%}"/>
                                 </Grid>
@@ -59,24 +59,93 @@
                                 <StackPanel Margin="0,14,0,0" Visibility="{Binding Mode, Converter={StaticResource EnumEqualsVisibility}, ConverterParameter=Curve}">
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                         <TextBlock Text="Source :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <RadioButton Content="CPU" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId, StringFormat=src-{0}}"
+                                        <RadioButton Content="CPU" Style="{StaticResource NavItem}" GroupName="{Binding FanId, StringFormat=src-{0}}"
                                                      IsChecked="{Binding Source, Converter={StaticResource EnumEquals}, ConverterParameter=CpuPackage}"/>
-                                        <RadioButton Content="GPU" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId, StringFormat=src-{0}}"
+                                        <RadioButton Content="GPU" Style="{StaticResource NavItem}" GroupName="{Binding FanId, StringFormat=src-{0}}"
                                                      IsChecked="{Binding Source, Converter={StaticResource EnumEquals}, ConverterParameter=GpuCore}"
                                                      Visibility="{Binding DataContext.HasGpu, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibility}}"/>
-                                        <RadioButton Content="Carte mère" Style="{StaticResource NavItem}" GroupName="{Binding ControlSensorId, StringFormat=src-{0}}"
+                                        <RadioButton Content="Le plus chaud" Style="{StaticResource NavItem}" GroupName="{Binding FanId, StringFormat=src-{0}}"
+                                                     ToolTip="La plus chaude des températures CPU et GPU"
+                                                     IsChecked="{Binding Source, Converter={StaticResource EnumEquals}, ConverterParameter=HottestOfCpuGpu}"
+                                                     Visibility="{Binding DataContext.HasGpu, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibility}}"/>
+                                        <RadioButton Content="Carte mère" Style="{StaticResource NavItem}" GroupName="{Binding FanId, StringFormat=src-{0}}"
                                                      IsChecked="{Binding Source, Converter={StaticResource EnumEquals}, ConverterParameter=MotherboardSystem}"/>
+                                    </StackPanel>
 
-                                        <Button Content="Silencieux" Style="{StaticResource GhostButton}" Margin="20,0,6,0" Command="{Binding ApplySilencieuxCommand}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button Content="Silencieux" Style="{StaticResource GhostButton}" Margin="0,0,6,0" Command="{Binding ApplySilencieuxCommand}"/>
                                         <Button Content="Équilibré" Style="{StaticResource GhostButton}" Margin="0,0,6,0" Command="{Binding ApplyEquilibreCommand}"/>
-                                        <Button Content="Perf" Style="{StaticResource GhostButton}" Command="{Binding ApplyPerfCommand}"/>
+                                        <Button Content="Perf" Style="{StaticResource GhostButton}" Margin="0,0,6,0" Command="{Binding ApplyPerfCommand}"/>
+                                        <Button Content="Appliquer à tous" Style="{StaticResource GhostButton}" Command="{Binding CopyToAllCommand}"
+                                                ToolTip="Recopie cette courbe et ses réglages sur tous les autres ventilateurs"/>
                                     </StackPanel>
 
                                     <controls:FanCurveEditor Points="{Binding Points}" CurrentTempC="{Binding SourceTempC}"/>
+                                    <TextBlock Text="Glisse un point pour le déplacer, double-clic pour en ajouter un, clic droit pour en retirer un."
+                                               Style="{StaticResource Caption}" Margin="0,6,0,0"/>
 
-                                    <TextBlock Style="{StaticResource Caption}" Margin="0,8,0,0">
+                                    <!-- Réglages de régulation -->
+                                    <Grid Margin="0,14,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="56"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="56"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Vitesse min" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Slider Grid.Column="1" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                Value="{Binding MinPercent, Delay=200}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                                   Text="{Binding MinPercent, StringFormat={}{0:0}%}"/>
+                                        <TextBlock Grid.Column="3" Text="Vitesse max" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="20,0,10,0"/>
+                                        <Slider Grid.Column="4" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                Value="{Binding MaxPercent, Delay=200}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="5" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                                   Text="{Binding MaxPercent, StringFormat={}{0:0}%}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="56"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Hystérésis" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                                   ToolTip="Le ventilateur ne ralentit qu'après cette baisse de température : évite qu'il monte et descende en boucle."/>
+                                        <Slider Grid.Column="1" Minimum="0" Maximum="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                Value="{Binding HysteresisC, Delay=200}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                                   Text="{Binding HysteresisC, StringFormat={}{0:0} °C}"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Arrêt complet à froid (0 RPM)" Style="{StaticResource Body}"/>
+                                            <TextBlock Text="Tous les ventilateurs ne redémarrent pas proprement après un arrêt : à activer en connaissance de cause."
+                                                       Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Slider Width="120" Minimum="20" Maximum="70" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    Value="{Binding StopBelowTempC, Delay=200}" VerticalAlignment="Center"
+                                                    IsEnabled="{Binding StopWhenCool}"/>
+                                            <TextBlock Style="{StaticResource Body}" Width="56" TextAlignment="Right" VerticalAlignment="Center"
+                                                       Text="{Binding StopBelowTempC, StringFormat={}{0:0} °C}"/>
+                                            <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding StopWhenCool}"
+                                                      VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0">
                                         <Run Text="Consigne actuelle : "/>
-                                        <Run Text="{Binding TargetPercent, Converter={StaticResource Metric}, ConverterParameter=%, Mode=OneWay}"/>
+                                        <Run Text="{Binding TargetPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
+                                        <Run Text="  —  température suivie : "/>
+                                        <Run Text="{Binding SourceTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
                                     </TextBlock>
                                 </StackPanel>
                             </StackPanel>

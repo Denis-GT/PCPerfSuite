@@ -8,8 +8,9 @@ namespace PCPerfSuite.App.Controls;
 
 /// <summary>
 /// Éditeur de courbe température → % ventilateur, dessiné à la main (comme Sparkline/MeterBar/
-/// TreemapControl) : la température de chaque point est fixe, seul le % se règle en glissant le
-/// point verticalement à la souris — façon éditeur de courbe de MSI Afterburner/FanControl.
+/// TreemapControl), façon éditeur de courbe de MSI Afterburner/FanControl : on glisse un point dans
+/// les deux axes (sans pouvoir doubler son voisin), on en ajoute un au double-clic et on en retire un
+/// au clic droit.
 /// </summary>
 public sealed class FanCurveEditor : FrameworkElement
 {
@@ -71,7 +72,16 @@ public sealed class FanCurveEditor : FrameworkElement
     private const double TopPad = 8, BottomPad = 20, SidePad = 14;
     private const double HandleRadius = 6;
 
+    /// <summary>Écart minimal entre deux points, pour qu'un point ne puisse pas en croiser un autre
+    /// (la courbe resterait dessinable, mais deviendrait impossible à rattraper à la souris).</summary>
+    private const double MinTempGap = 2;
+
+    private const int MinPoints = 2;
+    private const int MaxPoints = 12;
+
     private int _dragIndex = -1;
+    private double _dragMinTemp;
+    private double _dragMaxTemp;
     private readonly Typeface _typeface = new("Segoe UI");
 
     private static SolidColorBrush Freeze(Color c)
@@ -107,6 +117,16 @@ public sealed class FanCurveEditor : FrameworkElement
         double x = plot.X + (p.TempC - MinTempC) / tSpan * plot.Width;
         double y = plot.Y + (1 - Math.Clamp(p.Percent, 0, 100) / 100.0) * plot.Height;
         return new Point(x, y);
+    }
+
+    private (float TempC, float Percent) FromScreen(Rect plot, Point p)
+    {
+        double tSpan = Math.Max(0.01, MaxTempC - MinTempC);
+        double temp = MinTempC + (p.X - plot.X) / Math.Max(1, plot.Width) * tSpan;
+        double percent = (1 - (p.Y - plot.Y) / Math.Max(1, plot.Height)) * 100.0;
+
+        return ((float)Math.Round(Math.Clamp(temp, MinTempC, MaxTempC)),
+                (float)Math.Round(Math.Clamp(percent, 0, 100)));
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -152,6 +172,8 @@ public sealed class FanCurveEditor : FrameworkElement
             dc.DrawEllipse(MarkerBrush, null, new Point(x, y), 4, 4);
         }
 
+        FanCurvePoint? dragged = _dragIndex >= 0 && Points is { } all && _dragIndex < all.Count ? all[_dragIndex] : null;
+
         foreach (FanCurvePoint p in points)
         {
             Point screen = ToScreen(plot, p);
@@ -161,6 +183,16 @@ public sealed class FanCurveEditor : FrameworkElement
                 $"{p.TempC:0}°", System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                 _typeface, 10.5, AxisTextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawText(label, new Point(screen.X - label.Width / 2, plot.Bottom + 4));
+
+            // Le point qu'on déplace affiche sa valeur complète, les autres resteraient illisibles.
+            if (!ReferenceEquals(p, dragged)) continue;
+
+            var value = new FormattedText(
+                $"{p.TempC:0}° / {p.Percent:0}%", System.Globalization.CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight, _typeface, 11, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            dc.DrawText(value, new Point(
+                Math.Clamp(screen.X - value.Width / 2, plot.X, plot.Right - value.Width),
+                Math.Max(plot.Y, screen.Y - HandleRadius - value.Height - 3)));
         }
     }
 
@@ -168,24 +200,86 @@ public sealed class FanCurveEditor : FrameworkElement
     {
         base.OnMouseLeftButtonDown(e);
         var points = Points;
-        if (points is not { Count: > 0 }) return;
+        if (points is null) return;
 
         Rect plot = PlotArea;
         Point p = e.GetPosition(this);
+        int closest = FindClosest(points, plot, p, out double bestDist);
 
+        if (closest >= 0 && bestDist <= HandleRadius * 3)
+        {
+            _dragIndex = closest;
+            ComputeDragBounds(points, closest);
+            CaptureMouse();
+            UpdateDrag(p, plot);
+            return;
+        }
+
+        if (e.ClickCount == 2) AddPoint(points, plot, p);
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        var points = Points;
+        if (points is null || points.Count <= MinPoints) return;
+
+        int closest = FindClosest(points, PlotArea, e.GetPosition(this), out double bestDist);
+        if (closest < 0 || bestDist > HandleRadius * 3) return;
+
+        points.RemoveAt(closest);
+        InvalidateVisual();
+        RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
+    }
+
+    private int FindClosest(IList<FanCurvePoint> points, Rect plot, Point p, out double distance)
+    {
         int closest = -1;
-        double bestDist = double.MaxValue;
+        distance = double.MaxValue;
+
         for (int i = 0; i < points.Count; i++)
         {
             double dist = (ToScreen(plot, points[i]) - p).Length;
-            if (dist < bestDist) { bestDist = dist; closest = i; }
+            if (dist >= distance) continue;
+
+            distance = dist;
+            closest = i;
         }
 
-        if (closest < 0 || bestDist > HandleRadius * 3) return;
+        return closest;
+    }
 
-        _dragIndex = closest;
-        CaptureMouse();
-        UpdateDrag(p, plot);
+    private void AddPoint(System.Collections.ObjectModel.ObservableCollection<FanCurvePoint> points, Rect plot, Point p)
+    {
+        if (points.Count >= MaxPoints || plot.Width <= 0 || plot.Height <= 0) return;
+
+        (float tempC, float percent) = FromScreen(plot, p);
+        if (points.Any(existing => Math.Abs(existing.TempC - tempC) < MinTempGap)) return;
+
+        points.Add(new FanCurvePoint { TempC = tempC, Percent = percent });
+        InvalidateVisual();
+        RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
+    }
+
+    /// <summary>Bornes de température du point en cours de déplacement, figées au début du glisser :
+    /// les recalculer en continu ferait basculer l'ordre des points sous la souris.</summary>
+    private void ComputeDragBounds(IList<FanCurvePoint> points, int index)
+    {
+        double current = points[index].TempC;
+        double min = MinTempC;
+        double max = MaxTempC;
+
+        for (int i = 0; i < points.Count; i++)
+        {
+            if (i == index) continue;
+
+            double temp = points[i].TempC;
+            if (temp <= current) min = Math.Max(min, temp + MinTempGap);
+            else max = Math.Min(max, temp - MinTempGap);
+        }
+
+        _dragMinTemp = min;
+        _dragMaxTemp = Math.Max(min, max);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -200,8 +294,10 @@ public sealed class FanCurveEditor : FrameworkElement
         var points = Points;
         if (_dragIndex < 0 || points is null || _dragIndex >= points.Count || plot.Height <= 0) return;
 
-        double percent = (1 - (p.Y - plot.Y) / plot.Height) * 100.0;
-        points[_dragIndex].Percent = (float)Math.Round(Math.Clamp(percent, 0, 100));
+        (float tempC, float percent) = FromScreen(plot, p);
+        FanCurvePoint point = points[_dragIndex];
+        point.TempC = (float)Math.Clamp(tempC, _dragMinTemp, _dragMaxTemp);
+        point.Percent = percent;
         InvalidateVisual();
     }
 

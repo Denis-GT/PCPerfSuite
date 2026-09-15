@@ -49,3 +49,31 @@ public sealed class GpuOverclockSnapshot
 
     public int VoltageBoostPercent { get; init; }
 }
+
+/// <summary>Ce qui bride la carte à l'instant T (plusieurs raisons peuvent se cumuler) — l'équivalent
+/// de la ligne "Perf cap reason" de GPU-Z ou d'Afterburner.</summary>
+[Flags]
+public enum GpuPerformanceLimit
+{
+    None = 0,
+    Power = 1,
+    Temperature = 2,
+    Voltage = 4,
+
+    /// <summary>La carte n'a simplement pas assez de travail pour monter en fréquence.</summary>
+    NoLoad = 8,
+
+    Other = 16,
+}
+
+/// <summary>Jeu de réglages d'overclocking enregistré sous un nom, façon profils d'Afterburner.
+/// Une valeur nulle signifie "ne pas toucher à ce réglage en appliquant le profil".</summary>
+public sealed class GpuOverclockProfile
+{
+    public string Name { get; set; } = "Profil";
+    public int CoreClockOffsetMhz { get; set; }
+    public int MemoryClockOffsetMhz { get; set; }
+    public float? PowerLimitPercent { get; set; }
+    public int? TemperatureLimitC { get; set; }
+    public int? VoltageBoostPercent { get; set; }
+}

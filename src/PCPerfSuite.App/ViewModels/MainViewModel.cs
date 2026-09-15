@@ -10,9 +10,14 @@ public sealed record NavEntry(string Title, object ViewModel);
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly HardwareMonitorService _hardware = new();
+
+    /// <summary>Un seul service NVAPI pour toute l'app : l'onglet GPU (overclocking) et l'onglet
+    /// Ventilateurs (ventilateur GPU) parlent à la même carte.</summary>
+    private readonly GpuControlService _gpuControl = new();
+
     private readonly MonitoringViewModel _monitoring;
     private readonly FanCurvesViewModel _fans;
-    private readonly GpuControlViewModel _gpuControl;
+    private readonly GpuControlViewModel _gpu;
     private readonly OverlayViewModel _overlay;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
@@ -26,8 +31,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         _monitoring = new MonitoringViewModel(_hardware);
-        _fans = new FanCurvesViewModel(_hardware, _monitoring);
-        _gpuControl = new GpuControlViewModel(_monitoring);
+        _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
+        _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _overlay = new OverlayViewModel(_monitoring);
 
         var cleanup = new CleanupViewModel();
@@ -41,7 +46,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Stockage", storage),
             new("Paramètres Windows", settings),
             new("Ventilateurs", _fans),
-            new("GPU", _gpuControl),
+            new("GPU", _gpu),
             new("Overlay", _overlay),
         };
 
@@ -54,12 +59,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (value is not null) CurrentViewModel = value.ViewModel;
     }
 
+    /// <summary>Ordre important : les ventilateurs repassent en automatique avant que le service NVAPI
+    /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
         _fans.Dispose();
-        _gpuControl.Dispose();
+        _gpu.Dispose();
         _overlay.Dispose();
         _monitoring.Dispose();
+        _gpuControl.Dispose();
         _hardware.Dispose();
     }
 }

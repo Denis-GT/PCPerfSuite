@@ -34,6 +34,9 @@ public sealed class GpuControlSettings
     /// démarrage, la carte reste sur son réglage par défaut.</summary>
     public float? PowerLimitPercent { get; set; }
 
+    // Ancienne courbe de ventilation GPU, du temps où elle vivait dans l'onglet GPU. Conservée en
+    // lecture seule : au premier lancement, l'onglet Ventilateurs s'en sert pour créer la carte du
+    // ventilateur GPU sans perdre les réglages, puis c'est FanCurves qui fait foi.
     public FanControlMode FanMode { get; set; } = FanControlMode.Auto;
     public float FanManualPercent { get; set; } = 60;
     public FanTempSource FanSource { get; set; } = FanTempSource.GpuCore;
@@ -50,6 +53,9 @@ public sealed class GpuControlSettings
 
     /// <summary>Surtension cœur en % (API réservée aux GPU Pascal) — null si jamais modifiée.</summary>
     public int? VoltageBoostPercent { get; set; }
+
+    /// <summary>Profils d'overclocking enregistrés par l'utilisateur.</summary>
+    public List<GpuOverclockProfile> OverclockProfiles { get; set; } = new();
 
     /// <summary>Réapplique l'overclock au lancement de l'app — et, dans ce cas seulement, le laisse en
     /// place en quittant. Décoché (défaut), la carte repart toujours d'origine.</summary>
