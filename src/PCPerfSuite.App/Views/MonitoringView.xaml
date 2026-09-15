@@ -98,11 +98,35 @@
                             </StackPanel>
                         </Grid>
                         <controls:MeterBar Value="{Binding CpuLoad}" Margin="0,12,0,0"/>
-                        <controls:Sparkline x:Name="CpuSparkline" Height="52" Margin="0,14,0,0"/>
+                        <controls:Sparkline Series="{Binding CpuLoadHistory}" Height="52" Margin="0,14,0,0"/>
                         <TextBlock Margin="0,8,0,0" Style="{StaticResource Caption}">
                             <Run Text="Fréquence max :"/>
                             <Run Text="{Binding CpuClock, Converter={StaticResource Metric}, ConverterParameter= MHz, Mode=OneWay}"/>
                         </TextBlock>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource Caption}" FontSize="10.5">
+                                    <Run Text="Température" Foreground="{StaticResource DangerBrush}"/>
+                                    <Run Text="{Binding CpuTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
+                                </TextBlock>
+                                <controls:Sparkline Series="{Binding CpuTempHistory}" Height="30" Margin="0,4,0,0"
+                                                    LineBrush="{StaticResource DangerBrush}" FillBrush="#30FF453A"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource Caption}" FontSize="10.5">
+                                    <Run Text="Puissance" Foreground="{StaticResource WarnBrush}"/>
+                                    <Run Text="{Binding CpuPower, Converter={StaticResource Metric}, ConverterParameter=W, Mode=OneWay}"/>
+                                </TextBlock>
+                                <controls:Sparkline Series="{Binding CpuPowerHistory}" Height="30" Margin="0,4,0,0"
+                                                    AutoScale="True" MinimumScale="10"
+                                                    LineBrush="{StaticResource WarnBrush}" FillBrush="#30FF9F0A"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 
@@ -128,7 +152,7 @@
                             </StackPanel>
                         </Grid>
                         <controls:MeterBar Value="{Binding GpuLoad}" Margin="0,12,0,0" IndicatorBrush="{StaticResource AccentBrush2}"/>
-                        <controls:Sparkline x:Name="GpuSparkline" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource AccentBrush2}"
+                        <controls:Sparkline Series="{Binding GpuLoadHistory}" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource AccentBrush2}"
                                             FillBrush="#305FE0C7"/>
                         <Grid Margin="0,10,0,0">
                             <Grid.ColumnDefinitions>
@@ -153,6 +177,30 @@
                             <Run Text=" · Ventilo :"/>
                             <Run Text="{Binding GpuFanRpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
                         </TextBlock>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource Caption}" FontSize="10.5">
+                                    <Run Text="Température" Foreground="{StaticResource DangerBrush}"/>
+                                    <Run Text="{Binding GpuTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
+                                </TextBlock>
+                                <controls:Sparkline Series="{Binding GpuTempHistory}" Height="30" Margin="0,4,0,0"
+                                                    LineBrush="{StaticResource DangerBrush}" FillBrush="#30FF453A"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource Caption}" FontSize="10.5">
+                                    <Run Text="Puissance" Foreground="{StaticResource WarnBrush}"/>
+                                    <Run Text="{Binding GpuPower, Converter={StaticResource Metric}, ConverterParameter=W, Mode=OneWay}"/>
+                                </TextBlock>
+                                <controls:Sparkline Series="{Binding GpuPowerHistory}" Height="30" Margin="0,4,0,0"
+                                                    AutoScale="True" MinimumScale="10"
+                                                    LineBrush="{StaticResource WarnBrush}" FillBrush="#30FF9F0A"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 
@@ -163,7 +211,7 @@
                         <TextBlock Text="RAM" Style="{StaticResource Caption}"/>
                         <TextBlock Text="{Binding MemLoad, StringFormat={}{0:0}%}" Style="{StaticResource MetricValue}" Margin="0,14,0,0"/>
                         <controls:MeterBar Value="{Binding MemLoad}" Margin="0,12,0,0" IndicatorBrush="{StaticResource WarnBrush}"/>
-                        <controls:Sparkline x:Name="MemSparkline" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource WarnBrush}" FillBrush="#30FF9F0A"/>
+                        <controls:Sparkline Series="{Binding MemLoadHistory}" Height="52" Margin="0,14,0,0" LineBrush="{StaticResource WarnBrush}" FillBrush="#30FF9F0A"/>
                         <TextBlock Margin="0,8,0,0" Style="{StaticResource Caption}">
                             <Run Text="{Binding MemUsedGb, Converter={StaticResource Metric}, ConverterParameter= Go, Mode=OneWay}"/>
                             <Run Text="/"/>
@@ -186,15 +234,19 @@
                                 <TextBlock Style="{StaticResource MetricValue}">
                                     <Run Text="{Binding MotherboardTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="{Binding MotherboardTempLabel}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding MotherboardTempLabel}" Style="{StaticResource Caption}" Margin="0,4,0,0"
+                                           Foreground="{StaticResource AccentBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom">
                                 <TextBlock Style="{StaticResource Body}" HorizontalAlignment="Right">
                                     <Run Text="{Binding MotherboardVrmTemp, Converter={StaticResource Metric}, ConverterParameter=°C, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="{Binding MotherboardVrmLabel}" Style="{StaticResource Caption}" HorizontalAlignment="Right"/>
+                                <TextBlock Text="{Binding MotherboardVrmLabel}" Style="{StaticResource Caption}" HorizontalAlignment="Right"
+                                           Foreground="{StaticResource AccentBrush2}"/>
                             </StackPanel>
                         </Grid>
+                        <controls:Sparkline Series="{Binding MotherboardTempHistory}" SecondarySeries="{Binding MotherboardVrmTempHistory}"
+                                            Height="40" Margin="0,12,0,0"/>
 
                         <!-- Autres zones de température/tensions : la liste dépend entièrement de ce que le
                              Super I/O de cette carte mère expose, elle peut donc être vide sur certaines configs. -->
@@ -232,6 +284,33 @@
                         </ItemsControl>
                     </StackPanel>
                 </Border>
+
+                <!-- Réseau : débits cumulés de toutes les cartes -->
+                <Border Style="{StaticResource Card}" Width="330" Margin="0,0,16,16">
+                    <StackPanel>
+                        <TextBlock Text="Réseau" Style="{StaticResource H2}"/>
+                        <TextBlock Text="TOUTES LES CARTES" Style="{StaticResource Caption}"/>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding NetDownloadDisplay}" Style="{StaticResource Body}" FontSize="18" FontWeight="SemiBold"/>
+                                <TextBlock Text="Réception" Style="{StaticResource Caption}" Foreground="{StaticResource AccentBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding NetUploadDisplay}" Style="{StaticResource Body}" FontSize="18" FontWeight="SemiBold"
+                                           HorizontalAlignment="Right"/>
+                                <TextBlock Text="Envoi" Style="{StaticResource Caption}" Foreground="{StaticResource AccentBrush2}"
+                                           HorizontalAlignment="Right"/>
+                            </StackPanel>
+                        </Grid>
+                        <!-- Plancher à 125 000 o/s (1 Mbit/s) : le trafic de fond ne remplit pas tout le graphique. -->
+                        <controls:Sparkline Series="{Binding NetDownloadHistory}" SecondarySeries="{Binding NetUploadHistory}"
+                                            AutoScale="True" MinimumScale="125000" Height="52" Margin="0,14,0,0"/>
+                    </StackPanel>
+                </Border>
             </WrapPanel>
 
             <!-- Disques -->
@@ -264,11 +343,11 @@
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0">
-                                                <TextBlock Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
+                                                <TextBlock Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5" Foreground="{StaticResource AccentBrush}"/>
                                                 <TextBlock Text="{Binding ReadRateDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Écriture" Style="{StaticResource Caption}" FontSize="10.5"/>
+                                                <TextBlock Text="Écriture" Style="{StaticResource Caption}" FontSize="10.5" Foreground="{StaticResource AccentBrush2}"/>
                                                 <TextBlock Text="{Binding WriteRateDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
@@ -280,6 +359,10 @@
                                                 <TextBlock Text="{Binding RemainingLifeDisplay}" Style="{StaticResource Body}" FontSize="12.5"/>
                                             </StackPanel>
                                         </Grid>
+
+                                        <!-- Plancher à 1 Mo/s : l'activité de fond ne remplit pas tout le graphique. -->
+                                        <controls:Sparkline Series="{Binding ReadHistory}" SecondarySeries="{Binding WriteHistory}"
+                                                            AutoScale="True" MinimumScale="1048576" Height="34" Margin="0,10,0,0"/>
 
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
@@ -312,6 +395,7 @@
                                 <Grid Margin="0,6,0,6">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="180"/>
                                         <ColumnDefinition Width="140"/>
                                         <ColumnDefinition Width="80"/>
                                     </Grid.ColumnDefinitions>
@@ -320,8 +404,10 @@
                                         <Run Text=" — " Foreground="{StaticResource TextSecondaryBrush}"/>
                                         <Run Text="{Binding HardwareName, Mode=OneWay}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5"/>
                                     </TextBlock>
-                                    <controls:MeterBar Grid.Column="1" Value="{Binding PercentControl, Mode=OneWay, Converter={StaticResource NullableToDouble}}" VerticalAlignment="Center" Margin="8,0"/>
-                                    <TextBlock Grid.Column="2" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
+                                    <controls:Sparkline Grid.Column="1" Series="{Binding RpmHistory}" AutoScale="True" MinimumScale="1000"
+                                                        Height="24" VerticalAlignment="Center" Margin="8,0"/>
+                                    <controls:MeterBar Grid.Column="2" Value="{Binding PercentControl, Mode=OneWay, Converter={StaticResource NullableToDouble}}" VerticalAlignment="Center" Margin="8,0"/>
+                                    <TextBlock Grid.Column="3" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
                                         <Run Text="{Binding Rpm, Converter={StaticResource Metric}, ConverterParameter= RPM, Mode=OneWay}"/>
                                     </TextBlock>
                                 </Grid>

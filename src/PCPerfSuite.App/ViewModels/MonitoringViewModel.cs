@@ -24,6 +24,9 @@ public sealed partial class DiskItemViewModel : ObservableObject
     [ObservableProperty] private double? temperatureC;
     [ObservableProperty] private double? remainingLifePercent;
 
+    public SampleHistory ReadHistory { get; } = new();
+    public SampleHistory WriteHistory { get; } = new();
+
     [ObservableProperty] private bool isTesting;
     [ObservableProperty] private DiskHealthStatus? healthStatus;
     [ObservableProperty] private string? healthSummary;
@@ -48,6 +51,8 @@ public sealed partial class DiskItemViewModel : ObservableObject
         WriteRateBytesPerSecond = s.WriteRateBytesPerSecond;
         TemperatureC = s.TemperatureC;
         RemainingLifePercent = s.RemainingLifePercent;
+        ReadHistory.Push(s.ReadRateBytesPerSecond);
+        WriteHistory.Push(s.WriteRateBytesPerSecond);
     }
 
     partial void OnReadRateBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(ReadRateDisplay));
@@ -120,6 +125,29 @@ public sealed partial class MetricTileViewModel : ObservableObject
         DisplayValue = reading.Value;
         Unit = reading.Unit;
         Percent = reading.Number ?? 0;
+    }
+}
+
+/// <summary>Ligne de "Ventilateurs détectés", mise à jour en place pour que son graphique garde son historique.</summary>
+public sealed partial class FanItemViewModel : ObservableObject
+{
+    public string SensorId { get; }
+    public SampleHistory RpmHistory { get; } = new();
+
+    [ObservableProperty] private string sensorName = "";
+    [ObservableProperty] private string hardwareName = "";
+    [ObservableProperty] private double? rpm;
+    [ObservableProperty] private double? percentControl;
+
+    public FanItemViewModel(string sensorId) => SensorId = sensorId;
+
+    public void Apply(FanReading reading)
+    {
+        SensorName = reading.SensorName;
+        HardwareName = reading.HardwareName;
+        Rpm = reading.Rpm;
+        PercentControl = reading.PercentControl;
+        RpmHistory.Push(reading.Rpm);
     }
 }
 
@@ -232,7 +260,29 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string motherboardVrmLabel = "VRM";
     [ObservableProperty] private double? motherboardVrmTemp;
 
-    public ObservableCollectionEx<FanReading> Fans { get; } = new();
+    [ObservableProperty] private double? netDownload;
+    [ObservableProperty] private double? netUpload;
+
+    public string NetDownloadDisplay => ByteFormatter.FormatRate(NetDownload);
+    public string NetUploadDisplay => ByteFormatter.FormatRate(NetUpload);
+
+    partial void OnNetDownloadChanged(double? value) => OnPropertyChanged(nameof(NetDownloadDisplay));
+    partial void OnNetUploadChanged(double? value) => OnPropertyChanged(nameof(NetUploadDisplay));
+
+    // Historiques des graphiques, tenus ici plutôt que dans les Sparkline pour ne pas dépendre de la vue.
+    public SampleHistory CpuLoadHistory { get; } = new();
+    public SampleHistory CpuTempHistory { get; } = new();
+    public SampleHistory CpuPowerHistory { get; } = new();
+    public SampleHistory GpuLoadHistory { get; } = new();
+    public SampleHistory GpuTempHistory { get; } = new();
+    public SampleHistory GpuPowerHistory { get; } = new();
+    public SampleHistory MemLoadHistory { get; } = new();
+    public SampleHistory MotherboardTempHistory { get; } = new();
+    public SampleHistory MotherboardVrmTempHistory { get; } = new();
+    public SampleHistory NetDownloadHistory { get; } = new();
+    public SampleHistory NetUploadHistory { get; } = new();
+
+    public ObservableCollectionEx<FanItemViewModel> Fans { get; } = new();
     public ObservableCollectionEx<SensorReading> MotherboardOtherTemps { get; } = new();
     public ObservableCollectionEx<SensorReading> MotherboardVoltages { get; } = new();
     public ObservableCollectionEx<DiskItemViewModel> Disks { get; } = new();
@@ -377,6 +427,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         CpuTemp = s.Cpu.PackageTempC;
         CpuPower = s.Cpu.PowerWatts;
         CpuClock = s.Cpu.MaxClockMhz;
+        CpuLoadHistory.Push(CpuLoad);
+        CpuTempHistory.Push(CpuTemp);
+        CpuPowerHistory.Push(CpuPower);
 
         HasGpu = s.Gpu is not null;
         if (s.Gpu is { } gpu)
@@ -394,21 +447,32 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             GpuVramLoad = gpu.VramUsedMb is { } used && gpu.VramTotalMb is { } total and > 0
                 ? used / total * 100 : 0;
             GpuFanRpm = gpu.FanRpm;
+            GpuLoadHistory.Push(GpuLoad);
+            GpuTempHistory.Push(GpuTemp);
+            GpuPowerHistory.Push(GpuPower);
         }
 
         MemLoad = s.Memory.LoadPercent ?? 0;
         MemUsedGb = s.Memory.UsedGb;
         MemTotalGb = s.Memory.TotalGb;
+        MemLoadHistory.Push(MemLoad);
 
         MotherboardName = s.Motherboard.Name;
         MotherboardTempLabel = s.Motherboard.SystemTempLabel;
         MotherboardTemp = s.Motherboard.SystemTempC;
         MotherboardVrmLabel = s.Motherboard.VrmTempLabel;
         MotherboardVrmTemp = s.Motherboard.VrmTempC;
+        MotherboardTempHistory.Push(MotherboardTemp);
+        MotherboardVrmTempHistory.Push(MotherboardVrmTemp);
+
+        NetDownload = s.Network.DownloadBytesPerSecond;
+        NetUpload = s.Network.UploadBytesPerSecond;
+        NetDownloadHistory.Push(NetDownload);
+        NetUploadHistory.Push(NetUpload);
         MotherboardOtherTemps.ReplaceAll(s.Motherboard.OtherTemperatures);
         MotherboardVoltages.ReplaceAll(s.Motherboard.Voltages);
 
-        Fans.ReplaceAll(s.Fans);
+        ApplyFans(s.Fans);
         ApplyDisks(s.Disks);
 
         var sample = new MetricSample { Hardware = s, Game = game, LocalTime = DateTime.Now };
@@ -420,6 +484,29 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         SnapshotUpdated?.Invoke(s);
         MetricsUpdated?.Invoke(sample);
+    }
+
+    private void ApplyFans(IReadOnlyList<FanReading> readings)
+    {
+        // Réconciliation par capteur, comme les disques : une ligne recréée à chaque tick perdrait son historique.
+        for (int i = Fans.Count - 1; i >= 0; i--)
+        {
+            if (readings.All(r => r.SensorId != Fans[i].SensorId))
+            {
+                Fans.RemoveAt(i);
+            }
+        }
+
+        foreach (FanReading reading in readings)
+        {
+            FanItemViewModel? existing = Fans.FirstOrDefault(f => f.SensorId == reading.SensorId);
+            if (existing is null)
+            {
+                existing = new FanItemViewModel(reading.SensorId);
+                Fans.Add(existing);
+            }
+            existing.Apply(reading);
+        }
     }
 
     private void ApplyDisks(IReadOnlyList<DiskSnapshot> snapshots)
