@@ -375,8 +375,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
                 RtssFrameStats? frames = RtssFrameStatsReader.TryReadForeground();
                 return (hardware, frames, Stopwatch.GetElapsedTime(rtssStart));
             });
+            long applyStart = Stopwatch.GetTimestamp();
             Apply(snapshot, game);
-            RecordReadTimings(snapshot, rtssDuration);
+            TimeSpan applyDuration = Stopwatch.GetElapsedTime(applyStart);
+            RecordReadTimings(snapshot, rtssDuration, applyDuration);
             ErrorMessage = null;
         }
         catch (Exception ex)
@@ -389,7 +391,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan rtssDuration)
+    private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan rtssDuration, TimeSpan applyDuration)
     {
         foreach (HardwareReadTiming timing in snapshot.ReadTimings)
         {
@@ -398,6 +400,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         ReadTimingRow("snapshot", "Relevé complet (GetSnapshot)", EveryTickCadence).Record(snapshot.ReadDuration);
         ReadTimingRow("rtss", "FPS (RTSS)", EveryTickCadence).Record(rtssDuration);
+
+        // Sur le thread de l'interface : valeurs affichées, historiques des graphiques et tous les abonnés
+        // (onglet GPU, courbes de ventilateurs, overlay). Le dessin qui suit n'est pas compté.
+        ReadTimingRow("ui", "Interface et abonnés (Apply)", EveryTickCadence).Record(applyDuration);
     }
 
     private static string CadenceLabel(TimeSpan interval) =>
