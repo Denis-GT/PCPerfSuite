@@ -57,6 +57,10 @@ public sealed class MetricDefinition
 
     /// <summary>Faux pour une valeur sans courbe possible (l'heure) : elle n'est pas proposée en tuile graphique.</summary>
     public bool HasGraph { get; init; } = true;
+
+    /// <summary>Groupe de capteurs dont la lecture renouvelle cette valeur : sa courbe n'avance qu'à ce moment-là.
+    /// Null pour une valeur qui change à chaque relevé (l'heure).</summary>
+    public SensorGroup? ReadGroup { get; init; }
 }
 
 /// <summary>
@@ -153,13 +157,14 @@ public static class MetricCatalog
     };
 
     internal static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
-        string unit, string format, Func<MetricSample, double?> get) => new()
+        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null) => new()
     {
         Id = id,
         Category = category,
         Label = label,
         OsdLabel = osdLabel,
         IsPercent = unit == "%",
+        ReadGroup = group ?? GroupFor(id, category),
         // Pourcentages et températures sur une échelle fixe de 0 à 100 ; le reste calé sur le pic visible,
         // avec un plancher de l'ordre d'une valeur au repos.
         GraphMaximum = unit is "%" or "°C" ? 100 : null,
@@ -185,12 +190,26 @@ public static class MetricCatalog
         Label = label,
         OsdLabel = osdLabel,
         GraphMinimumScale = graphMinimumScale,
+        ReadGroup = GroupFor(id, category),
         Read = s =>
         {
             if (getBytesPerSecond(s) is not { } v) return MetricReading.Missing;
             (string value, string unit) = ByteFormatter.Split(Math.Max(0, v));
             return new MetricReading(v, value, unit + "/s");
         },
+    };
+
+    /// <summary>Groupe de lecture déduit de la catégorie ; la charge CPU a le sien, bien moins coûteux que le reste du CPU.</summary>
+    private static SensorGroup? GroupFor(string id, MetricCategory category) => category.Key switch
+    {
+        "cpu" => id == "cpu.load" ? SensorGroup.CpuLoad : SensorGroup.Cpu,
+        "gpu" => SensorGroup.Gpu,
+        "ram" => SensorGroup.Memory,
+        "mb" => SensorGroup.Motherboard,
+        "storage" => SensorGroup.Storage,
+        "net" => SensorGroup.Network,
+        "game" => SensorGroup.Fps,
+        _ => null,
     };
 
     private static double? VramPercent(GpuSnapshot? gpu)

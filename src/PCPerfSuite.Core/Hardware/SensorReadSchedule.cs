@@ -5,12 +5,17 @@ namespace PCPerfSuite.Core.Hardware;
 /// <summary>Groupes de capteurs relus chacun à sa propre cadence.</summary>
 public enum SensorGroup
 {
+    /// <summary>Charge CPU totale (compteur Windows), séparée du reste du CPU qui coûte bien plus cher à lire.</summary>
+    CpuLoad,
     Cpu,
     Gpu,
     Memory,
     Motherboard,
     Storage,
     Network,
+
+    /// <summary>FPS et temps de frame lus dans la mémoire partagée de RTSS.</summary>
+    Fps,
 }
 
 /// <summary>Cadence d'un groupe de capteurs au moment d'un relevé, pour l'afficher et la régler.</summary>
@@ -21,7 +26,7 @@ public sealed class SensorGroupReadStatus
     /// <summary>Cadence imposée par l'utilisateur, null en automatique.</summary>
     public TimeSpan? ManualInterval { get; init; }
 
-    /// <summary>Cadence appliquée : l'imposée, ou celle déduite du coût mesuré. Zéro : à chaque relevé.</summary>
+    /// <summary>Cadence appliquée : l'imposée, ou en automatique la cadence de base, allongée si la lecture coûte cher.</summary>
     public TimeSpan Interval { get; init; }
 
     /// <summary>Durée moyenne d'une lecture du groupe, null tant qu'aucune n'a été mesurée.</summary>
@@ -44,6 +49,7 @@ internal sealed class SensorReadSchedule
     private const double AutoIntervalStepMs = 50;
 
     private readonly object _sync = new();
+    private TimeSpan _baseInterval = TimeSpan.FromSeconds(1);
     private TimeSpan? _manualInterval;
     private double? _averageReadMs;
     private int _readCount;
@@ -57,6 +63,13 @@ internal sealed class SensorReadSchedule
     {
         get { lock (_sync) return _manualInterval; }
         set { lock (_sync) _manualInterval = value; }
+    }
+
+    /// <summary>Cadence d'un groupe en automatique dont la lecture ne coûte pas cher : l'actualisation globale.</summary>
+    public TimeSpan BaseInterval
+    {
+        get { lock (_sync) return _baseInterval; }
+        set { lock (_sync) _baseInterval = value; }
     }
 
     public bool IsDue(long timestamp)
@@ -103,9 +116,10 @@ internal sealed class SensorReadSchedule
     private TimeSpan CurrentInterval()
     {
         if (_manualInterval is { } manual) return manual;
-        if (_averageReadMs is not { } average) return TimeSpan.Zero;
+        if (_averageReadMs is not { } average) return _baseInterval;
 
         double ms = Math.Ceiling(average / HardwareMonitorService.AutoReadBudget / AutoIntervalStepMs) * AutoIntervalStepMs;
-        return TimeSpan.FromMilliseconds(Math.Min(ms, HardwareMonitorService.MaxAutoInterval.TotalMilliseconds));
+        var costInterval = TimeSpan.FromMilliseconds(Math.Min(ms, HardwareMonitorService.MaxAutoInterval.TotalMilliseconds));
+        return costInterval > _baseInterval ? costInterval : _baseInterval;
     }
 }

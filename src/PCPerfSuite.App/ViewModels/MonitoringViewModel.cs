@@ -7,7 +7,6 @@ using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
-using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -140,6 +139,7 @@ public sealed partial class MetricTileViewModel : ObservableObject
 public sealed partial class SensorGroupCadenceViewModel : ObservableObject
 {
     private readonly HardwareMonitorService _hardware;
+    private readonly Action _onIntervalChanged;
     private readonly bool _initialized;
 
     public SensorGroup Group { get; }
@@ -170,18 +170,23 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
         }
     }
 
-    public SensorGroupCadenceViewModel(HardwareMonitorService hardware, SensorGroup group, int? savedManualMs)
+    /// <param name="onIntervalChanged">Appelé quand l'intervalle du groupe change, pour recaler le timer du Monitoring.</param>
+    public SensorGroupCadenceViewModel(HardwareMonitorService hardware, SensorGroup group, int? savedManualMs, Action onIntervalChanged)
     {
         _hardware = hardware;
+        _onIntervalChanged = onIntervalChanged;
         Group = group;
         (Name, Description) = group switch
         {
-            SensorGroup.Cpu => ("CPU", "Température, puissance, fréquence (la charge suit chaque relevé)"),
+            SensorGroup.CpuLoad => ("Charge CPU", "Utilisation totale, comme le Gestionnaire des tâches"),
+            SensorGroup.Cpu => ("CPU", "Température, puissance, fréquence, charge par cœur"),
             SensorGroup.Gpu => ("GPU", "Charge, températures, puissance, VRAM, ventilateur"),
             SensorGroup.Memory => ("Mémoire vive", "Utilisation"),
             SensorGroup.Motherboard => ("Carte mère", "Températures, tensions, ventilateurs"),
-            SensorGroup.Storage => ("Disques", "Débits, température, vie restante"),
-            _ => ("Réseau", "Débits de toutes les cartes"),
+            SensorGroup.Storage => ("Disques", "Débits, température, espace utilisé"),
+            SensorGroup.Network => ("Réseau", "Débits de toutes les cartes"),
+            SensorGroup.Fps => ("FPS (RTSS)", "FPS, temps de frame et 1 % low du jeu au premier plan"),
+            _ => (group.ToString(), ""),
         };
 
         _manualMs = RefreshRates.Clamp(savedManualMs ?? 1000);
@@ -199,25 +204,21 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
     {
         _lastRefreshMs = refreshMs;
 
-        // Un groupe ne peut pas être relu plus souvent que l'actualisation. Même marge de 10 % que l'échéancier :
-        // une cadence à peine plus lente que l'actualisation revient à relire le groupe à chaque relevé.
         double intervalMs = status.Interval.TotalMilliseconds;
-        bool everyRefresh = intervalMs * 0.9 <= refreshMs;
         string? cost = status.AverageReadDuration is { } duration ? $"{duration.TotalMilliseconds:0.0} ms" : null;
 
-        StatusText = everyRefresh
-            ? $"Relu à chaque actualisation ({refreshMs} ms)"
-            : intervalMs >= 1000 ? $"Relu toutes les {intervalMs / 1000:0.#} s" : $"Relu toutes les {intervalMs:0} ms";
+        StatusText = intervalMs >= 1000 ? $"Relu toutes les {intervalMs / 1000:0.#} s" : $"Relu toutes les {intervalMs:0} ms";
 
-        ReasonText = (IsAuto, everyRefresh, cost) switch
+        // Même marge de 10 % que l'échéancier pour dire si l'automatique a espacé le groupe au-delà de l'actualisation.
+        bool spacedOut = intervalMs * 0.9 > refreshMs;
+        ReasonText = (IsAuto, spacedOut, cost) switch
         {
-            (true, _, null) => "Mesure du coût de lecture en cours…",
-            (true, true, _) => $"Lecture rapide ({cost}) : pas besoin de l'espacer.",
-            (true, false, _) => $"Lecture coûteuse ({cost}) : espacée pour ne pas y passer plus de " +
-                                $"{HardwareMonitorService.AutoReadBudget * 100:0} % du temps.",
-            (false, true, _) => "Intervalle inférieur ou égal à l'actualisation : aucun effet.",
-            (false, false, null) => "Intervalle fixe.",
-            (false, false, _) => $"Intervalle fixe · lecture {cost}.",
+            (true, _, null) => $"Suit l'actualisation ({refreshMs} ms) · mesure du coût de lecture en cours…",
+            (true, false, _) => $"Lecture rapide ({cost}) : suit l'actualisation ({refreshMs} ms).",
+            (true, true, _) => $"Lecture coûteuse ({cost}) : espacée pour ne pas y passer plus de " +
+                               $"{HardwareMonitorService.AutoReadBudget * 100:0} % du temps.",
+            (false, _, null) => "Fréquence propre à ce groupe.",
+            (false, _, _) => $"Fréquence propre à ce groupe · lecture {cost}.",
         };
     }
 
@@ -231,8 +232,9 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
         else settings.SensorGroupIntervalsMs[Group.ToString()] = ManualMs;
         AppSettingsStore.Save(settings);
 
-        // Le texte suit tout de suite le réglage, sans attendre le prochain relevé.
+        // Le texte et le timer suivent tout de suite le réglage, sans attendre le prochain relevé.
         Apply(_hardware.GetGroupStatus(Group), _lastRefreshMs);
+        _onIntervalChanged();
     }
 }
 
@@ -298,7 +300,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             if (clamped != value) OnPropertyChanged(nameof(RefreshMs));
             if (!changed) return;
 
-            _timer.Interval = TimeSpan.FromMilliseconds(clamped);
+            _hardware.SetBaseInterval(TimeSpan.FromMilliseconds(clamped));
 
             AppSettings settings = AppSettingsStore.Load();
             settings.MonitoringRefreshMs = clamped;
@@ -312,6 +314,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
                 cadence.Apply(_hardware.GetGroupStatus(cadence.Group), clamped);
             }
             OnPropertyChanged(nameof(SensorCadencesHint));
+            UpdateTimerInterval();
         }
     }
 
@@ -343,11 +346,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool isCustomizingCadences;
 
     public string SensorCadencesHint =>
-        $"Un groupe n'est jamais relu plus souvent que l'actualisation ({RefreshMs} ms) : ce réglage sert seulement à en " +
-        "relire certains moins souvent. En Auto, l'app mesure le coût de lecture de chaque groupe et n'espace que ceux qui " +
-        $"coûtent cher (pas plus de {HardwareMonitorService.AutoReadBudget * 100:0} % du temps) : avec une actualisation " +
-        "lente, tout reste donc relu à chaque fois, c'est normal. Sans Auto, tu fixes l'intervalle. La charge CPU et les " +
-        "FPS suivent toujours l'actualisation.";
+        $"Chaque groupe est relu à sa propre fréquence, et sa courbe n'avance qu'à ce rythme. En Auto, il suit l'actualisation " +
+        $"({RefreshMs} ms), sauf si sa lecture coûte cher : il est alors espacé pour ne pas y passer plus de " +
+        $"{HardwareMonitorService.AutoReadBudget * 100:0} % du temps. Sans Auto, choisis son intervalle, plus court ou plus " +
+        "long que l'actualisation. Changer l'actualisation remet tous les intervalles choisis à sa valeur.";
 
     public MonitoringViewModel(HardwareMonitorService hardware)
     {
@@ -355,11 +357,13 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         AppSettings settings = AppSettingsStore.Load();
         _refreshMs = RefreshRates.Clamp(settings.MonitoringRefreshMs);
+        hardware.SetBaseInterval(TimeSpan.FromMilliseconds(_refreshMs));
 
         // Avant le premier relevé, pour que les cadences imposées s'appliquent dès le départ.
         SensorCadences = Enum.GetValues<SensorGroup>()
             .Select(group => new SensorGroupCadenceViewModel(hardware, group,
-                settings.SensorGroupIntervalsMs.TryGetValue(group.ToString(), out int ms) ? ms : null))
+                settings.SensorGroupIntervalsMs.TryGetValue(group.ToString(), out int ms) ? ms : null,
+                UpdateTimerInterval))
             .ToArray();
 
         // Première ouverture des tuiles graphiques : ce qu'affichaient les anciennes cartes, plus les tuiles
@@ -372,7 +376,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(_refreshMs),
+            Interval = TickInterval(),
         };
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
@@ -413,6 +417,17 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Le timer bat au rythme du groupe relu le plus souvent ; les autres attendent leur échéance.</summary>
+    private TimeSpan TickInterval()
+        => TimeSpan.FromMilliseconds(Math.Max(RefreshRates.MinMs, _hardware.ShortestInterval.TotalMilliseconds));
+
+    private void UpdateTimerInterval()
+    {
+        TimeSpan interval = TickInterval();
+        // Réaffecter Interval relance le décompte du timer : seulement quand la valeur change vraiment.
+        if (_timer.Interval != interval) _timer.Interval = interval;
+    }
+
     private SampleHistory GetHistory(string metricId)
     {
         if (!_histories.TryGetValue(metricId, out SampleHistory? history))
@@ -437,21 +452,18 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _isRefreshing = true;
         try
         {
-            (HardwareSnapshot snapshot, RtssFrameStats? game, TimeSpan rtssDuration) = await Task.Run(() =>
-            {
-                HardwareSnapshot hardware = _hardware.GetSnapshot();
-                long rtssStart = Stopwatch.GetTimestamp();
-                RtssFrameStats? frames = RtssFrameStatsReader.TryReadForeground();
-                return (hardware, frames, Stopwatch.GetElapsedTime(rtssStart));
-            });
+            HardwareSnapshot snapshot = await Task.Run(() => _hardware.GetSnapshot());
             long applyStart = Stopwatch.GetTimestamp();
-            Apply(snapshot, game);
+            Apply(snapshot);
             TimeSpan applyDuration = Stopwatch.GetElapsedTime(applyStart);
-            RecordReadTimings(snapshot, rtssDuration, applyDuration);
+            RecordReadTimings(snapshot, applyDuration);
             foreach (SensorGroupReadStatus status in snapshot.GroupStatuses)
             {
                 SensorCadences.FirstOrDefault(c => c.Group == status.Group)?.Apply(status, RefreshMs);
             }
+
+            // Une cadence automatique peut changer avec le coût de lecture mesuré.
+            UpdateTimerInterval();
             ErrorMessage = null;
         }
         catch (Exception ex)
@@ -464,7 +476,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan rtssDuration, TimeSpan applyDuration)
+    private void RecordReadTimings(HardwareSnapshot snapshot, TimeSpan applyDuration)
     {
         foreach (HardwareReadTiming timing in snapshot.ReadTimings)
         {
@@ -472,7 +484,6 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
 
         ReadTimingRow("snapshot", "Relevé complet (GetSnapshot)").Record(snapshot.ReadDuration);
-        ReadTimingRow("rtss", "FPS (RTSS)").Record(rtssDuration);
 
         // Sur le thread de l'interface : tuiles, historiques des graphiques et tous les abonnés
         // (onglet GPU, courbes de ventilateurs, overlay). Le dessin qui suit n'est pas compté.
@@ -498,19 +509,21 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         SkippedTicks = 0;
     }
 
-    private void Apply(HardwareSnapshot s, RtssFrameStats? game)
+    private void Apply(HardwareSnapshot s)
     {
         ApplyDisks(s.Disks);
 
-        var sample = new MetricSample { Hardware = s, Game = game, LocalTime = DateTime.Now };
+        var sample = new MetricSample { Hardware = s, Game = s.Game, LocalTime = DateTime.Now };
         _lastSample = sample;
 
         // Capteurs propres à la machine, découverts au fil des relevés (un disque branché en cours de route...).
         MyMetrics.AddDefinitions(MonitoringSensorCatalog.FromSnapshot(s));
 
-        // Historique tenu pour tous les capteurs, affichés ou non : une tuile qu'on active a déjà sa courbe.
+        // Historique tenu pour tous les capteurs, affichés ou non : une tuile qu'on active a déjà sa courbe. Un point
+        // n'est ajouté que quand le groupe du capteur vient d'être relu, pour que chaque courbe avance à sa propre fréquence.
         foreach (MetricDefinition definition in MyMetrics.Definitions)
         {
+            if (definition.ReadGroup is { } group && !s.GroupsRead.Contains(group)) continue;
             GetHistory(definition.Id).Push(definition.Read(sample).Number);
         }
 

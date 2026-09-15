@@ -1,3 +1,5 @@
+using PCPerfSuite.Core.Overlay;
+
 namespace PCPerfSuite.Core.Hardware;
 
 public sealed class FanReading
@@ -13,6 +15,9 @@ public sealed class FanReading
     /// <summary>Identifiant stable du capteur de contrôle (%) associé, quand la puce Super I/O permet
     /// de le piloter en écriture — null si ce ventilateur n'est lisible qu'en lecture seule.</summary>
     public string? PercentControlSensorId { get; init; }
+
+    /// <summary>Groupe dont la lecture rafraîchit ce ventilateur (GPU ou carte mère).</summary>
+    public SensorGroup Group { get; init; } = SensorGroup.Motherboard;
 
     public bool CanControl => PercentControlSensorId is not null;
 }
@@ -137,4 +142,10 @@ public sealed class HardwareSnapshot
 
     /// <summary>Cadence de chaque groupe de capteurs après ce relevé.</summary>
     public IReadOnlyList<SensorGroupReadStatus> GroupStatuses { get; init; } = Array.Empty<SensorGroupReadStatus>();
+
+    /// <summary>Groupes effectivement relus pendant ce relevé ; les valeurs des autres sont celles de leur dernière lecture.</summary>
+    public IReadOnlyCollection<SensorGroup> GroupsRead { get; init; } = Array.Empty<SensorGroup>();
+
+    /// <summary>Statistiques RTSS de l'application au premier plan — null hors jeu ou sans RTSS.</summary>
+    public RtssFrameStats? Game { get; init; }
 }
