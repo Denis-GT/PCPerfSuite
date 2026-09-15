@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
 
 namespace PCPerfSuite.Core.Hardware;
@@ -14,6 +15,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly Computer _computer;
     private readonly UpdateVisitor _visitor = new();
     private bool _disposed;
+
+    /// <summary>Cadence de relecture du matériel dont les capteurs bougent lentement ou dont les débits
+    /// sont de toute façon moyennés (carte mère, disques, réseau). CPU, GPU et RAM sont relus à chaque relevé.</summary>
+    public static readonly TimeSpan SlowHardwareInterval = TimeSpan.FromSeconds(1);
+
+    private long _lastSlowUpdateTimestamp;
+    private bool _slowHardwareRead;
 
     public HardwareMonitorService()
     {
@@ -32,7 +40,35 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     public HardwareSnapshot GetSnapshot()
     {
-        _computer.Accept(_visitor);
+        long start = Stopwatch.GetTimestamp();
+
+        // Marge de 10 % : le timer de l'interface n'est pas exact à la milliseconde, et sans marge un
+        // relevé arrivé à 998 ms repousserait la relecture au tick suivant (2 s à la cadence par défaut).
+        bool readSlowHardware = !_slowHardwareRead
+            || Stopwatch.GetElapsedTime(_lastSlowUpdateTimestamp) >= SlowHardwareInterval * 0.9;
+
+        var timings = new List<HardwareReadTiming>();
+        foreach (IHardware hardware in _computer.Hardware)
+        {
+            bool slow = IsSlowHardware(hardware.HardwareType);
+            if (slow && !readSlowHardware) continue;
+
+            long hardwareStart = Stopwatch.GetTimestamp();
+            hardware.Accept(_visitor);
+            timings.Add(new HardwareReadTiming
+            {
+                Identifier = hardware.Identifier.ToString(),
+                Name = hardware.Name,
+                IsSlow = slow,
+                Duration = Stopwatch.GetElapsedTime(hardwareStart),
+            });
+        }
+
+        if (readSlowHardware)
+        {
+            _lastSlowUpdateTimestamp = start;
+            _slowHardwareRead = true;
+        }
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
@@ -91,8 +127,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Fans = fans,
             Disks = disks,
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
+            ReadTimings = timings,
+            ReadDuration = Stopwatch.GetElapsedTime(start),
         };
     }
+
+    private static bool IsSlowHardware(HardwareType type) => type switch
+    {
+        HardwareType.Cpu or HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel or HardwareType.Memory => false,
+        _ => true,
+    };
 
     private static CpuSnapshot ReadCpu(IHardware hardware)
     {

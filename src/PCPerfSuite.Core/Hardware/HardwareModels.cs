@@ -107,6 +107,18 @@ public sealed class NetworkSnapshot
     public float? DownloadBytesPerSecond { get; init; }
 }
 
+/// <summary>Durée de la mise à jour d'un matériel (sous-matériel compris) lors d'un relevé.</summary>
+public sealed class HardwareReadTiming
+{
+    /// <summary>Identifiant stable côté LibreHardwareMonitor, pour distinguer deux disques de même nom.</summary>
+    public required string Identifier { get; init; }
+    public required string Name { get; init; }
+
+    /// <summary>Vrai pour le matériel relu seulement toutes les <see cref="HardwareMonitorService.SlowHardwareInterval"/>.</summary>
+    public bool IsSlow { get; init; }
+    public TimeSpan Duration { get; init; }
+}
+
 public sealed class HardwareSnapshot
 {
     public CpuSnapshot Cpu { get; init; } = new();
@@ -117,4 +129,11 @@ public sealed class HardwareSnapshot
     public IReadOnlyList<DiskSnapshot> Disks { get; init; } = Array.Empty<DiskSnapshot>();
     public NetworkSnapshot Network { get; init; } = new();
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
+
+    /// <summary>Matériel effectivement mis à jour pour ce relevé : le matériel lent en est absent
+    /// quand il n'était pas encore temps de le relire.</summary>
+    public IReadOnlyList<HardwareReadTiming> ReadTimings { get; init; } = Array.Empty<HardwareReadTiming>();
+
+    /// <summary>Durée totale de GetSnapshot : mises à jour plus extraction des valeurs.</summary>
+    public TimeSpan ReadDuration { get; init; }
 }
