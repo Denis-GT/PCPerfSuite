@@ -397,6 +397,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private bool _orderQueued;
     private bool _orderQueuedForce;
 
+    /// <summary>L'onglet est fermé : ce qui traîne encore dans la file du dispatcher ne doit plus toucher à
+    /// la liste ni au service.</summary>
+    private bool _disposed;
+
     private bool _isRefreshing;
     private long _lastReorderTick;
     private bool _initialized;
@@ -565,8 +569,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         await Task.Run(_service.ResetCounters);
 
-        // L'utilisateur a pu repartir, ou figer, pendant l'attente.
-        if (!IsActive || IsFrozen) return;
+        // L'utilisateur a pu repartir, figer, ou fermer la fenêtre pendant l'attente.
+        if (_disposed || !IsActive || IsFrozen) return;
 
         _timer.Start();
         await RefreshAsync();
@@ -576,7 +580,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         // Même garde que le Monitoring : si le relevé précédent n'est pas terminé, on saute ce tick plutôt
         // que d'empiler des énumérations concurrentes que l'interface ne rattraperait jamais.
-        if (_isRefreshing) return;
+        if (_isRefreshing || _disposed) return;
 
         _isRefreshing = true;
         try
@@ -755,9 +759,14 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         _orderQueued = true;
         _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
+            // Rendu avant toute chose, et quoi qu'il arrive ensuite : un drapeau resté levé sur une
+            // exception empêcherait définitivement la liste d'être reclassée.
             _orderQueued = false;
             bool forced = _orderQueuedForce;
             _orderQueuedForce = false;
+
+            // L'onglet a pu être fermé entre la mise en file et son exécution.
+            if (_disposed) return;
 
             // L'ordre des trois étapes est celui qui a été validé au banc, et il n'est pas interchangeable.
             // 1. La vue reflète ici les appartenances déclarées au tour précédent : c'est donc le moment où
@@ -1286,6 +1295,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _timer.Stop();
         _monitoring.SnapshotUpdated -= OnHardwareSnapshot;
 
