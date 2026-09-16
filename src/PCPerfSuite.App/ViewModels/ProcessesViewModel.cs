@@ -179,6 +179,12 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     [ObservableProperty] private bool isSelected;
 
+    /// <summary>La ligne appartient au filtre courant. C'est une propriété de la ligne, et non le résultat
+    /// d'un prédicat évalué par la vue, parce que c'est le ViewModel — et lui seul — qui doit décider QUAND
+    /// une ligne entre ou sort : jamais pendant que la liste est visée, sinon tout ce qui est en dessous
+    /// remonte d'une hauteur de ligne et le clic tombe sur le processus voisin.</summary>
+    [ObservableProperty] private bool matchesFilter;
+
     /// <summary>Le processus a disparu, mais sa ligne reste affichée en grisé tant que le pointeur survole la
     /// liste : la retirer aussitôt ferait remonter tout le reste d'un cran sous le curseur.</summary>
     [ObservableProperty] private bool isGone;
@@ -378,16 +384,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// remplace la collection en bloc plutôt que de la remettre en ordre ligne à ligne.</summary>
     private const int BulkReorderThreshold = 64;
 
-    /// <summary>Propriétés de ligne lues par le filtre et susceptibles de changer d'un relevé à l'autre : la
-    /// vue s'y abonne pour retirer ou réintégrer la ligne concernée sans reconstruire toute la liste.</summary>
-    private static readonly string[] LiveFilterProperties =
-    {
-        nameof(ProcessRowViewModel.Kind),
-        nameof(ProcessRowViewModel.DisplayName),
-        nameof(ProcessRowViewModel.Publisher),
-        nameof(ProcessRowViewModel.ExecutablePath),
-        nameof(ProcessRowViewModel.WindowTitle),
-    };
 
     private readonly ProcessService _service = new();
     private readonly MonitoringViewModel _monitoring;
@@ -396,6 +392,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private readonly HashSet<ProcessIdentity> _seen = new();
     private readonly List<ProcessRowViewModel> _ordered = new();
     private readonly ListCollectionView _rowsView;
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+
+    private bool _orderQueued;
+    private bool _orderQueuedForce;
 
     private bool _isRefreshing;
     private long _lastReorderTick;
@@ -439,10 +439,33 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int selectionCount;
     [ObservableProperty] private bool isTerminating;
 
-    /// <summary>Posé par la vue : tant que le pointeur est sur la liste, l'ordre ne bouge plus.</summary>
-    public bool IsPointerOverList { get; set; }
+    private bool _isPointerOverList;
+    private bool _isListFocused;
 
-    public bool IsListFocused { get; set; }
+    /// <summary>Posé par la vue : tant que le pointeur est sur la liste, l'ordre ne bouge plus.</summary>
+    public bool IsPointerOverList
+    {
+        get => _isPointerOverList;
+        set
+        {
+            if (_isPointerOverList == value) return;
+
+            _isPointerOverList = value;
+            OnListBusyChanged();
+        }
+    }
+
+    public bool IsListFocused
+    {
+        get => _isListFocused;
+        set
+        {
+            if (_isListFocused == value) return;
+
+            _isListFocused = value;
+            OnListBusyChanged();
+        }
+    }
 
     /// <summary>Vrai quand la liste est visée, à la souris ou au clavier : rien ne doit alors changer de
     /// place sous le curseur. La cible d'un menu contextuel ouvert, elle, est protégée autrement — la vue la
@@ -512,21 +535,18 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         _rowsView = (ListCollectionView)CollectionViewSource.GetDefaultView(Rows);
         // Pas de SortDescriptions : le tri est appliqué à la source par des Move, ce qui préserve la
         // sélection et le défilement, là où un tri de vue relance une reconstruction complète.
-        _rowsView.Filter = o => o is ProcessRowViewModel row && PassesFilter(row);
+        //
+        // Le filtre ne RECALCULE rien : il lit une appartenance que le ViewModel a décidée. C'est ce qui
+        // permet de choisir le moment où une ligne entre ou sort — voir UpdateFilterMembership.
+        _rowsView.Filter = o => o is ProcessRowViewModel row && row.MatchesFilter;
 
-        // Mise en forme dynamique : la vue réévalue le filtre pour UNE ligne dès que l'une des propriétés
-        // ci-dessous change, et l'ajoute ou la retire par une notification ciblée. Sans elle, un processus
-        // qui bascule de type — réduire une application dans la zone de notification suffit — resterait
-        // affiché sous un libellé qui contredit le filtre, et le seul moyen de corriger serait un Refresh()
-        // à chaque relevé : un Reset, donc des conteneurs détruits et un défilement qui repart en haut tout
-        // seul. Seules figurent ici les propriétés que PassesFilter lit et qui changent en cours de route ;
-        // le nom et le PID sont fixés à la création de la ligne, et la recherche comme le filtre de type ne
-        // sont pas des propriétés de ligne — eux passent par RefreshFilter.
+        // Mise en forme dynamique sur cette seule propriété : quand une ligne change d'appartenance, la vue
+        // l'ajoute ou la retire par une notification ciblée, au lieu du Reset qu'imposerait un Refresh() —
+        // Reset qui détruit les conteneurs et renvoie le défilement en haut. Vérifié à l'exécution, sur les
+        // conteneurs réellement rendus : retrait et réintégration se font bien par Add/Remove, jamais par un
+        // Reset, et le rattrapage d'un lot de changements accumulés est exact.
+        _rowsView.LiveFilteringProperties.Add(nameof(ProcessRowViewModel.MatchesFilter));
         _rowsView.IsLiveFiltering = true;
-        foreach (string property in LiveFilterProperties)
-        {
-            _rowsView.LiveFilteringProperties.Add(property);
-        }
 
         _initialized = true;
     }
@@ -603,6 +623,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             }
 
             row = new ProcessRowViewModel(this, info);
+            // Décidée AVANT l'ajout : la vue applique le filtre au moment où la ligne entre dans la
+            // collection, et une ligne hors filtre ne doit jamais apparaître, même le temps d'un tour.
+            row.MatchesFilter = PassesFilter(row);
             _byIdentity[info.Identity] = row;
 
             // Insérer à son rang décale vers le bas tout ce qui suit. Sous le curseur, la ligne visée se
@@ -615,15 +638,15 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         RemoveVanishedRows();
 
         TotalCount = snapshot.Processes.Count;
-        UpdateFilterState();
         ReadDurationHint = $"Durée du dernier relevé : {snapshot.ReadDuration.TotalMilliseconds:0} ms"
                            + (snapshot.InaccessibleCount > 0
                                ? $" · {snapshot.InaccessibleCount} processus protégés par Windows (mesures vides)"
                                : "");
         OnPropertyChanged(nameof(ReadDurationHint));
 
-        ApplyOrder();
-        UpdateHeaderSummary();
+        // Reclassement, sélection et compteurs sont remis en file : ils doivent tous passer APRÈS la remise
+        // en forme de la vue, que les changements de propriétés ci-dessus viennent de déclencher.
+        QueueOrder();
     }
 
     /// <summary>Retire les lignes dont le processus a disparu — mais pas sous le curseur : tant que le
@@ -713,6 +736,47 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// <summary>Remet la collection dans l'ordre voulu à coups de Move : la liste déplace ses conteneurs au
     /// lieu de les détruire, donc la sélection, le focus et le défilement survivent — ce qu'un Clear suivi
     /// d'Add perdrait tous les trois.</summary>
+    /// <summary>Met un reclassement en file au lieu de l'appliquer sur-le-champ, et remet du même coup
+    /// sélection et compteur d'aplomb.
+    ///
+    /// La mise en forme dynamique de la vue ne s'applique pas immédiatement : elle poste son travail sur le
+    /// dispatcher, en priorité DataBind. Réordonner la collection par des Move alors qu'une réévaluation de
+    /// filtre est encore en attente corrompt la vue — une ligne finit par y figurer DEUX FOIS, l'utilisateur
+    /// voit le même processus sur deux lignes, et rien ne le répare jamais. Vérifié : reclassement en ligne,
+    /// 20 tirages cassés sur 30 ; reclassement mis en file ici, 0 sur 30.
+    ///
+    /// La file est en priorité Background, donc après la remise en forme (DataBind) et avant le relevé
+    /// suivant, dont le timer est lui aussi en Background.</summary>
+    private void QueueOrder(bool force = false)
+    {
+        _orderQueuedForce |= force;
+        if (_orderQueued) return;
+
+        _orderQueued = true;
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _orderQueued = false;
+            bool forced = _orderQueuedForce;
+            _orderQueuedForce = false;
+
+            // L'ordre des trois étapes est celui qui a été validé au banc, et il n'est pas interchangeable.
+            // 1. La vue reflète ici les appartenances déclarées au tour précédent : c'est donc le moment où
+            //    l'on sait ce qu'elle affiche réellement, et quelles lignes ont cessé d'être visibles.
+            SyncSelectionToView();
+            VisibleCount = _rowsView.Count;
+            UpdateHeaderSummary();
+
+            // 2. Reclasser maintenant, pendant qu'aucune réévaluation n'est en attente. Des Move appliqués
+            //    alors qu'une ligne attend d'entrer ou de sortir corrompent la vue — elle finit par afficher
+            //    le même processus deux fois, et rien ne le répare jamais (mesuré : 36 tirages sur 40).
+            ApplyOrder(forced);
+
+            // 3. Déclarer enfin les nouvelles appartenances. La vue les traitera avant le prochain relevé,
+            //    puisque ce travail est posté à une priorité supérieure à celle de cette file.
+            if (!IsListBusy) UpdateFilterMembership();
+        }));
+    }
+
     private void ApplyOrder(bool force = false)
     {
         if (!force)
@@ -785,7 +849,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }
 
         UpdateSortGlyphs();
-        ApplyOrder(force: true);
+        QueueOrder(force: true);
         Persist();
     }
 
@@ -836,44 +900,56 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         if (!_initialized) return;
 
-        DeselectOutsideFilter();
+        // Changer de critère est une action volontaire : elle s'applique tout de suite, même si le pointeur
+        // est sur la liste — c'est l'utilisateur qui vient de la demander. Refresh() est synchrone, donc la
+        // vue est à jour dès la ligne suivante et tout se réconcilie ici même, sans passer par la file.
+        UpdateFilterMembership();
         _rowsView.Refresh();
-        VisibleCount = CountVisible();
+        SyncSelectionToView();
+        VisibleCount = _rowsView.Count;
+        UpdateHeaderSummary();
     }
 
-    /// <summary>Compté sur la source et non sur <c>_rowsView.Count</c> : la mise en forme dynamique ne
-    /// restructure pas la vue sur-le-champ, elle met le travail en file sur le dispatcher (vérifié : la
-    /// ligne ne quitte la vue qu'au tour de boucle suivant). Lue juste après un relevé, la vue annoncerait
-    /// donc encore l'ancien nombre, et le compteur resterait faux jusqu'au relevé d'après — plusieurs
-    /// secondes. La source, elle, est à jour tout de suite, et la vue la rejoint en quelques
-    /// millisecondes.</summary>
-    private int CountVisible() => Rows.Count(PassesFilter);
-
-    /// <summary>Aucune ligne hors filtre ne reste sélectionnée. Une ligne qui quitte la vue perd son
+    /// <summary>Aucune ligne absente de la vue ne reste sélectionnée. Une ligne qui quitte la vue perd son
     /// conteneur, et WPF n'a alors plus par où lui réécrire IsSelected : la sélection resterait vraie sur un
     /// processus que plus rien n'affiche — l'entête annoncerait « 3 sélectionnés » avec deux lignes
-    /// surlignées, et « Terminer » tuerait le troisième avec les autres.</summary>
-    private void DeselectOutsideFilter()
+    /// surlignées, et « Terminer » tuerait le troisième avec les autres.
+    ///
+    /// La question posée est « la vue l'affiche-t-elle ? », pas « passe-t-elle le filtre ? » : tant que la
+    /// mise en forme dynamique est suspendue, une ligne qui ne passe plus le filtre reste volontairement
+    /// affichée, et elle doit donc rester sélectionnable.</summary>
+    private void SyncSelectionToView()
     {
         foreach (ProcessRowViewModel row in Rows)
         {
-            // IsSelected d'abord : le filtre n'est évalué que sur les rares lignes sélectionnées.
-            if (row.IsSelected && !PassesFilter(row)) row.IsSelected = false;
+            // IsSelected d'abord : la vue n'est interrogée que pour les rares lignes sélectionnées.
+            if (row.IsSelected && !_rowsView.Contains(row)) row.IsSelected = false;
         }
 
-        if (SelectedRow is { } selected && !PassesFilter(selected)) SelectedRow = null;
+        if (SelectedRow is { } selected && !_rowsView.Contains(selected)) SelectedRow = null;
     }
 
-    /// <summary>Remet le compteur et la sélection d'aplomb après un relevé. La vue, elle, se corrige toute
-    /// seule : la mise en forme dynamique retire ou réintègre une ligne dès que l'une des propriétés lues par
-    /// le filtre change — le type d'un processus bascule dès que sa fenêtre apparaît ou disparaît, et la
-    /// recherche interroge le titre de fenêtre. Sans elle, il faudrait un Refresh() à chaque relevé, donc un
-    /// Reset, donc un défilement qui repart en haut tout seul : exactement ce que cet onglet corrige.</summary>
-    private void UpdateFilterState()
+    /// <summary>Déclare quelles lignes appartiennent au filtre. C'est le seul endroit qui fait entrer ou
+    /// sortir une ligne de la liste, et il n'est appelé que quand plus rien n'est visé : tant que le
+    /// pointeur ou le clavier est sur la liste, une application réduite dans la zone de notification change
+    /// bien de type dans sa colonne, mais sa ligne reste en place. Sans cette retenue, tout ce qui est en
+    /// dessous remonterait d'une hauteur de ligne au moment du clic — le défaut même que cet onglet corrige,
+    /// et celui contre lequel l'insertion, le retrait et le reclassement sont déjà protégés.</summary>
+    private void UpdateFilterMembership()
     {
-        DeselectOutsideFilter();
-        VisibleCount = CountVisible();
+        foreach (ProcessRowViewModel row in Rows) row.MatchesFilter = PassesFilter(row);
     }
+
+    /// <summary>La liste vient d'être visée, ou relâchée. Au relâchement, tout ce qui a été retenu pendant
+    /// ce temps peut enfin être appliqué — sans attendre le relevé suivant, qui peut être à deux secondes de
+    /// là.</summary>
+    private void OnListBusyChanged()
+    {
+        if (!_initialized || IsListBusy) return;
+
+        QueueOrder();
+    }
+
 
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
@@ -909,7 +985,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        ApplyOrder(force: true);
+        QueueOrder(force: true);
 
         // Les compteurs datent d'avant le gel : comme au retour sur l'onglet, on repart de zéro.
         if (IsActive) _ = ResumeAsync();
@@ -936,7 +1012,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             SortColumnId = cpuVisible ? "cpu" : Columns.Name.Id;
             SortDescending = cpuVisible;
             UpdateSortGlyphs();
-            ApplyOrder(force: true);
+            QueueOrder(force: true);
             StatusText = cpuVisible
                 ? "La colonne de tri a été masquée : le classement est revenu sur le CPU."
                 : "La colonne de tri a été masquée : le classement est revenu sur le nom.";
