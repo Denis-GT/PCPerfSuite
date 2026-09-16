@@ -57,6 +57,14 @@ public sealed class ProcessService : IDisposable
 
     private readonly Dictionary<int, Tracked> _tracked = new();
 
+    /// <summary>Sérialise tout ce qui touche <see cref="_tracked"/> et les handles qu'il garde ouverts. Le
+    /// relevé tourne sur le pool de threads pendant que le thread d'interface peut, lui, appeler
+    /// <see cref="ResetCounters"/> (changement d'onglet) ou <see cref="Dispose"/> (fermeture de la fenêtre).
+    /// Sans ce verrou, ces deux-là ferment les handles et vident le dictionnaire sous les pieds de la boucle
+    /// native : une valeur de handle refermée est aussitôt réattribuable par le noyau à un tout autre objet
+    /// du processus, et le dégât ne se verrait pas ici mais ailleurs.</summary>
+    private readonly object _gate = new();
+
     /// <summary>Métadonnées de version par chemin d'exécutable : les dizaines de svchost.exe partagent un
     /// seul fichier, il serait absurde de le relire pour chacun.</summary>
     private readonly Dictionary<string, (string? Description, string? Publisher)> _fileInfoCache =
@@ -94,18 +102,32 @@ public sealed class ProcessService : IDisposable
     /// rapporté au temps écoulé n'ait plus aucun sens.</summary>
     public void ResetCounters()
     {
-        foreach (Tracked tracked in _tracked.Values)
+        lock (_gate)
         {
-            CloseIfValid(tracked.Handle);
-        }
+            foreach (Tracked tracked in _tracked.Values)
+            {
+                CloseIfValid(tracked.Handle);
+                // Remis à zéro comme le fait ForgetVanishedProcesses : une valeur de handle déjà fermée ne
+                // doit jamais pouvoir être refermée une seconde fois.
+                tracked.Handle = IntPtr.Zero;
+            }
 
-        _tracked.Clear();
-        _lastTimestamp = 0;
+            _tracked.Clear();
+            _lastTimestamp = 0;
+        }
     }
 
     /// <summary>Relève tous les processus. Appelé depuis un thread d'arrière-plan : il fait des E/S disque
     /// (ressources de version) à la première apparition d'un exécutable.</summary>
     public ProcessSnapshot GetSnapshot()
+    {
+        lock (_gate)
+        {
+            return GetSnapshotCore();
+        }
+    }
+
+    private ProcessSnapshot GetSnapshotCore()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -182,7 +204,11 @@ public sealed class ProcessService : IDisposable
                 }
 
                 tracked.CpuTime100ns = cpuTime;
-                tracked.HasPrevious = !isFirstSample;
+                // Vrai dès le premier relevé : la ligne de base vient d'être enregistrée, elle est donc
+                // exploitable au relevé suivant. La condition « !isFirstSample » ci-dessus suffit déjà à
+                // empêcher tout calcul sur un intervalle nul ; l'écrire aussi ici retardait la première
+                // valeur d'un relevé de plus, et la colonne de tri par défaut restait vide deux tours.
+                tracked.HasPrevious = true;
             }
 
             if (accessible && TryReadMemory(tracked.Handle, out long ws, out long? pws, out long commit))
@@ -322,14 +348,21 @@ public sealed class ProcessService : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-
-        foreach (Tracked tracked in _tracked.Values)
+        // Sous le même verrou que le relevé : à la fermeture de la fenêtre, un relevé peut très bien être en
+        // vol sur le pool. Le thread d'interface attend ici qu'il se termine — quelques centaines de
+        // millisecondes au pire — plutôt que de lui fermer ses handles en pleine boucle.
+        lock (_gate)
         {
-            CloseIfValid(tracked.Handle);
+            if (_disposed) return;
+            _disposed = true;
+
+            foreach (Tracked tracked in _tracked.Values)
+            {
+                CloseIfValid(tracked.Handle);
+                tracked.Handle = IntPtr.Zero;
+            }
+            _tracked.Clear();
         }
-        _tracked.Clear();
     }
 
     // ----- Énumération -----

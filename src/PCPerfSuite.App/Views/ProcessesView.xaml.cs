@@ -25,6 +25,19 @@ public partial class ProcessesView : UserControl
         if (ViewModel is { } vm) vm.IsPointerOverList = true;
     }
 
+    /// <summary>Un menu contextuel s'ouvre dans son propre popup : le pointeur quitte la liste et le focus
+    /// clavier part avec lui, donc les deux verrous qui empêchent les lignes de bouger tombent au moment
+    /// précis où un menu « Terminer… » est ouvert. On les remplace par celui-ci le temps du menu.</summary>
+    private void OnListContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (ViewModel is { } vm) vm.IsContextMenuOpen = true;
+    }
+
+    private void OnListContextMenuClosing(object sender, ContextMenuEventArgs e)
+    {
+        if (ViewModel is { } vm) vm.IsContextMenuOpen = false;
+    }
+
     private void OnListMouseLeave(object sender, MouseEventArgs e)
     {
         if (ViewModel is { } vm) vm.IsPointerOverList = false;

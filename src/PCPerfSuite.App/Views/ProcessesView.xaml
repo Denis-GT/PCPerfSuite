@@ -151,6 +151,8 @@
                          MouseEnter="OnListMouseEnter" MouseLeave="OnListMouseLeave"
                          GotKeyboardFocus="OnListGotFocus" LostKeyboardFocus="OnListLostFocus"
                          PreviewMouseRightButtonDown="OnListRightButtonDown"
+                         ContextMenuOpening="OnListContextMenuOpening"
+                         ContextMenuClosing="OnListContextMenuClosing"
                          KeyDown="OnListKeyDown">
                     <ListBox.ItemTemplate>
                         <DataTemplate>

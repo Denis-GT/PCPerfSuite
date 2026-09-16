@@ -21,13 +21,6 @@ public static class ProcessTerminationGuard
     /// <summary>Hôtes de services : on n'arrête pas l'hôte, on arrête le service.</summary>
     private const string ServiceHostName = "svchost";
 
-    /// <summary>Processus qu'on peut techniquement terminer, mais qui emportent l'interface de la session.
-    /// Ils ne sont pas refusés — Windows relance le shell — seulement signalés avant confirmation.</summary>
-    private static readonly HashSet<string> SessionCriticalNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "explorer", "dwm",
-    };
-
     /// <summary>Phrase prête à afficher expliquant pourquoi ce processus ne sera pas terminé, ou null si
     /// l'action est permise.</summary>
     public static string? GetRefusalReason(ProcessInfo process)
