@@ -838,8 +838,16 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         DeselectOutsideFilter();
         _rowsView.Refresh();
-        VisibleCount = _rowsView.Count;
+        VisibleCount = CountVisible();
     }
+
+    /// <summary>Compté sur la source et non sur <c>_rowsView.Count</c> : la mise en forme dynamique ne
+    /// restructure pas la vue sur-le-champ, elle met le travail en file sur le dispatcher (vérifié : la
+    /// ligne ne quitte la vue qu'au tour de boucle suivant). Lue juste après un relevé, la vue annoncerait
+    /// donc encore l'ancien nombre, et le compteur resterait faux jusqu'au relevé d'après — plusieurs
+    /// secondes. La source, elle, est à jour tout de suite, et la vue la rejoint en quelques
+    /// millisecondes.</summary>
+    private int CountVisible() => Rows.Count(PassesFilter);
 
     /// <summary>Aucune ligne hors filtre ne reste sélectionnée. Une ligne qui quitte la vue perd son
     /// conteneur, et WPF n'a alors plus par où lui réécrire IsSelected : la sélection resterait vraie sur un
@@ -864,9 +872,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private void UpdateFilterState()
     {
         DeselectOutsideFilter();
-
-        // Compté sur la vue et non sur la source : le compteur annonce ce qui est réellement affiché.
-        VisibleCount = _rowsView.Count;
+        VisibleCount = CountVisible();
     }
 
     [RelayCommand]
