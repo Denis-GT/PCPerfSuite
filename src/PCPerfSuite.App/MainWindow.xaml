@@ -84,6 +84,8 @@
         <Grid Grid.Column="1">
             <views:MonitoringView DataContext="{Binding Monitoring}"
                                   Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Monitoring}"/>
+            <views:ProcessesView DataContext="{Binding Processes}"
+                                 Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processus}"/>
             <views:CleanupView DataContext="{Binding Cleanup}"
                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Nettoyage}"/>
             <views:StorageView DataContext="{Binding Storage}"
