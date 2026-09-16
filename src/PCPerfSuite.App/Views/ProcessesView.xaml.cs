@@ -25,17 +25,25 @@ public partial class ProcessesView : UserControl
         if (ViewModel is { } vm) vm.IsPointerOverList = true;
     }
 
-    /// <summary>Un menu contextuel s'ouvre dans son propre popup : le pointeur quitte la liste et le focus
-    /// clavier part avec lui, donc les deux verrous qui empêchent les lignes de bouger tombent au moment
-    /// précis où un menu « Terminer… » est ouvert. On les remplace par celui-ci le temps du menu.</summary>
+    /// <summary>Fige la cible du menu contextuel à son ouverture. Le menu est un objet unique, partagé par
+    /// toutes les lignes via le Setter du ItemContainerStyle, et il vit dans son propre popup : lier sa cible
+    /// au DataContext de son PlacementTarget la rendrait solidaire d'un conteneur que la liste peut recycler
+    /// pour une autre ligne pendant que le menu est ouvert — le menu changerait alors de processus sans que
+    /// rien ne le montre, « Terminer… » compris. Ici la cible est copiée une fois et ne bouge plus, même si
+    /// la ligne visée disparaît entre-temps.</summary>
     private void OnListContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
-        if (ViewModel is { } vm) vm.IsContextMenuOpen = true;
-    }
+        // WPF lève cet événement au clic droit même là où aucun menu n'est posé — barre de défilement, zone
+        // vide sous la dernière ligne. Sans ce contrôle, on croirait qu'un menu s'est ouvert.
+        if (e.OriginalSource is not DependencyObject source
+            || ItemsControl.ContainerFromElement(List, source) is not ListBoxItem item
+            || item.ContextMenu is not { } menu)
+        {
+            e.Handled = true;
+            return;
+        }
 
-    private void OnListContextMenuClosing(object sender, ContextMenuEventArgs e)
-    {
-        if (ViewModel is { } vm) vm.IsContextMenuOpen = false;
+        menu.DataContext = item.DataContext;
     }
 
     private void OnListMouseLeave(object sender, MouseEventArgs e)
@@ -43,14 +51,12 @@ public partial class ProcessesView : UserControl
         if (ViewModel is { } vm) vm.IsPointerOverList = false;
     }
 
-    private void OnListGotFocus(object sender, KeyboardFocusChangedEventArgs e)
+    /// <summary>IsKeyboardFocusWithin plutôt que GotKeyboardFocus/LostKeyboardFocus : ces deux-là remontent
+    /// depuis chaque ligne, donc une simple flèche du clavier — qui déplace le focus d'une ligne à l'autre —
+    /// faisait croire à la liste qu'elle venait de le perdre, en plein milieu de la transition.</summary>
+    private void OnListKeyboardFocusWithinChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (ViewModel is { } vm) vm.IsListFocused = true;
-    }
-
-    private void OnListLostFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (ViewModel is { } vm) vm.IsListFocused = false;
+        if (ViewModel is { } vm) vm.IsListFocused = (bool)e.NewValue;
     }
 
     /// <summary>Un clic droit hors de la sélection la remplace : ce qui est surligné doit être exactement ce

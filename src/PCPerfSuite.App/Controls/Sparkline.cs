@@ -343,7 +343,11 @@ public sealed class Sparkline : FrameworkElement
         // on voyait l'étiquette et sa valeur, mais aucun trait, alors que deux pixels plus à gauche si.
         double lineX = Math.Clamp(Math.Round(x), 0, Math.Max(0, w - 1)) + 0.5;
         dc.DrawLine(MarkerLinePen, new Point(lineX, 0), new Point(lineX, h));
-        dc.DrawEllipse(LineBrush, MarkerDotPen, new Point(Math.Clamp(x, 3, Math.Max(3, w - 3)), y), 3, 3);
+
+        // Le point, lui, reste à sa vraie place : il désigne le relevé sur la courbe, le ramener dans la
+        // boîte le décrocherait du trait et mentirait sur la position. Au bord, il est donc coupé en deux
+        // par ClipToBounds — c'est exact, et le trait suffit à montrer où il est.
+        dc.DrawEllipse(LineBrush, MarkerDotPen, new Point(x, y), 3, 3);
 
         var lines = new List<(Brush Swatch, FormattedText Text)>(2)
         {
@@ -403,9 +407,9 @@ public sealed class Sparkline : FrameworkElement
         Trimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// <summary>Ancienneté du relevé épinglé. Elle ne se rafraîchit qu'à chaque nouveau point de la série :
-    /// un groupe de capteurs relu toutes les 10 s affiche donc un âge vieux d'au plus 10 s, ce qui ne justifie
-    /// pas un timer par graphique.</summary>
+    /// <summary>Ancienneté du relevé épinglé, rafraîchie chaque seconde par <see cref="_ageTimer"/> tant
+    /// qu'un repère est posé — et non à l'arrivée du point suivant, qui peut se faire attendre une minute
+    /// entière sur un groupe de capteurs réglé à sa cadence la plus lente.</summary>
     private static string FormatAge(TimeSpan age) => age.TotalSeconds switch
     {
         < 1.5 => "à l'instant",

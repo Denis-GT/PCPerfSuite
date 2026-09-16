@@ -149,10 +149,9 @@
                          VirtualizingPanel.ScrollUnit="Pixel"
                          SelectedItem="{Binding SelectedRow}"
                          MouseEnter="OnListMouseEnter" MouseLeave="OnListMouseLeave"
-                         GotKeyboardFocus="OnListGotFocus" LostKeyboardFocus="OnListLostFocus"
+                         IsKeyboardFocusWithinChanged="OnListKeyboardFocusWithinChanged"
                          PreviewMouseRightButtonDown="OnListRightButtonDown"
                          ContextMenuOpening="OnListContextMenuOpening"
-                         ContextMenuClosing="OnListContextMenuClosing"
                          KeyDown="OnListKeyDown">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
@@ -227,9 +226,13 @@
                             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
                             <Setter Property="ContextMenu">
                                 <Setter.Value>
-                                    <!-- Le menu vit dans son propre popup, hors de l'arbre visuel : on remonte à la
-                                         ligne par PlacementTarget, dont le DataContext est le ProcessRowViewModel. -->
-                                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <!-- Le menu vit dans son propre popup, hors de l'arbre visuel. Sa cible n'est
+                                         volontairement PAS liée à PlacementTarget.DataContext : le conteneur de la
+                                         ligne peut être recyclé pour une autre ligne pendant que le menu est ouvert
+                                         (VirtualizationMode="Recycling"), et une liaison vivante suivrait ce
+                                         changement — « Terminer… » viserait alors un autre processus que celui sur
+                                         lequel on a fait clic droit. Le code-behind fige la cible à l'ouverture. -->
+                                    <ContextMenu>
                                         <MenuItem Header="Ouvrir l'emplacement du fichier" Command="{Binding OpenLocationCommand}"/>
                                         <MenuItem Header="Propriétés" Command="{Binding ShowPropertiesCommand}"/>
                                         <Separator/>
