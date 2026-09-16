@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace PCPerfSuite.App.Converters;
 
@@ -109,6 +110,53 @@ public sealed class StringEqualsToVisibilityConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => string.Equals(value as string, parameter as string, StringComparison.Ordinal)
             ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>Teinte de fond graduée derrière un pourcentage, pour repérer d'un coup d'œil les gros
+/// consommateurs dans une longue liste. Les pinceaux sont figés une fois pour toutes : ce converter est
+/// appelé pour chaque cellule visible à chaque relevé, y allouer un pinceau serait du gaspillage pur.</summary>
+public sealed class PercentToHeatBrushConverter : IValueConverter
+{
+    private static readonly SolidColorBrush None = Frozen(Colors.Transparent);
+    private static readonly SolidColorBrush Warm = Frozen(Color.FromArgb(0x1A, 0xFF, 0x9F, 0x0A));
+    private static readonly SolidColorBrush Hot = Frozen(Color.FromArgb(0x2E, 0xFF, 0x9F, 0x0A));
+    private static readonly SolidColorBrush Burning = Frozen(Color.FromArgb(0x33, 0xFF, 0x45, 0x3A));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        // Une valeur absente n'est pas une valeur nulle : rien à teinter.
+        if (value is null) return None;
+
+        double percent = PercentToStarConverter.ToPercent(value);
+        return percent switch
+        {
+            >= 85 => Burning,
+            >= 60 => Hot,
+            >= 30 => Warm,
+            _ => None,
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+
+    private static SolidColorBrush Frozen(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+}
+
+/// <summary>Atténue une ligne dont le processus vient de se terminer : elle reste affichée le temps que le
+/// pointeur quitte la liste, pour que rien ne remonte d'un cran sous le curseur.</summary>
+public sealed class BoolToDimOpacityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? 0.45 : 1.0;
 
     public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
