@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -111,10 +112,18 @@ public sealed partial class MetricTileViewModel : ObservableObject
     [ObservableProperty] private string displayValue = "--";
     [ObservableProperty] private string unit = "";
 
+    /// <summary>Met en forme un point de la courbe comme la valeur courante de la tuile — même format, même
+    /// unité. C'est ce que le repère du graphique affiche au clic, d'où l'impossibilité qu'il contredise le
+    /// chiffre affiché juste au-dessus.</summary>
+    public Func<double, string> FormatSample { get; }
+
     public MetricTileViewModel(MetricDefinition definition, SampleHistory history)
     {
         Definition = definition;
         History = history;
+
+        FormatSample = value => (definition.FormatNumber?.Invoke(value)
+            ?? new MetricReading(value, value.ToString("0.##", CultureInfo.CurrentCulture), "")).Text;
 
         var color = (Color)ColorConverter.ConvertFromString(definition.Category.DefaultColor);
         LineBrush = Frozen(new SolidColorBrush(color));
@@ -524,7 +533,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         foreach (MetricDefinition definition in MyMetrics.Definitions)
         {
             if (definition.ReadGroup is { } group && !s.GroupsRead.Contains(group)) continue;
-            GetHistory(definition.Id).Push(definition.Read(sample).Number);
+            // L'heure du relevé plutôt que celle de l'instant : une seule lecture d'horloge pour la centaine
+            // de capteurs, et un repère de graphique qui date le point à l'instant où il a été mesuré.
+            GetHistory(definition.Id).Push(definition.Read(sample).Number, sample.LocalTime);
         }
 
         foreach (MetricTileViewModel tile in MyMetricTiles)

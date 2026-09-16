@@ -12,7 +12,8 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Vue d'ensemble des capteurs." Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="0" Style="{StaticResource Caption}" VerticalAlignment="Center"
+                           Text="Vue d'ensemble des capteurs — clique une courbe pour lire la valeur exacte d'un relevé."/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Actualisation :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
@@ -106,7 +107,10 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="300" Margin="0,0,14,14" Padding="16,12" CornerRadius="14" ToolTip="{Binding Label}"
+                        <!-- Pas d'infobulle sur la tuile entière : elle s'afficherait aussi au survol du graphique
+                             (l'infobulle d'un parent se déclenche depuis n'importe quel enfant) et recouvrirait le
+                             repère de valeur. Elle est posée sur le seul élément qui en a besoin, le libellé tronqué. -->
+                        <Border Width="300" Margin="0,0,14,14" Padding="16,12" CornerRadius="14"
                                 Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                             <StackPanel>
                                 <Grid>
@@ -115,7 +119,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource Caption}" VerticalAlignment="Center"
-                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis">
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}">
                                         <Run Text="{Binding CategoryName, Mode=OneWay}" Foreground="{Binding LineBrush, Mode=OneWay}"/>
                                         <Run Text="·"/>
                                         <Run Text="{Binding Label, Mode=OneWay}"/>
@@ -125,10 +129,13 @@
                                         <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </TextBlock>
                                 </Grid>
+                                <!-- Clic gauche : épingle la valeur exacte du relevé visé (glisser pour la déplacer,
+                                     clic droit ou Échap pour l'enlever). -->
                                 <controls:Sparkline Series="{Binding History}" Height="64" Margin="0,10,0,0"
                                                     LineBrush="{Binding LineBrush}" FillBrush="{Binding FillBrush}"
                                                     AutoScale="{Binding AutoScale}" Maximum="{Binding GraphMaximum}"
-                                                    MinimumScale="{Binding MinimumScale}"/>
+                                                    MinimumScale="{Binding MinimumScale}"
+                                                    ValueFormatter="{Binding FormatSample}"/>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
