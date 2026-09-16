@@ -12,7 +12,10 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   (débits, température, santé SMART) et la liste de tous les ventilateurs détectés avec
   RPM + %. La tuile « Mes métriques » se compose librement dans le catalogue de métriques,
   et la cadence de rafraîchissement se saisit librement en millisecondes en haut de l'onglet
-  (de 100 à 60000 ms).
+  (de 100 à 60000 ms). **Un clic gauche sur une courbe** épingle un repère qui affiche la valeur
+  exacte du relevé visé et son ancienneté (glisser pour le déplacer, clic droit ou Échap pour
+  l'enlever) : le repère reste accroché à *son* relevé pendant que la courbe défile, il ne désigne
+  pas un endroit de l'écran.
 - **Nettoyage** — cache shaders NVIDIA/AMD/Intel, cache shaders DirectX (D3DSCache), cache
   Steam, fichiers temporaires (%TEMP% et système), Prefetch, cache Windows Update, rapports
   d'erreurs Windows, cache des miniatures, cache Delivery Optimization, + un bouton "Vider

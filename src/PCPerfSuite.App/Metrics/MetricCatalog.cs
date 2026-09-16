@@ -61,6 +61,11 @@ public sealed class MetricDefinition
     /// <summary>Groupe de capteurs dont la lecture renouvelle cette valeur : sa courbe n'avance qu'à ce moment-là.
     /// Null pour une valeur qui change à chaque relevé (l'heure).</summary>
     public SensorGroup? ReadGroup { get; init; }
+
+    /// <summary>Met en forme une valeur d'historique (un point du graphique) exactement comme <see cref="Read"/>
+    /// met en forme la valeur courante — <see cref="Read"/>, lui, part d'un relevé complet et ne sait donc rien
+    /// formater du passé. Null pour une métrique sans courbe (l'heure).</summary>
+    public Func<double, MetricReading>? FormatNumber { get; init; }
 }
 
 /// <summary>
@@ -157,47 +162,58 @@ public static class MetricCatalog
     };
 
     internal static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
-        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null) => new()
+        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null)
     {
-        Id = id,
-        Category = category,
-        Label = label,
-        OsdLabel = osdLabel,
-        IsPercent = unit == "%",
-        ReadGroup = group ?? GroupFor(id, category),
-        // Pourcentages et températures sur une échelle fixe de 0 à 100 ; le reste calé sur le pic visible,
-        // avec un plancher de l'ordre d'une valeur au repos.
-        GraphMaximum = unit is "%" or "°C" ? 100 : null,
-        GraphMinimumScale = unit switch
+        // Une seule expression de mise en forme, partagée par la valeur courante et par un point d'historique :
+        // le repère du graphique ne peut donc pas afficher un nombre différent du grand chiffre de la tuile.
+        MetricReading Format(double value) => new(value, value.ToString(format, CultureInfo.CurrentCulture), unit);
+
+        return new MetricDefinition
         {
-            "W" => 10,
-            "RPM" or "MHz" => 1000,
-            "FPS" => 60,
-            "ms" => 20,
-            _ => 1,
-        },
-        Read = s => get(s) is { } v
-            ? new MetricReading(v, v.ToString(format, CultureInfo.CurrentCulture), unit)
-            : MetricReading.Missing,
-    };
+            Id = id,
+            Category = category,
+            Label = label,
+            OsdLabel = osdLabel,
+            IsPercent = unit == "%",
+            ReadGroup = group ?? GroupFor(id, category),
+            // Pourcentages et températures sur une échelle fixe de 0 à 100 ; le reste calé sur le pic visible,
+            // avec un plancher de l'ordre d'une valeur au repos.
+            GraphMaximum = unit is "%" or "°C" ? 100 : null,
+            GraphMinimumScale = unit switch
+            {
+                "W" => 10,
+                "RPM" or "MHz" => 1000,
+                "FPS" => 60,
+                "ms" => 20,
+                _ => 1,
+            },
+            Read = s => get(s) is { } v ? Format(v) : MetricReading.Missing,
+            FormatNumber = Format,
+        };
+    }
 
     /// <summary>Débit en octets/seconde, mis à l'échelle (o/s, Ko/s, Mo/s...).</summary>
     internal static MetricDefinition Rate(string id, MetricCategory category, string label, string osdLabel,
-        double graphMinimumScale, Func<MetricSample, double?> getBytesPerSecond) => new()
+        double graphMinimumScale, Func<MetricSample, double?> getBytesPerSecond)
     {
-        Id = id,
-        Category = category,
-        Label = label,
-        OsdLabel = osdLabel,
-        GraphMinimumScale = graphMinimumScale,
-        ReadGroup = GroupFor(id, category),
-        Read = s =>
+        MetricReading Format(double bytesPerSecond)
         {
-            if (getBytesPerSecond(s) is not { } v) return MetricReading.Missing;
-            (string value, string unit) = ByteFormatter.Split(Math.Max(0, v));
-            return new MetricReading(v, value, unit + "/s");
-        },
-    };
+            (string value, string unit) = ByteFormatter.Split(Math.Max(0, bytesPerSecond));
+            return new MetricReading(bytesPerSecond, value, unit + "/s");
+        }
+
+        return new MetricDefinition
+        {
+            Id = id,
+            Category = category,
+            Label = label,
+            OsdLabel = osdLabel,
+            GraphMinimumScale = graphMinimumScale,
+            ReadGroup = GroupFor(id, category),
+            Read = s => getBytesPerSecond(s) is { } v ? Format(v) : MetricReading.Missing,
+            FormatNumber = Format,
+        };
+    }
 
     /// <summary>Groupe de lecture déduit de la catégorie ; la charge CPU a le sien, bien moins coûteux que le reste du CPU.</summary>
     private static SensorGroup? GroupFor(string id, MetricCategory category) => category.Key switch
