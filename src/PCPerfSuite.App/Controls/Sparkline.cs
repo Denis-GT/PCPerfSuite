@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Windows.Media;
 using PCPerfSuite.App.Utils;
 
@@ -26,6 +27,12 @@ public sealed class Sparkline : FrameworkElement
     /// <summary>Numéro du relevé épinglé, -1 si aucun.</summary>
     private long _pinnedSequence = -1;
     private bool _isDragging;
+
+    /// <summary>Fait vieillir l'étiquette du repère seconde par seconde, tant qu'un repère est posé.
+    /// L'âge ne peut pas dépendre de la seule arrivée du point suivant : chaque groupe de capteurs a sa
+    /// propre cadence, réglable jusqu'à 60 s, et le repère afficherait alors « à l'instant » pendant une
+    /// minute entière avant de sauter d'un coup à « il y a 60 s ».</summary>
+    private DispatcherTimer? _ageTimer;
 
     public static readonly DependencyProperty SeriesProperty = DependencyProperty.Register(
         nameof(Series), typeof(SampleHistory), typeof(Sparkline),
@@ -158,10 +165,17 @@ public sealed class Sparkline : FrameworkElement
         // graphique est actif.
         FocusVisualStyle = null;
 
+        // Focalisable au clic, mais hors de l'ordre de tabulation. Tout FrameworkElement focalisable est un
+        // arrêt de tabulation par défaut : les douze graphiques de la page Monitoring le seraient devenus,
+        // sans aucun repère visuel puisque FocusVisualStyle est null, et la touche Échap aurait agi sur une
+        // tuile que l'utilisateur ne voit pas.
+        KeyboardNavigation.SetIsTabStop(this, false);
+
         // Prendre le focus au clic demande au ScrollViewer parent de ramener la tuile dans la vue, ce qui
-        // ferait sauter la page sous le curseur au moment même où on mesure un point. On refuse la demande :
-        // l'élément est forcément déjà visible, puisqu'on vient de cliquer dedans.
-        RequestBringIntoView += (_, e) => e.Handled = true;
+        // ferait sauter la page sous le curseur au moment même où on mesure un point. On ne refuse la demande
+        // que pendant le geste souris : la refuser toujours empêcherait aussi le ScrollViewer de suivre le
+        // focus clavier, et la page ne défilerait plus du tout.
+        RequestBringIntoView += (_, e) => e.Handled = Mouse.LeftButton == MouseButtonState.Pressed;
     }
 
     private static SolidColorBrush FrozenBrush(Color color)
@@ -204,6 +218,7 @@ public sealed class Sparkline : FrameworkElement
         // Un numéro de relevé n'a de sens que pour la série qui l'a émis : changer de série (conteneur
         // réutilisé, tuile remplacée) doit repartir sans repère plutôt qu'en désigner un au hasard.
         _pinnedSequence = -1;
+        StopAgeTimer();
     }
 
     // ----- Géométrie, partagée par le dessin et par le clic -----
@@ -307,6 +322,7 @@ public sealed class Sparkline : FrameworkElement
             // Le relevé est sorti de la fenêtre glissante : sa valeur n'existe plus nulle part, le repère
             // s'efface plutôt que d'afficher un chiffre figé qui ne correspondrait plus à rien.
             _pinnedSequence = -1;
+            StopAgeTimer();
             return;
         }
 
@@ -314,6 +330,7 @@ public sealed class Sparkline : FrameworkElement
         if (double.IsNaN(value))
         {
             _pinnedSequence = -1;
+            StopAgeTimer();
             return;
         }
 
@@ -321,10 +338,12 @@ public sealed class Sparkline : FrameworkElement
         double y = h - Math.Clamp(value / top, 0, 1) * h;
 
         // Trait posé sur le demi-pixel : à coordonnée entière, un trait d'un pixel est réparti sur deux
-        // colonnes et ressort gris et flou.
-        double lineX = Math.Round(x) + 0.5;
+        // colonnes et ressort gris et flou. Ramené dans la boîte au passage : le relevé le plus récent est
+        // calé pile sur le bord droit, donc son trait tombait juste en dehors et ClipToBounds l'effaçait —
+        // on voyait l'étiquette et sa valeur, mais aucun trait, alors que deux pixels plus à gauche si.
+        double lineX = Math.Clamp(Math.Round(x), 0, Math.Max(0, w - 1)) + 0.5;
         dc.DrawLine(MarkerLinePen, new Point(lineX, 0), new Point(lineX, h));
-        dc.DrawEllipse(LineBrush, MarkerDotPen, new Point(x, y), 3, 3);
+        dc.DrawEllipse(LineBrush, MarkerDotPen, new Point(Math.Clamp(x, 3, Math.Max(3, w - 3)), y), 3, 3);
 
         var lines = new List<(Brush Swatch, FormattedText Text)>(2)
         {
@@ -475,6 +494,7 @@ public sealed class Sparkline : FrameworkElement
         if (index < 0) return false;
 
         long sequence = series.SequenceAt(index);
+        StartAgeTimer();
         if (sequence == _pinnedSequence) return true;
 
         _pinnedSequence = sequence;
@@ -502,6 +522,18 @@ public sealed class Sparkline : FrameworkElement
         if (_pinnedSequence < 0) return;
 
         _pinnedSequence = -1;
+        StopAgeTimer();
         InvalidateVisual();
     }
+
+    /// <summary>Le timer n'existe que le temps d'un repère : aucune tuile ne bat inutilement, et une page
+    /// Monitoring sans repère posé ne coûte rien de plus qu'avant.</summary>
+    private void StartAgeTimer()
+    {
+        _ageTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+            (_, _) => InvalidateVisual(), Dispatcher);
+        _ageTimer.Start();
+    }
+
+    private void StopAgeTimer() => _ageTimer?.Stop();
 }
