@@ -56,7 +56,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Processus", Glyph(0xE9F5), _processes),
             new("Nettoyage", Glyph(0xE74D), Cleanup),
             new("Stockage", Glyph(0xEDA2), Storage),
-            new("Paramètres Windows", Glyph(0xE713), Settings),
+            new("Paramètres", Glyph(0xE713), Settings),
             new("Ventilateurs", Glyph(0xE9CA), _fans),
             new("GPU", Glyph(0xE950), _gpu),
             new("Overlay", Glyph(0xE7FC), _overlay),

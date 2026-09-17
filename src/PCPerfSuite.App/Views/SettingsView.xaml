@@ -15,8 +15,26 @@
     <ScrollViewer Padding="{StaticResource PagePadding}">
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
 
-            <controls:PageHeader Title="Paramètres Windows"
-                                 Subtitle="Réglages de performance Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.)."/>
+            <controls:PageHeader Title="Paramètres"
+                                 Subtitle="Comportement de PCPerfSuite, puis réglages de performance Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.)."/>
+
+            <TextBlock Text="PCPerfSuite" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
+            <Border Style="{StaticResource Card}" Margin="0,0,0,20">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                        <TextBlock Text="Réduire dans la zone de notification à la fermeture"
+                                   Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                                   Text="La croix range l'app près de l'horloge au lieu de la quitter : le monitoring, les courbes de ventilation et l'overlay continuent de tourner. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer vraiment l'app."/>
+                    </StackPanel>
+                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                              IsChecked="{Binding MinimizeToTrayOnClose}"/>
+                </Grid>
+            </Border>
 
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,20"
                     Visibility="{Binding IsElevated, Converter={StaticResource InverseBoolToVisibility}}">
