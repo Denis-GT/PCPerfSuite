@@ -50,22 +50,6 @@
                 </ItemsControl>
             </StackPanel>
         </DataTemplate>
-
-        <!-- Rendu d'une ligne d'overlay (aperçu) : un morceau coloré par segment. -->
-        <DataTemplate x:Key="OverlayLineTemplate">
-            <ItemsControl ItemsSource="{Binding Segments}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal"/>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontWeight="SemiBold"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </DataTemplate>
     </UserControl.Resources>
 
     <ScrollViewer Padding="{StaticResource PagePadding}">
@@ -128,6 +112,7 @@
                                     <Run Text="{Binding RefreshHint, Mode=OneWay}"/>
                                     <Run Text="."/>
                                 </TextBlock>
+                                <TextBlock Text="{Binding CadenceText}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
@@ -312,8 +297,10 @@
                     <Border Background="{StaticResource PreviewBackdropBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                             CornerRadius="12" Padding="16" Margin="0,12,0,0"
                             TextElement.FontFamily="{Binding Appearance.SelectedFont}"
-                            TextElement.FontSize="{Binding Appearance.FontSize}">
-                        <ItemsControl ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource OverlayLineTemplate}"/>
+                            TextElement.FontSize="{Binding Appearance.FontSize}"
+                            controls:StickyWidth.IsScope="True"
+                            controls:StickyWidth.ResetKey="{Binding LayoutVersion}">
+                        <ItemsControl ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource OverlayLineTemplate}" Focusable="False"/>
                     </Border>
                 </StackPanel>
             </Border>

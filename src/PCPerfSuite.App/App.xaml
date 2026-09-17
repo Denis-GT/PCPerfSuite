@@ -11,6 +11,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Styles/Theme.xaml"/>
                 <ResourceDictionary Source="Styles/Menus.xaml"/>
+                <ResourceDictionary Source="Styles/Overlay.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <conv:PercentToStarConverter x:Key="PercentToStar"/>
