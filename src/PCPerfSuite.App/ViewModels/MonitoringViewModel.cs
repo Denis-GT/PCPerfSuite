@@ -112,18 +112,31 @@ public sealed partial class MetricTileViewModel : ObservableObject
     [ObservableProperty] private string displayValue = "--";
     [ObservableProperty] private string unit = "";
 
+    /// <summary>Min, moyenne et max depuis le démarrage ou la dernière remise à zéro, affichés en petit face
+    /// à la valeur en direct. Sans unité : celle de la valeur en direct est juste à côté, la répéter trois
+    /// fois mangerait la largeur de la tuile pour rien.</summary>
+    [ObservableProperty] private string minimumDisplay = "--";
+    [ObservableProperty] private string averageDisplay = "--";
+    [ObservableProperty] private string maximumDisplay = "--";
+
     /// <summary>Met en forme un point de la courbe comme la valeur courante de la tuile — même format, même
     /// unité. C'est ce que le repère du graphique affiche au clic, d'où l'impossibilité qu'il contredise le
     /// chiffre affiché juste au-dessus.</summary>
     public Func<double, string> FormatSample { get; }
+
+    /// <summary>Le nombre seul, arrondi comme la valeur en direct mais sans son unité.</summary>
+    private readonly Func<double, string> _formatNumber;
 
     public MetricTileViewModel(MetricDefinition definition, SampleHistory history)
     {
         Definition = definition;
         History = history;
 
-        FormatSample = value => (definition.FormatNumber?.Invoke(value)
-            ?? new MetricReading(value, value.ToString("0.##", CultureInfo.CurrentCulture), "")).Text;
+        MetricReading Read(double value) => definition.FormatNumber?.Invoke(value)
+            ?? new MetricReading(value, value.ToString("0.##", CultureInfo.CurrentCulture), "");
+
+        FormatSample = value => Read(value).Text;
+        _formatNumber = value => Read(value).Value;
 
         var color = (Color)ColorConverter.ConvertFromString(definition.Category.DefaultColor);
         LineBrush = Frozen(new SolidColorBrush(color));
@@ -135,6 +148,17 @@ public sealed partial class MetricTileViewModel : ObservableObject
         MetricReading reading = Definition.Read(sample);
         DisplayValue = reading.Value;
         Unit = reading.Unit;
+        RefreshStats();
+    }
+
+    /// <summary>Recopie les statistiques de l'historique dans les trois libellés. Appelée à chaque relevé et
+    /// à la remise à zéro, pour que l'affichage suive sans attendre le relevé suivant.</summary>
+    public void RefreshStats()
+    {
+        RunningStats stats = History.Stats;
+        MinimumDisplay = stats.HasValue ? _formatNumber(stats.Minimum) : "--";
+        AverageDisplay = stats.HasValue ? _formatNumber(stats.Average) : "--";
+        MaximumDisplay = stats.HasValue ? _formatNumber(stats.Maximum) : "--";
     }
 
     private static Brush Frozen(SolidColorBrush brush)
@@ -540,6 +564,25 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             ReadTimings.Add(row);
         }
         return row;
+    }
+
+    /// <summary>Repart de zéro pour les min, moyennes et max de tous les capteurs d'un seul geste, par exemple
+    /// avant un benchmark. Les courbes, elles, continuent sans coupure : le repère épinglé sur l'une d'elles
+    /// reste valable.</summary>
+    [RelayCommand]
+    private void ResetMetricStats()
+    {
+        foreach (SampleHistory history in _histories.Values)
+        {
+            history.Stats.Reset();
+        }
+
+        // Les tuiles n'écoutent pas l'historique : on les rafraîchit ici plutôt que d'attendre le relevé suivant,
+        // qui peut être à une seconde ou plus selon l'actualisation.
+        foreach (MetricTileViewModel tile in MyMetricTiles)
+        {
+            tile.RefreshStats();
+        }
     }
 
     /// <summary>Repart de zéro, par exemple pour mesurer après avoir changé l'actualisation.</summary>

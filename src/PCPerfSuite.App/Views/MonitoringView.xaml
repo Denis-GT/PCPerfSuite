@@ -26,11 +26,16 @@
                                   ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
                         <TextBlock Text="Cadence par capteur" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
                         <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"
                                   ToolTip="Choisir les capteurs affichés en graphique"/>
                         <TextBlock Text="Choisir les graphiques" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                     </StackPanel>
+                    <!-- Remet à zéro les min, moyennes et max de toutes les tuiles d'un seul geste (avant un benchmark,
+                         par exemple). Les courbes ne sont pas effacées. -->
+                    <Button Content="Réinitialiser les statistiques" Style="{StaticResource GhostButton}" Margin="0,2,0,2"
+                            Command="{Binding ResetMetricStatsCommand}"
+                            ToolTip="Les min, moyennes et max de toutes les tuiles repartent de zéro. Les courbes sont conservées."/>
                 </WrapPanel>
             </Border>
 
@@ -120,6 +125,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
@@ -130,9 +136,34 @@
                                         <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" Margin="0,2,0,0"
                                                    TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
                                     </StackPanel>
+                                    <!-- Min, moyenne et max depuis le démarrage (ou la dernière remise à zéro), face à la
+                                         valeur en direct et au tiers de sa taille : c'est l'instantané qui se lit en
+                                         premier. Sans unité, elle est juste à côté. -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                Typography.NumeralAlignment="Tabular"
+                                                ToolTip="Min, moyenne et max depuis le démarrage ou la dernière remise à zéro">
+                                        <!-- Une colonne qui ne rétrécit jamais par mini-colonne (et pas seulement sur le bloc
+                                             entier) : ni les trois chiffres entre eux, ni la valeur en direct à leur droite
+                                             ne se décalent d'un relevé à l'autre. -->
+                                        <StackPanel Margin="0,0,6,0" controls:StickyWidth.IsEnabled="True">
+                                            <TextBlock Text="min" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                            <TextBlock Text="{Binding MinimumDisplay, Mode=OneWay}" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="0,0,6,0" controls:StickyWidth.IsEnabled="True">
+                                            <TextBlock Text="moy" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                            <TextBlock Text="{Binding AverageDisplay, Mode=OneWay}" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                        </StackPanel>
+                                        <StackPanel controls:StickyWidth.IsEnabled="True">
+                                            <TextBlock Text="max" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                            <TextBlock Text="{Binding MaximumDisplay, Mode=OneWay}" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                        </StackPanel>
+                                    </StackPanel>
                                     <!-- Chiffres de largeur égale, et une place qui ne rétrécit pas : la valeur ne se
                                          tortille plus d'un relevé à l'autre. -->
-                                    <TextBlock Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="2" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center"
                                                TextAlignment="Right" Typography.NumeralAlignment="Tabular"
                                                controls:StickyWidth.IsEnabled="True">
                                         <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>

@@ -22,6 +22,11 @@ public sealed class SampleHistory
     /// <summary>Levé à chaque ajout ou remise à zéro, sur le thread qui a modifié l'historique.</summary>
     public event Action? Changed;
 
+    /// <summary>Min, moyenne et max depuis le début, au-delà de la fenêtre dessinée : le pic d'une charge
+    /// reste lisible longtemps après être sorti de la courbe. Remis à zéro à part, sur demande, car ce
+    /// n'est pas le même geste que vider la fenêtre.</summary>
+    public RunningStats Stats { get; } = new();
+
     public int Capacity => _values.Length;
     public int Count { get; private set; }
 
@@ -55,12 +60,17 @@ public sealed class SampleHistory
     {
         _values[_next] = value ?? double.NaN;
         _times[_next] = timestamp;
+        // Ici plutôt que chez l'appelant : un seul point d'entrée pour tous les capteurs, affichés ou non,
+        // donc une tuile qu'on active arrive avec ses statistiques déjà faites.
+        if (value is { } present) Stats.Push(present);
         _next = (_next + 1) % Capacity;
         if (Count < Capacity) Count++;
         TotalPushed++;
         Changed?.Invoke();
     }
 
+    /// <summary>Vide la fenêtre dessinée. <see cref="Stats"/> n'est pas touché : effacer la courbe et
+    /// repartir de zéro pour les min/moyenne/max sont deux gestes distincts.</summary>
     public void Clear()
     {
         _next = 0;
