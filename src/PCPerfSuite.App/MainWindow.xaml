@@ -12,7 +12,7 @@
             <Border.Background>
                 <RadialGradientBrush Center="0.12,0.05" RadiusX="0.9" RadiusY="0.9">
                     <GradientStop Color="{StaticResource AccentGlowColor}" Offset="0"/>
-                    <GradientStop Color="#00161A28" Offset="1"/>
+                    <GradientStop Color="{StaticResource AccentGlowFadeColor}" Offset="1"/>
                 </RadialGradientBrush>
             </Border.Background>
         </Border>

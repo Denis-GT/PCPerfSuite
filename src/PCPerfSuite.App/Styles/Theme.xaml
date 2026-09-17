@@ -14,7 +14,9 @@
     <Color x:Key="TextPrimaryColor">#F2F4FA</Color>
     <Color x:Key="TextSecondaryColor">#ACB4C8</Color>
 
+    <!-- Halo décoratif en haut à gauche de la fenêtre, et sa fin transparente. -->
     <Color x:Key="AccentGlowColor">#332A84FF</Color>
+    <Color x:Key="AccentGlowFadeColor">#00161A28</Color>
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
     <SolidColorBrush x:Key="AccentBrush2" Color="{StaticResource AccentColor2}"/>
     <SolidColorBrush x:Key="WarnBrush" Color="{StaticResource WarnColor}"/>

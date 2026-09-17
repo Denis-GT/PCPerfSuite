@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Styles;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Storage;
 
@@ -85,9 +86,9 @@ public sealed class TreemapControl : FrameworkElement
 
     private static readonly Color[] Palette =
     {
-        Color.FromRgb(0x0A, 0x84, 0xFF),
-        Color.FromRgb(0x5F, 0xE0, 0xC7),
-        Color.FromRgb(0xFF, 0x9F, 0x0A),
+        ThemeColors.Accent,
+        ThemeColors.Accent2,
+        ThemeColors.Warn,
         Color.FromRgb(0xBF, 0x5A, 0xF2),
         Color.FromRgb(0x64, 0xD2, 0xFF),
         Color.FromRgb(0xFF, 0x6B, 0x9D),
@@ -104,7 +105,7 @@ public sealed class TreemapControl : FrameworkElement
 
     private readonly List<(FolderNode Node, Rect Rect, Color Color)> _layout = new();
     private readonly HashSet<FolderNode> _expanded = new();
-    private readonly Typeface _typeface = new("Segoe UI");
+    private readonly Typeface _typeface = new("Segoe UI Variable, Segoe UI");
     private bool _isContextMenuOpen;
 
     public TreemapControl()

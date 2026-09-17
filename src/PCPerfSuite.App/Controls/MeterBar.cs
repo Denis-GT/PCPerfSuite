@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using PCPerfSuite.App.Styles;
 
 namespace PCPerfSuite.App.Controls;
 
@@ -15,11 +16,11 @@ public sealed class MeterBar : FrameworkElement
 
     public static readonly DependencyProperty TrackBrushProperty = DependencyProperty.Register(
         nameof(TrackBrush), typeof(Brush), typeof(MeterBar),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)), FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(ThemeColors.FrozenBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty IndicatorBrushProperty = DependencyProperty.Register(
         nameof(IndicatorBrush), typeof(Brush), typeof(MeterBar),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)), FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(ThemeColors.FrozenBrush(ThemeColors.Accent), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public double Value
     {
