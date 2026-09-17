@@ -12,12 +12,12 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Background="#14FFFFFF" CornerRadius="8" Margin="2" Height="34">
+                        <Border x:Name="Bd" Background="{StaticResource HoverBrush}" CornerRadius="8" Margin="2" Height="34">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#26FFFFFF"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource TrackBrush}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}"/>
@@ -68,11 +68,10 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <ScrollViewer Padding="32,28,32,28">
-        <StackPanel MaxWidth="900" HorizontalAlignment="Left">
-            <TextBlock Text="Overlay en jeu" Style="{StaticResource H1}"/>
-            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap"
-                       Text="Affiche tes métriques par-dessus les jeux, par deux canaux cumulables : RTSS (RivaTuner Statistics Server, le moteur de MSI Afterburner — seul à fonctionner en plein écran exclusif) et/ou une fenêtre dessinée par PCPerfSuite (jeux fenêtrés et sans bordure, avec police, couleurs et position entièrement libres)."/>
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
+            <controls:PageHeader Title="Overlay en jeu"
+                                 Subtitle="Affiche tes métriques par-dessus les jeux, par deux canaux cumulables : RTSS (RivaTuner Statistics Server, le moteur de MSI Afterburner — seul à fonctionner en plein écran exclusif) et/ou une fenêtre dessinée par PCPerfSuite (jeux fenêtrés et sans bordure, avec police, couleurs et position entièrement libres)."/>
 
             <!-- ============ Activation ============ -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
@@ -150,7 +149,8 @@
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OneLinePerMetric}" VerticalAlignment="Center"/>
                         </Grid>
 
-                        <TextBlock Text="Métriques affichées" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>
+                        <TextBlock Text="Métriques affichées" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,0,0,10"/>
                         <controls:MetricPicker DataContext="{Binding Metrics}"/>
                     </StackPanel>
                 </StackPanel>
@@ -182,7 +182,7 @@
                     <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
                                Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
 
-                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
                         <StackPanel>
                             <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
@@ -207,7 +207,7 @@
                     </Border>
 
                     <!-- Réglages propres à RTSS -->
-                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0"
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0"
                             Visibility="{Binding UseRtss, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel>
                             <TextBlock Text="Canal RTSS" Style="{StaticResource Body}" FontWeight="SemiBold"/>
@@ -238,7 +238,7 @@
                     </Border>
 
                     <!-- Réglages propres à la fenêtre -->
-                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0"
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0"
                             Visibility="{Binding UseWindow, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel>
                             <TextBlock Text="Canal fenêtre" Style="{StaticResource Body}" FontWeight="SemiBold"/>
@@ -309,8 +309,8 @@
                     <TextBlock Text="Aperçu" Style="{StaticResource H2}"/>
                     <TextBlock Text="Exactement ce qui s'affiche en jeu (la fenêtre PCPerfSuite rend à l'identique ; RTSS applique en plus sa propre police)."
                                Style="{StaticResource Caption}" Margin="0,4,0,0"/>
-                    <Border Background="#0B0D14" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="10" Padding="14" Margin="0,10,0,0"
+                    <Border Background="{StaticResource PreviewBackdropBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                            CornerRadius="12" Padding="16" Margin="0,12,0,0"
                             TextElement.FontFamily="{Binding Appearance.SelectedFont}"
                             TextElement.FontSize="{Binding Appearance.FontSize}">
                         <ItemsControl ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource OverlayLineTemplate}"/>

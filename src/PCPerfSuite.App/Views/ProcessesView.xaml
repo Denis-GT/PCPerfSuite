@@ -6,7 +6,7 @@
     <!-- Pas de ScrollViewer racine, contrairement aux autres onglets : il donnerait une hauteur infinie à la
          liste, qui réaliserait alors ses quatre cents lignes d'un coup et perdrait toute virtualisation. La
          liste occupe une ligne de hauteur « * » et défile elle-même. -->
-    <Grid Margin="32,28,32,20">
+    <Grid Margin="{StaticResource PagePadding}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -17,14 +17,11 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Text="Processus" Style="{StaticResource H1}"/>
-            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                       Text="Ce qui tourne vraiment — trié sans que les lignes sautent : le classement suit une moyenne sur quelques secondes et se fige dès que la souris entre dans la liste."/>
-        </StackPanel>
+        <controls:PageHeader Grid.Row="0" Title="Processus" Margin="0,0,0,18"
+                             Subtitle="Ce qui tourne vraiment — trié sans que les lignes sautent : le classement suit une moyenne sur quelques secondes et se fige dès que la souris entre dans la liste."/>
 
         <!-- Barre d'outils -->
-        <Grid Grid.Row="1" Margin="0,0,0,10">
+        <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -33,30 +30,41 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="0" Width="260" Margin="0,0,14,0">
-                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}"
+                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="32,7,10,7"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"/>
+                <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}"
+                           Margin="12,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
                 <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un. -->
-                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}"
-                           Margin="12,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
+                           Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
                            Visibility="{Binding SearchText.Length, Converter={StaticResource ZeroCountToVisibility}}"/>
             </Grid>
 
-            <ListBox Grid.Column="1" Style="{StaticResource PillSelector}" VerticalAlignment="Center"
-                     ItemsSource="{Binding KindOptions}" SelectedItem="{Binding SelectedKind}"
-                     DisplayMemberPath="Label"/>
+            <Border Grid.Column="1" Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center">
+                <ListBox Style="{StaticResource PillSelector}"
+                         ItemsSource="{Binding KindOptions}" SelectedItem="{Binding SelectedKind}"
+                         DisplayMemberPath="Label"/>
+            </Border>
 
             <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Relevé" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <ListBox Style="{StaticResource PillSelector}" VerticalAlignment="Center" Margin="0,0,14,0"
-                         ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
-                         DisplayMemberPath="Label" ToolTip="{Binding ReadDurationHint}"/>
+                <Border Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center" Margin="0,0,14,0">
+                    <ListBox Style="{StaticResource PillSelector}"
+                             ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
+                             DisplayMemberPath="Label" ToolTip="{Binding ReadDurationHint}"/>
+                </Border>
 
                 <TextBlock Text="Figer" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsFrozen}" VerticalAlignment="Center"
                           ToolTip="Arrête complètement les relevés, pour lire ou copier tranquillement"/>
 
-                <Button Content="Colonnes" Style="{StaticResource GhostButton}" Margin="14,0,0,0"
-                        Command="{Binding ToggleColumnsCommand}"/>
+                <Button Style="{StaticResource GhostButton}" Margin="14,0,0,0"
+                        Command="{Binding ToggleColumnsCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE71D;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                        <TextBlock Text="Colonnes" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <Button Content="Terminer" Style="{StaticResource DangerButton}" Margin="10,0,0,0"
                         Command="{Binding TerminateSelectionCommand}"/>
             </StackPanel>
@@ -89,10 +97,12 @@
         </Border>
 
         <!-- La liste -->
-        <Border Grid.Row="4" Style="{StaticResource Card}" Padding="6">
+        <Border Grid.Row="4" Style="{StaticResource Card}" Padding="8,6">
             <DockPanel>
                 <!-- En-tête : mêmes largeurs de colonnes que les lignes, pilotées par le ViewModel. -->
-                <Grid DockPanel.Dock="Top" Margin="0,0,10,4">
+                <Border DockPanel.Dock="Top" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+                        Padding="0,2,0,4" Margin="0,0,0,4">
+                <Grid Margin="0,0,10,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="{Binding Columns.Name.Width}" MinWidth="200"/>
                         <ColumnDefinition Width="{Binding Columns.Pid.Width}"/>
@@ -134,6 +144,7 @@
                             Visibility="{Binding Columns.Publisher.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Publisher.ContentAlignment}"
                             Command="{Binding SortByCommand}" CommandParameter="publisher"/>
                 </Grid>
+                </Border>
 
                 <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Caption}" Margin="6,8,0,2"
                            Text="Aucun processus ne correspond à la recherche."
@@ -254,7 +265,7 @@
         </Border>
 
         <!-- Détail du processus sélectionné -->
-        <Border Grid.Row="5" Style="{StaticResource Card}" Margin="0,12,0,0"
+        <Border Grid.Row="5" Style="{StaticResource Card}" Margin="0,14,0,0"
                 Visibility="{Binding SelectedRow, Converter={StaticResource NullToVisibility}}"
                 DataContext="{Binding SelectedRow}">
             <Grid>

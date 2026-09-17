@@ -85,6 +85,9 @@
     <!-- Panneau latéral : verre un peu plus opaque pour ancrer la navigation. -->
     <SolidColorBrush x:Key="SidebarBrush" Color="#D4131624"/>
 
+    <!-- Fond très sombre et opaque, façon scène de jeu (aperçu de l'overlay). -->
+    <SolidColorBrush x:Key="PreviewBackdropBrush" Color="#0B0D14"/>
+
     <!-- Cartes/surfaces : verre dépoli avec un léger reflet (plus clair en haut-gauche). -->
     <LinearGradientBrush x:Key="SurfaceBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#BE2A3040" Offset="0"/>
@@ -411,6 +414,44 @@
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}"/>
                             <Setter Property="Foreground" Value="White"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Puce cochable (choix multiple compact, ex. disques à analyser). -->
+    <Style x:Key="Chip" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource SegmentFocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Bd" Background="{StaticResource SubtleFillBrush}" BorderBrush="{StaticResource DividerBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="10,6" RenderOptions.ClearTypeHint="Enabled">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="Check" Text="&#xE73E;" Style="{StaticResource Icon}" FontSize="11"
+                                       Margin="0,0,7,0" Visibility="Collapsed"/>
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentSoftBorderBrush}"/>
+                            <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

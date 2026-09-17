@@ -3,32 +3,36 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
-    <ScrollViewer Padding="32,28,32,28">
-        <StackPanel MaxWidth="1400" HorizontalAlignment="Stretch">
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
 
-            <TextBlock Text="Monitoring" Style="{StaticResource H1}"/>
-            <Grid Margin="0,4,0,20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{StaticResource Caption}" VerticalAlignment="Center"
-                           Text="Vue d'ensemble des capteurs — clique une courbe pour lire la valeur exacte d'un relevé."/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Actualisation :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
-                             controls:TextBoxBehaviors.CommitOnEnter="True"
-                             ToolTip="{Binding RefreshHint}"
-                             Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
-                    <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                    <TextBlock Text="Cadence par capteur" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
-                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
-                              ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
-                    <TextBlock Text="Personnaliser" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="20,0,10,0"/>
-                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"
-                              ToolTip="Choisir les capteurs affichés en graphique"/>
-                </StackPanel>
-            </Grid>
+            <controls:PageHeader Title="Monitoring" Margin="0,0,0,16"
+                                 Subtitle="Vue d'ensemble des capteurs — clique une courbe pour lire la valeur exacte d'un relevé."/>
+
+            <!-- Barre d'outils : cadence globale et panneaux de personnalisation. -->
+            <Border Style="{StaticResource InsetTile}" Padding="14,8" Margin="0,0,0,18">
+                <WrapPanel VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
+                        <TextBlock Text="&#xE916;" Style="{StaticResource Icon}" FontSize="14" Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0"/>
+                        <TextBlock Text="Actualisation" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                 ToolTip="{Binding RefreshHint}"
+                                 Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
+                        <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
+                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
+                                  ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
+                        <TextBlock Text="Cadence par capteur" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"
+                                  ToolTip="Choisir les capteurs affichés en graphique"/>
+                        <TextBlock Text="Choisir les graphiques" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </StackPanel>
+                </WrapPanel>
+            </Border>
 
             <!-- Cadence par groupe de capteurs, juste sous l'actualisation globale qu'elle affine. -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,16"
@@ -43,14 +47,14 @@
                             <ColumnDefinition Width="80"/>
                             <ColumnDefinition Width="380"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Groupe" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="1" Text="Auto" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="2" Text="Relecture" Style="{StaticResource Caption}" FontSize="10.5"/>
+                        <TextBlock Grid.Column="0" Text="Groupe" Style="{StaticResource ColumnHeader}"/>
+                        <TextBlock Grid.Column="1" Text="Auto" Style="{StaticResource ColumnHeader}"/>
+                        <TextBlock Grid.Column="2" Text="Relecture" Style="{StaticResource ColumnHeader}"/>
                     </Grid>
                     <ItemsControl ItemsSource="{Binding SensorCadences}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,8">
+                                <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,10">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -102,7 +106,7 @@
             <ItemsControl ItemsSource="{Binding MyMetricTiles}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <WrapPanel/>
+                        <controls:AdaptiveGrid MinItemWidth="270" Spacing="14"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -110,22 +114,24 @@
                         <!-- Pas d'infobulle sur la tuile entière : elle s'afficherait aussi au survol du graphique
                              (l'infobulle d'un parent se déclenche depuis n'importe quel enfant) et recouvrirait le
                              repère de valeur. Elle est posée sur le seul élément qui en a besoin, le libellé tronqué. -->
-                        <Border Width="300" Margin="0,0,14,14" Padding="16,12" CornerRadius="14"
-                                Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Border Style="{StaticResource Card}" Padding="16,14">
                             <StackPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Caption}" VerticalAlignment="Center"
-                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}">
-                                        <Run Text="{Binding CategoryName, Mode=OneWay}" Foreground="{Binding LineBrush, Mode=OneWay}"/>
-                                        <Run Text="·"/>
-                                        <Run Text="{Binding Label, Mode=OneWay}"/>
-                                    </TextBlock>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="7" Height="7" Fill="{Binding LineBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                            <TextBlock Text="{Binding CategoryName}" Style="{StaticResource Eyebrow}" Foreground="{Binding LineBrush}"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center">
-                                        <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="20" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                         <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </TextBlock>
                                 </Grid>
@@ -141,17 +147,17 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Aucun capteur affiché — active « Personnaliser » pour en choisir." Style="{StaticResource Caption}"
+            <TextBlock Text="Aucun capteur affiché — active « Choisir les graphiques » pour en choisir." Style="{StaticResource Caption}"
                        Visibility="{Binding MyMetricTiles.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,0,0,16"/>
 
             <!-- Disques : occupation, usure et test de santé. Débits et température sont des tuiles comme les autres. -->
-            <Border Style="{StaticResource Card}" Margin="0,4,0,16">
+            <Border Style="{StaticResource Card}" Margin="0,18,0,16">
                 <StackPanel>
                     <TextBlock Text="Disques" Style="{StaticResource H2}"/>
                     <ItemsControl ItemsSource="{Binding Disks}" Margin="0,10,0,0">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,10,0,10">
+                                <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,12">
                                     <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -160,8 +166,12 @@
                                                 <ColumnDefinition Width="50"/>
                                                 <ColumnDefinition Width="130"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="&#xEDA2;" Style="{StaticResource Icon}" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,0,10,0"/>
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                            </StackPanel>
                                             <controls:MeterBar Grid.Column="1" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"/>
                                             <TextBlock Grid.Column="2" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
                                                        TextAlignment="Right" VerticalAlignment="Center"/>
@@ -184,6 +194,11 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                        <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -218,10 +233,10 @@
                             <ColumnDefinition Width="90"/>
                             <ColumnDefinition Width="90"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Lecture" Style="{StaticResource Caption}" FontSize="10.5"/>
-                        <TextBlock Grid.Column="1" Text="Dernière" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
-                        <TextBlock Grid.Column="2" Text="Moyenne" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
-                        <TextBlock Grid.Column="3" Text="Max" Style="{StaticResource Caption}" FontSize="10.5" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="0" Text="Lecture" Style="{StaticResource ColumnHeader}"/>
+                        <TextBlock Grid.Column="1" Text="Dernière" Style="{StaticResource ColumnHeader}" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="2" Text="Moyenne" Style="{StaticResource ColumnHeader}" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Text="Max" Style="{StaticResource ColumnHeader}" TextAlignment="Right"/>
                     </Grid>
                     <ItemsControl ItemsSource="{Binding ReadTimings}">
                         <ItemsControl.ItemTemplate>
@@ -244,8 +259,10 @@
                 </StackPanel>
             </Border>
 
-            <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
-                       Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}" Margin="0,0,0,20"/>
+            <Border Style="{StaticResource CalloutDanger}" Margin="0,0,0,20"
+                    Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}">
+                <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Body}" Foreground="{StaticResource DangerBrush}"/>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
