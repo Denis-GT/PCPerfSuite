@@ -33,7 +33,8 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   dossier" et "Nettoyer".
 - **Stockage** — carte proportionnelle (treemap) de ce qui occupe un disque, avec menu
   contextuel (ouvrir, explorer, supprimer) sur chaque bloc.
-- **Paramètres Windows** — y compris les réglages masqués : plan d'alimentation
+- **Paramètres** — le comportement de PCPerfSuite, puis les réglages Windows, y compris
+  ceux qui sont masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
   par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
@@ -49,6 +50,10 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
   transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
   Détail plus bas.
+- **Zone de notification** — la croix ne quitte pas l'app, elle la range près de l'horloge :
+  le monitoring, les courbes de ventilation et l'overlay continuent de tourner pendant que tu
+  joues. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer
+  vraiment. Décochable dans Paramètres si tu préfères que la croix ferme l'app.
 
 ## Overlay en jeu
 
@@ -140,6 +145,9 @@ l'onglet plutôt que d'échouer en silence.
   LibreHardwareMonitor pour lire certains capteurs bas niveau. L'app affiche l'état de ce
   réglage dans l'onglet Paramètres avec un lien direct vers le réglage Windows concerné —
   à toi de juger le compromis sécurité/monitoring.
+- **Fermer la fenêtre n'arrête pas l'app** (voir « Zone de notification » plus haut). Tant
+  qu'elle tourne, les ventilateurs pilotés par une courbe restent sous son contrôle : c'est
+  « Quitter » depuis l'icône qui les repasse en automatique et rend la carte au pilote.
 - Les valeurs manquantes s'affichent en `--` plutôt qu'un plantage : selon ta carte mère,
   tous les capteurs ne sont pas forcément exposés par LibreHardwareMonitorLib.
 - Les réglages sont stockés dans

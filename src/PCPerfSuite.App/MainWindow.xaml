@@ -3,7 +3,17 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:PCPerfSuite.App.Views"
         Title="PCPerfSuite" Height="820" Width="1280" MinHeight="600" MinWidth="920"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen" Icon="PCPerfSuite.ico">
+
+    <Window.Resources>
+        <!-- Menu de l'icône de la zone de notification. Déclaré ici pour hériter du style implicite
+             de Styles/Menus.xaml, comme tous les autres menus de l'app. -->
+        <ContextMenu x:Key="TrayMenu">
+            <MenuItem Header="Afficher PCPerfSuite" FontWeight="SemiBold" Click="OnTrayShow"/>
+            <Separator/>
+            <MenuItem Header="Quitter" Click="OnTrayQuit"/>
+        </ContextMenu>
+    </Window.Resources>
 
     <Grid>
         <!-- Lueur décorative derrière le verre (visible surtout si Mica/Acrylic natif n'est pas
@@ -90,7 +100,7 @@
             <views:StorageView DataContext="{Binding Storage}"
                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Stockage}"/>
             <views:SettingsView DataContext="{Binding Settings}"
-                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres Windows'}"/>
+                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres'}"/>
             <views:FanCurvesView DataContext="{Binding Fans}"
                                  Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
             <views:GpuControlView DataContext="{Binding Gpu}"

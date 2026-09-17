@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>PCPerfSuite.ico</ApplicationIcon>
     <AssemblyName>PCPerfSuite</AssemblyName>
     <RootNamespace>PCPerfSuite.App</RootNamespace>
     <!-- L'app a besoin des droits admin pour lire/écrire les capteurs matériel et les réglages système -->
@@ -15,6 +16,12 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Aussi en ressource WPF : ApplicationIcon ne pose que l'icône Win32 de l'exe (celle que
+         charge la zone de notification), alors que Window.Icon a besoin d'une ressource adressable. -->
+    <Resource Include="PCPerfSuite.ico" />
   </ItemGroup>
 
   <ItemGroup>
