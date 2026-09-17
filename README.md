@@ -12,7 +12,20 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   (débits, température, santé SMART) et la liste de tous les ventilateurs détectés avec
   RPM + %. La tuile « Mes métriques » se compose librement dans le catalogue de métriques,
   et la cadence de rafraîchissement se saisit librement en millisecondes en haut de l'onglet
-  (de 100 à 60000 ms).
+  (de 100 à 60000 ms). **Un clic gauche sur une courbe** épingle un repère qui affiche la valeur
+  exacte du relevé visé et son ancienneté (glisser pour le déplacer, clic droit ou Échap pour
+  l'enlever) : le repère reste accroché à *son* relevé pendant que la courbe défile, il ne désigne
+  pas un endroit de l'écran.
+- **Processus** — un gestionnaire de tâches pensé pour rester *cliquable*. Le défaut de celui
+  de Windows, c'est que les lignes sautent dès qu'on trie par CPU : ici le classement suit une
+  moyenne lissée sur quelques secondes (la colonne, elle, montre bien la valeur instantanée), il
+  n'est recalculé qu'à intervalle lent, et il **se fige complètement dès que la souris entre dans
+  la liste** — la ligne visée ne se dérobe donc jamais sous le curseur. Recherche instantanée
+  (nom, PID, éditeur, chemin, titre de fenêtre, insensible aux accents), filtres Applications /
+  Arrière-plan / Windows, colonnes au choix, sélection multiple pour terminer plusieurs processus
+  d'un coup, mise en évidence des gros consommateurs, et un panneau de détail avec l'historique
+  CPU et mémoire du processus sélectionné. Les processus critiques pour Windows sont affichés mais
+  leur arrêt est refusé, avec l'explication.
 - **Nettoyage** — cache shaders NVIDIA/AMD/Intel, cache shaders DirectX (D3DSCache), cache
   Steam, fichiers temporaires (%TEMP% et système), Prefetch, cache Windows Update, rapports
   d'erreurs Windows, cache des miniatures, cache Delivery Optimization, + un bouton "Vider

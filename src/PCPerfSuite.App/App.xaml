@@ -27,6 +27,8 @@
             <conv:EnumEqualsVisibilityConverter x:Key="EnumEqualsVisibility"/>
             <conv:RtssStatusConverter x:Key="RtssStatus"/>
             <conv:StringEqualsToVisibilityConverter x:Key="StringEqualsToVisibility"/>
+            <conv:PercentToHeatBrushConverter x:Key="HeatBrush"/>
+            <conv:BoolToDimOpacityConverter x:Key="DimOpacity"/>
 
             <Style TargetType="Window">
                 <Setter Property="Background" Value="{StaticResource BgBrush}"/>

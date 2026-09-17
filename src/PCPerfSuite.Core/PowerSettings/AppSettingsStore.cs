@@ -34,6 +34,42 @@ public sealed class AppSettings
 
     /// <summary>Réglages de l'overlay en jeu (RTSS et/ou fenêtre PCPerfSuite).</summary>
     public OverlaySettings Overlay { get; set; } = new();
+
+    /// <summary>Réglages de l'onglet Processus.</summary>
+    public ProcessesSettings Processes { get; set; } = new();
+}
+
+/// <summary>
+/// Réglages de la liste des processus. Le texte de recherche n'est volontairement pas enregistré : retrouver
+/// l'app filtrée sur trois lignes au lancement suivant serait déroutant plus qu'utile.
+/// Tout est stocké en chaînes plutôt qu'en enums : faute de JsonStringEnumConverter, les enums partent en
+/// nombres dans le fichier (voir <see cref="OverlayAnchor"/>), ce qui se réinterprète silencieusement à la
+/// moindre valeur insérée au milieu d'une énumération — et rend settings.json illisible à la main.
+/// </summary>
+public sealed class ProcessesSettings
+{
+    /// <summary>Intervalle entre deux relevés, en millisecondes. Un relevé de plusieurs centaines de
+    /// processus coûte bien plus cher qu'une lecture de capteurs, d'où un défaut plus lent que le Monitoring.</summary>
+    public int RefreshMs { get; set; } = 2000;
+
+    /// <summary>Identifiant de la colonne de tri ("cpu", "memory"…). Une colonne inconnue (retirée dans une
+    /// version ultérieure) fait simplement retomber sur le tri par défaut.</summary>
+    public string SortColumnId { get; set; } = "cpu";
+
+    public bool SortDescending { get; set; } = true;
+
+    /// <summary>Colonnes affichées — null tant que l'utilisateur n'a pas touché au sélecteur, auquel cas le
+    /// jeu par défaut s'applique.</summary>
+    public List<string>? VisibleColumnIds { get; set; }
+
+    /// <summary>Famille affichée : "all", "apps", "background" ou "windows".</summary>
+    public string KindFilter { get; set; } = "all";
+
+    /// <summary>Fige le classement tant que le pointeur survole la liste, pour qu'une ligne ne se dérobe pas
+    /// sous le curseur au moment du clic.</summary>
+    public bool FreezeOrderOnHover { get; set; } = true;
+
+    public bool ShowDetails { get; set; }
 }
 
 public sealed class GpuControlSettings

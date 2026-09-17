@@ -16,6 +16,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly GpuControlService _gpuControl = new();
 
     private readonly MonitoringViewModel _monitoring;
+    private readonly ProcessesViewModel _processes;
     private readonly FanCurvesViewModel _fans;
     private readonly GpuControlViewModel _gpu;
     private readonly OverlayViewModel _overlay;
@@ -28,6 +29,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     // un ContentControl relié à une seule propriété détruit et recrée la vue à chaque changement
     // d'onglet, ce qui remettait à zéro les graphiques (Sparkline) du Monitoring.
     public MonitoringViewModel Monitoring => _monitoring;
+    public ProcessesViewModel Processes => _processes;
     public CleanupViewModel Cleanup { get; } = new();
     public StorageViewModel Storage { get; } = new();
     public SettingsViewModel Settings { get; } = new();
@@ -42,6 +44,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         _monitoring = new MonitoringViewModel(_hardware);
+        _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _overlay = new OverlayViewModel(_monitoring);
@@ -49,6 +52,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         NavItems = new ObservableCollection<NavEntry>
         {
             new("Monitoring", _monitoring),
+            new("Processus", _processes),
             new("Nettoyage", Cleanup),
             new("Stockage", Storage),
             new("Paramètres Windows", Settings),
@@ -60,10 +64,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         SelectedNavItem = NavItems[0];
     }
 
+    /// <summary>La liste des processus ne se relève que quand son onglet est affiché : contrairement au
+    /// Monitoring, dont l'overlay a besoin en permanence, une liste cachée ne sert à personne et son relevé
+    /// coûte bien plus cher qu'une lecture de capteurs. On compare le ViewModel plutôt que le titre, pour ne
+    /// pas dépendre d'une chaîne.</summary>
+    partial void OnSelectedNavItemChanged(NavEntry? value)
+        => _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+
     /// <summary>Ordre important : les ventilateurs repassent en automatique avant que le service NVAPI
     /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
+        // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
+        _processes.Dispose();
         _fans.Dispose();
         _gpu.Dispose();
         _overlay.Dispose();
