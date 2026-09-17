@@ -1,24 +1,52 @@
 using System.Text;
 using System.Windows.Media;
+using CommunityToolkit.Mvvm.ComponentModel;
 using PCPerfSuite.App.Metrics;
 
 namespace PCPerfSuite.App.Overlay;
 
-/// <summary>Morceau coloré d'une ligne d'overlay (le libellé et la valeur n'ont pas la même couleur).</summary>
-public sealed class OverlaySegment
+/// <summary>Valeur d'une métrique dans une ligne d'overlay. Mise à jour en place à chaque relevé : seul le texte
+/// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
+public sealed partial class OverlayCell : ObservableObject
 {
-    public required string Text { get; init; }
-    public required string ColorHex { get; init; }
+    public OverlayCell(MetricDefinition metric, int column)
+    {
+        Metric = metric;
+        ValueGroup = $"value{column}";
+        UnitGroup = $"unit{column}";
+    }
 
-    /// <summary>Pinceau figé prêt pour le rendu WPF (aperçu et fenêtre d'overlay).</summary>
-    public Brush Brush => _brush ??= OverlayPalette.ToBrush(ColorHex);
+    public MetricDefinition Metric { get; }
 
-    private Brush? _brush;
+    /// <summary>Noms des colonnes partagées d'une ligne à l'autre (voir StickyWidth).</summary>
+    public string ValueGroup { get; }
+    public string UnitGroup { get; }
+
+    [ObservableProperty] private string value = "--";
+    [ObservableProperty] private string unit = "";
+
+    public void Apply(MetricSample sample)
+    {
+        MetricReading reading = Metric.Read(sample);
+        Value = reading.Value;
+        // Comme MetricReading.Text : "%" et "°C" collés au nombre, les autres unités séparées d'une espace.
+        Unit = reading.Unit is "" or "%" or "°C" ? reading.Unit : " " + reading.Unit;
+    }
 }
 
 public sealed class OverlayLine
 {
-    public required IReadOnlyList<OverlaySegment> Segments { get; init; }
+    public required string Label { get; init; }
+    public required string LabelColorHex { get; init; }
+    public required string ValueColorHex { get; init; }
+    public required IReadOnlyList<OverlayCell> Cells { get; init; }
+
+    /// <summary>Pinceaux figés prêts pour le rendu WPF (aperçu et fenêtre d'overlay).</summary>
+    public Brush LabelBrush => _labelBrush ??= OverlayPalette.ToBrush(LabelColorHex);
+    public Brush ValueBrush => _valueBrush ??= OverlayPalette.ToBrush(ValueColorHex);
+
+    private Brush? _labelBrush;
+    private Brush? _valueBrush;
 }
 
 /// <summary>Couleurs à appliquer à une ligne d'overlay.</summary>
@@ -31,89 +59,90 @@ public sealed class OverlayColorScheme
 }
 
 /// <summary>
-/// Met en forme les métriques sélectionnées en lignes colorées, puis, pour RTSS, en texte balisé.
+/// Met en forme les métriques sélectionnées en lignes à colonnes fixes, puis, pour RTSS, en texte balisé.
 /// Une seule source de vérité : l'aperçu dans l'app, la fenêtre d'overlay et l'OSD de RTSS affichent
 /// exactement la même chose.
+///
+/// La structure (lignes et cellules) n'est construite qu'au changement de réglage ; chaque relevé ne fait que
+/// mettre à jour les valeurs (<see cref="Update"/>).
 /// </summary>
 public static class OverlayComposer
 {
-    public static List<OverlayLine> Compose(
-        MetricSample sample,
+    public static List<OverlayLine> Build(
         IReadOnlyList<MetricDefinition> metrics,
         bool oneLinePerMetric,
         OverlayColorScheme colors)
     {
-        var lines = new List<OverlayLine>();
-
         if (oneLinePerMetric)
         {
-            foreach (MetricDefinition metric in metrics)
-            {
-                lines.Add(new OverlayLine
+            return metrics
+                .Select(metric => new OverlayLine
                 {
-                    Segments = new[]
-                    {
-                        new OverlaySegment
-                        {
-                            Text = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
-                            ColorHex = colors.CategoryColor(metric.Category),
-                        },
-                        new OverlaySegment
-                        {
-                            Text = $"  {metric.Read(sample).Text}",
-                            ColorHex = colors.ValueColor,
-                        },
-                    },
-                });
-            }
-
-            return lines;
+                    Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
+                    LabelColorHex = colors.CategoryColor(metric.Category),
+                    ValueColorHex = colors.ValueColor,
+                    Cells = new[] { new OverlayCell(metric, 0) },
+                })
+                .ToList();
         }
 
         // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W".
-        foreach (IGrouping<MetricCategory, MetricDefinition> group in metrics.GroupBy(m => m.Category))
-        {
-            string values = string.Join("  ", group.Select(m => m.Read(sample).Text));
-            lines.Add(new OverlayLine
+        return metrics
+            .GroupBy(m => m.Category)
+            .Select(group => new OverlayLine
             {
-                Segments = new[]
-                {
-                    new OverlaySegment { Text = group.Key.OsdLabel, ColorHex = colors.CategoryColor(group.Key) },
-                    new OverlaySegment { Text = $"  {values}", ColorHex = colors.ValueColor },
-                },
-            });
-        }
+                Label = group.Key.OsdLabel,
+                LabelColorHex = colors.CategoryColor(group.Key),
+                ValueColorHex = colors.ValueColor,
+                Cells = group.Select((metric, column) => new OverlayCell(metric, column)).ToArray(),
+            })
+            .ToList();
+    }
 
-        return lines;
+    public static void Update(IEnumerable<OverlayLine> lines, MetricSample sample)
+    {
+        foreach (OverlayLine line in lines)
+        {
+            foreach (OverlayCell cell in line.Cells) cell.Apply(sample);
+        }
     }
 
     /// <summary>
     /// Sérialise les lignes pour l'OSD de RTSS. RTSS interprète des balises de mise en forme dans le
-    /// texte partagé : &lt;C=AARRGGBB&gt;…&lt;C&gt; pour la couleur et &lt;S=nnn&gt;…&lt;S&gt; pour la
-    /// taille (en % de la police configurée dans RTSS). Chaque balise est refermée pour ne pas
+    /// texte partagé : &lt;C=AARRGGBB&gt;…&lt;C&gt; pour la couleur, &lt;S=nnn&gt;…&lt;S&gt; pour la
+    /// taille (en % de la police configurée dans RTSS) et &lt;A=n&gt;…&lt;A&gt; pour caler un texte dans un
+    /// champ de n caractères (signe de n : sens de l'alignement). Chaque balise est refermée pour ne pas
     /// déteindre sur le texte des autres applications qui partagent l'OSD.
+    ///
+    /// Les largeurs de champ viennent de <paramref name="widths"/>, qui ne font que grandir : comme dans la
+    /// fenêtre, une valeur qui change de longueur ne décale plus la suite de la ligne.
     /// </summary>
-    public static string ToRtssText(IReadOnlyList<OverlayLine> lines, bool withColors, int sizePercent)
+    public static string ToRtssText(IReadOnlyList<OverlayLine> lines, bool withColors, int sizePercent, RtssColumnWidths widths)
     {
         var text = new StringBuilder();
         bool withSize = sizePercent is > 0 and not 100;
 
         if (withSize) text.Append($"<S={sizePercent}>");
 
+        int labelWidth = widths.Grow("label", lines.Select(l => l.Label.Length).DefaultIfEmpty(0).Max());
+
         for (int i = 0; i < lines.Count; i++)
         {
+            OverlayLine line = lines[i];
             if (i > 0) text.Append('\n');
 
-            foreach (OverlaySegment segment in lines[i].Segments)
+            // Libellé calé à gauche, valeur à droite (collée à son unité), unité à gauche.
+            AppendColored(text, Field(line.Label, labelWidth, rightAligned: false), line.LabelColorHex, withColors);
+
+            foreach (OverlayCell cell in line.Cells)
             {
-                if (withColors)
-                {
-                    text.Append($"<C={OverlayPalette.ToRtssColor(segment.ColorHex)}>{segment.Text}<C>");
-                }
-                else
-                {
-                    text.Append(segment.Text);
-                }
+                int valueWidth = widths.Grow(cell.ValueGroup, cell.Value.Length);
+                int unitWidth = widths.Grow(cell.UnitGroup, cell.Unit.Length);
+
+                string field = "  " + Field(cell.Value, valueWidth, rightAligned: true);
+                if (unitWidth > 0) field += Field(cell.Unit, unitWidth, rightAligned: false);
+
+                AppendColored(text, field, line.ValueColorHex, withColors);
             }
         }
 
@@ -121,4 +150,28 @@ public static class OverlayComposer
 
         return text.ToString();
     }
+
+    private static string Field(string value, int width, bool rightAligned)
+        => width <= 0 ? value : $"<A={(rightAligned ? -width : width)}>{value}<A>";
+
+    private static void AppendColored(StringBuilder text, string content, string colorHex, bool withColors)
+    {
+        if (withColors) text.Append($"<C={OverlayPalette.ToRtssColor(colorHex)}>{content}<C>");
+        else text.Append(content);
+    }
+}
+
+/// <summary>Largeur maximale vue par colonne de l'OSD RTSS, en caractères. Remise à zéro avec la mise en page.</summary>
+public sealed class RtssColumnWidths
+{
+    private readonly Dictionary<string, int> _widths = new();
+
+    public int Grow(string column, int length)
+    {
+        int width = _widths.TryGetValue(column, out int current) ? Math.Max(current, length) : length;
+        _widths[column] = width;
+        return width;
+    }
+
+    public void Reset() => _widths.Clear();
 }

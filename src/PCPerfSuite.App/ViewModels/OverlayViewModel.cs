@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Overlay;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.App.Views;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
@@ -24,21 +26,31 @@ namespace PCPerfSuite.App.ViewModels;
 /// </summary>
 public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 {
-    private readonly RtssOsdClient _rtss = new("PCPerfSuite");
-    private readonly MonitoringViewModel _monitoring;
-    private MetricSample? _lastSample;
-    private long _lastRenderTick;
-    private OverlayWindow? _window;
+    /// <summary>Nombre de rendus sur lesquels est mesurée la cadence réelle.</summary>
+    private const int CadenceWindow = 30;
 
-    /// <summary>Tolérance sur la cadence : sans elle, une cadence d'overlay égale à celle du monitoring
-    /// raterait un relevé sur deux à cause de la gigue du timer.</summary>
-    private const double RateTolerance = 0.9;
+    private readonly RtssOsdClient _rtss = new("PCPerfSuite");
+    private readonly RtssColumnWidths _rtssWidths = new();
+    private readonly MonitoringViewModel _monitoring;
+    private readonly SampleHistory _renderGapsMs = new(CadenceWindow);
+    private MetricSample? _lastSample;
+    private bool _structureDirty = true;
+    private int _samplesSinceRender;
+    private long _lastRenderTimestamp;
+    private OverlayWindow? _window;
 
     [ObservableProperty] private bool isEnabled;
     [ObservableProperty] private bool useRtss;
     [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
     [ObservableProperty] private bool isRtssDetected;
+
+    /// <summary>Change quand les colonnes doivent repartir de zéro (métriques, mode, police) : les largeurs
+    /// mémorisées par l'affichage sont alors oubliées.</summary>
+    [ObservableProperty] private int layoutVersion;
+
+    /// <summary>Écart réel entre deux rendus de l'overlay, pour vérifier que la cadence est régulière.</summary>
+    [ObservableProperty] private string cadenceText = "Mesure en cours…";
 
     private int _refreshMs = 1000;
 
@@ -56,7 +68,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
             if (!changed) return;
 
             // Repart de zéro pour que la nouvelle cadence s'applique dès le prochain relevé.
-            _lastRenderTick = 0;
+            _samplesSinceRender = int.MaxValue - 1;
+            ResetCadence();
             Persist();
         }
     }
@@ -66,7 +79,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     public MetricSelectionViewModel Metrics { get; }
     public OverlayAppearanceViewModel Appearance { get; }
 
-    /// <summary>Lignes prêtes à afficher, partagées par l'aperçu de l'onglet et la fenêtre d'overlay.</summary>
+    /// <summary>Lignes prêtes à afficher, partagées par l'aperçu de l'onglet et la fenêtre d'overlay.
+    /// Reconstruites seulement quand un réglage change ; les relevés ne font que mettre à jour leurs valeurs.</summary>
     public ObservableCollection<OverlayLine> Lines { get; } = new();
 
     /// <summary>Signalé quand la géométrie de l'overlay change (ancrage, marges, police) : la fenêtre
@@ -90,7 +104,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         Appearance = new OverlayAppearanceViewModel(
             settings.Appearance ?? new OverlayAppearanceSettings(),
             OnDisplayOptionsChanged,
-            () => LayoutChanged?.Invoke());
+            OnAppearanceLayoutChanged);
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
     }
@@ -109,6 +123,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     partial void OnIsEnabledChanged(bool value)
     {
         Persist();
+        ResetCadence();
         if (value)
         {
             Render();
@@ -135,32 +150,78 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
     private void OnDisplayOptionsChanged()
     {
+        _structureDirty = true;
         Persist();
         Render();
+    }
+
+    private void OnAppearanceLayoutChanged()
+    {
+        // La police ou la taille a pu changer : les largeurs de colonnes mémorisées ne valent plus.
+        LayoutVersion++;
+        LayoutChanged?.Invoke();
     }
 
     private void OnMetricsUpdated(MetricSample sample)
     {
         _lastSample = sample;
 
-        long now = Environment.TickCount64;
-        if (now - _lastRenderTick < RefreshMs * RateTolerance) return;
-        _lastRenderTick = now;
+        // Un relevé sur N, N entier : un rendu tombe toujours sur un relevé, à intervalle régulier. Un seuil en
+        // millisecondes, lui, retombait tantôt sur un relevé, tantôt sur le suivant selon la gigue.
+        double tickMs = Math.Max(1, _monitoring.TickInterval.TotalMilliseconds);
+        int every = Math.Max(1, (int)Math.Round(RefreshMs / tickMs));
 
+        if (++_samplesSinceRender < every) return;
+        _samplesSinceRender = 0;
+
+        MeasureCadence();
         Render();
     }
 
-    /// <summary>Recompose les lignes (toujours, pour que l'aperçu reste vivant même overlay éteint) puis
+    private void MeasureCadence()
+    {
+        long now = Stopwatch.GetTimestamp();
+        if (_lastRenderTimestamp != 0)
+        {
+            _renderGapsMs.Push(Stopwatch.GetElapsedTime(_lastRenderTimestamp, now).TotalMilliseconds);
+
+            if (_renderGapsMs.Average() is { } average)
+            {
+                double worst = 0;
+                for (int i = 0; i < _renderGapsMs.Count; i++) worst = Math.Max(worst, Math.Abs(_renderGapsMs[i] - average));
+                CadenceText = $"Cadence réelle : {average:0} ms en moyenne, écart max {worst:0} ms " +
+                              $"(sur les {_renderGapsMs.Count} derniers rendus)";
+            }
+        }
+        _lastRenderTimestamp = now;
+    }
+
+    private void ResetCadence()
+    {
+        _renderGapsMs.Clear();
+        _lastRenderTimestamp = 0;
+        CadenceText = "Mesure en cours…";
+    }
+
+    /// <summary>Met à jour les lignes (toujours, pour que l'aperçu reste vivant même overlay éteint) puis
     /// les pousse vers RTSS et/ou la fenêtre si l'overlay est activé.</summary>
     private void Render()
     {
         if (_lastSample is null) return;
 
-        List<OverlayLine> lines = OverlayComposer.Compose(
-            _lastSample, Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme());
+        if (_structureDirty)
+        {
+            _structureDirty = false;
+            Lines.Clear();
+            foreach (OverlayLine line in OverlayComposer.Build(Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme()))
+            {
+                Lines.Add(line);
+            }
+            _rtssWidths.Reset();
+            LayoutVersion++;
+        }
 
-        Lines.Clear();
-        foreach (OverlayLine line in lines) Lines.Add(line);
+        OverlayComposer.Update(Lines, _lastSample);
 
         if (!IsEnabled)
         {
@@ -170,7 +231,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
         if (UseRtss)
         {
-            string text = OverlayComposer.ToRtssText(lines, Appearance.SendColorsToRtss, Appearance.RtssSizePercent);
+            string text = OverlayComposer.ToRtssText(Lines, Appearance.SendColorsToRtss, Appearance.RtssSizePercent, _rtssWidths);
             IsRtssDetected = _rtss.TryUpdate(text);
         }
 
@@ -192,7 +253,12 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_window is not null) return;
+        if (_window is not null)
+        {
+            // Filet de sécurité en plus du suivi du premier plan : une fenêtre du shell a pu repasser devant.
+            _window.BringToTop();
+            return;
+        }
 
         _window = new OverlayWindow { DataContext = this };
         _window.Show();

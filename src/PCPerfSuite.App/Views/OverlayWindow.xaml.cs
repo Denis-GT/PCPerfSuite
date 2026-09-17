@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Interop;
 using PCPerfSuite.App.Interop;
 using PCPerfSuite.App.ViewModels;
 using PCPerfSuite.Core.Overlay;
@@ -14,16 +15,21 @@ namespace PCPerfSuite.App.Views;
 public partial class OverlayWindow : Window
 {
     private OverlayViewModel? _viewModel;
+    private TopmostKeeper? _topmost;
 
     public OverlayWindow()
     {
         InitializeComponent();
         ClickThroughWindow.Apply(this);
 
+        SourceInitialized += (_, _) => _topmost = new TopmostKeeper(new WindowInteropHelper(this).Handle);
         SizeChanged += (_, _) => Reposition();
         Loaded += OnLoaded;
         Closed += OnClosed;
     }
+
+    /// <summary>Remet la fenêtre devant les autres fenêtres toujours au-dessus (barre des tâches...).</summary>
+    public void BringToTop() => _topmost?.BringToTop();
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -36,6 +42,8 @@ public partial class OverlayWindow : Window
     {
         if (_viewModel is not null) _viewModel.LayoutChanged -= Reposition;
         _viewModel = null;
+        _topmost?.Dispose();
+        _topmost = null;
     }
 
     /// <summary>Replace la fenêtre dans le coin choisi. On vise l'écran entier (et pas la zone de

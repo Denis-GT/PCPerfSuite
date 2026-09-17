@@ -50,7 +50,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         _computer.Open();
     }
 
-    public HardwareSnapshot GetSnapshot()
+    /// <summary>Relevé du tick <paramref name="tick"/> : chaque groupe n'est relu que si c'est son tour.</summary>
+    /// <param name="epoch">Change avec la durée du tick (voir <see cref="TickInterval"/>) ; les numéros de tick repartent alors de zéro.</param>
+    public HardwareSnapshot GetSnapshot(long epoch, long tick)
     {
         long start = Stopwatch.GetTimestamp();
 
@@ -59,7 +61,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         var groupRead = new bool[_schedules.Length];
 
         // Échéances évaluées une fois pour tout le relevé : le matériel d'un même groupe est relu ensemble.
-        bool[] due = _schedules.Select(schedule => schedule.IsDue(start)).ToArray();
+        TimeSpan tickInterval = TickInterval;
+        bool[] due = _schedules.Select(schedule => schedule.IsDue(epoch, tick, tickInterval)).ToArray();
 
         if (due[(int)SensorGroup.CpuLoad])
         {
@@ -96,7 +99,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         for (int group = 0; group < _schedules.Length; group++)
         {
-            if (groupRead[group]) _schedules[group].RecordRead(start, groupDurations[group]);
+            if (groupRead[group]) _schedules[group].RecordRead(epoch, tick, groupDurations[group], tickInterval);
         }
 
         var cpu = new CpuSnapshot();
@@ -158,7 +161,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
             ReadTimings = timings,
             ReadDuration = Stopwatch.GetElapsedTime(start),
-            GroupStatuses = _schedules.Select(schedule => schedule.GetStatus()).ToArray(),
+            GroupStatuses = _schedules.Select(schedule => schedule.GetStatus(tickInterval)).ToArray(),
             GroupsRead = Enum.GetValues<SensorGroup>().Where(group => groupRead[(int)group]).ToArray(),
             Game = _lastGame,
         };
@@ -180,7 +183,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         => _schedules[(int)group].ManualInterval = interval;
 
     /// <summary>Cadence actuelle d'un groupe, sans attendre le prochain relevé (après un changement de réglage).</summary>
-    public SensorGroupReadStatus GetGroupStatus(SensorGroup group) => _schedules[(int)group].GetStatus();
+    public SensorGroupReadStatus GetGroupStatus(SensorGroup group) => _schedules[(int)group].GetStatus(TickInterval);
 
     /// <summary>Cadence de base, l'actualisation globale : celle d'un groupe en automatique dont la lecture ne coûte pas cher.</summary>
     public void SetBaseInterval(TimeSpan interval)
@@ -191,8 +194,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         }
     }
 
-    /// <summary>Intervalle du groupe relu le plus souvent : le rythme auquel appeler GetSnapshot.</summary>
-    public TimeSpan ShortestInterval => _schedules.Min(schedule => schedule.GetStatus().Interval);
+    /// <summary>Rythme auquel appeler GetSnapshot : le plus court des intervalles voulus (actualisation ou cadence
+    /// imposée). Les cadences de tous les groupes en sont des multiples entiers ; l'automatique ne fait que les allonger,
+    /// ce tick ne dépend donc pas du coût mesuré et reste stable.</summary>
+    public TimeSpan TickInterval => _schedules.Min(schedule => schedule.RequestedInterval);
 
     private static SensorGroup GroupOf(HardwareType type) => type switch
     {

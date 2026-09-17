@@ -11,7 +11,9 @@ public static class ByteFormatter
     }
 
     /// <summary>Valeur mise à l'échelle et unité séparées, pour les affichages qui ne les stylent pas pareil.</summary>
-    public static (string Value, string Unit) Split(double bytes)
+    /// <param name="fixedDecimal">Toujours une décimale au-delà de l'octet ("12,0" plutôt que "12") : pour une valeur qui
+    /// change sans cesse, comme un débit, la largeur du texte ne saute plus d'un relevé à l'autre.</param>
+    public static (string Value, string Unit) Split(double bytes, bool fixedDecimal = false)
     {
         double value = bytes;
         int unit = 0;
@@ -20,7 +22,7 @@ public static class ByteFormatter
             value /= 1024;
             unit++;
         }
-        return (unit == 0 ? $"{value:0}" : $"{value:0.#}", Units[unit]);
+        return (unit == 0 ? $"{value:0}" : fixedDecimal ? $"{value:0.0}" : $"{value:0.#}", Units[unit]);
     }
 
     public static string FormatRate(double? bytesPerSecond)
