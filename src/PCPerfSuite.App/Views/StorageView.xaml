@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
-    <Grid Margin="32,28,32,20">
+    <Grid Margin="{StaticResource PagePadding}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -12,11 +12,8 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <TextBlock Text="Stockage" Style="{StaticResource H1}"/>
-            <TextBlock Text="Cartographie de l'occupation disque façon SpaceSniffer — clique un bloc pour le dévoiler, reclique pour le replier, clic droit pour plus d'actions."
-                       Style="{StaticResource Caption}" Margin="0,4,0,0"/>
-        </StackPanel>
+        <controls:PageHeader Grid.Row="0" Title="Stockage"
+                             Subtitle="Cartographie de l'occupation disque façon SpaceSniffer — clique un bloc pour le dévoiler, reclique pour le replier, clic droit pour plus d'actions."/>
 
         <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
@@ -29,13 +26,12 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,0,24,8"
-                                      Foreground="{StaticResource TextPrimaryBrush}" VerticalContentAlignment="Center"/>
+                            <CheckBox Style="{StaticResource Chip}" Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,0,8,8"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Grid Margin="0,12,0,0">
+                <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -48,13 +44,19 @@
                     <Button Grid.Column="2" Content="Analyser" Style="{StaticResource AccentButton}"
                             Command="{Binding ScanCommand}"/>
                 </Grid>
+                <ProgressBar IsIndeterminate="True" Margin="0,14,0,0"
+                             Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>
             </StackPanel>
         </Border>
 
-        <TextBlock Grid.Row="2" Text="{Binding RootNode.Name}" Style="{StaticResource Caption}" Margin="0,0,0,10"
-                   TextTrimming="CharacterEllipsis" Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="4,0,0,10"
+                    Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
+            <TextBlock Text="&#xEDA2;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
+            <TextBlock Text="{Binding RootNode.Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </StackPanel>
 
-        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="2" MinHeight="260"
+        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="3" MinHeight="260"
                 Visibility="{Binding RootNode, Converter={StaticResource NullToVisibility}}">
             <controls:TreemapControl Nodes="{Binding RootNode.Children}"
                                       HoveredNode="{Binding HoveredNode, Mode=TwoWay}"

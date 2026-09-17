@@ -11,15 +11,15 @@
         <Border IsHitTestVisible="False">
             <Border.Background>
                 <RadialGradientBrush Center="0.12,0.05" RadiusX="0.9" RadiusY="0.9">
-                    <GradientStop Color="#332A84FF" Offset="0"/>
-                    <GradientStop Color="#00161A28" Offset="1"/>
+                    <GradientStop Color="{StaticResource AccentGlowColor}" Offset="0"/>
+                    <GradientStop Color="{StaticResource AccentGlowFadeColor}" Offset="1"/>
                 </RadialGradientBrush>
             </Border.Background>
         </Border>
 
         <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="232"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
@@ -27,54 +27,53 @@
         <Border Grid.Column="0" Background="{StaticResource SidebarBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="20,24,20,20">
-                    <TextBlock Text="PCPerfSuite" Style="{StaticResource H1}" FontSize="19"/>
-                    <TextBlock Text="Monitoring &amp; tuning PC" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                <!-- Marque : pastille dégradée + nom. -->
+                <Grid DockPanel.Dock="Top" Margin="20,24,16,22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Width="36" Height="36" CornerRadius="10" Background="{StaticResource BrandBrush}"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="&#xE945;" Style="{StaticResource Icon}" FontSize="18" Foreground="White"
+                                   HorizontalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="PCPerfSuite" Style="{StaticResource H2}" FontSize="16"/>
+                        <TextBlock Text="Monitoring &amp; tuning" Style="{StaticResource Caption}" FontSize="11.5"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Pied : état des droits. -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="14,10,14,16">
+                    <Border Style="{StaticResource CalloutWarn}"
+                            Visibility="{Binding ShowElevationBanner, Converter={StaticResource BoolToVisibility}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" FontSize="14" VerticalAlignment="Top" Margin="0,2,10,0"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Droits limités" Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="12.5"
+                                           Foreground="{StaticResource WarnBrush}"/>
+                                <TextBlock Text="Relance en administrateur pour débloquer tous les capteurs et réglages."
+                                           Style="{StaticResource Caption}" FontSize="11.5" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0"
+                                Visibility="{Binding IsElevated, Converter={StaticResource BoolToVisibility}}">
+                        <Ellipse Width="7" Height="7" Fill="{StaticResource SuccessBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Text="Administrateur" Style="{StaticResource Caption}" FontSize="11.5" Margin="8,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
                 </StackPanel>
 
-                <ListBox DockPanel.Dock="Top" ItemsSource="{Binding NavItems}"
-                         SelectedItem="{Binding SelectedNavItem}"
+                <ListBox ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNavItem}"
+                         ItemContainerStyle="{StaticResource NavListItem}"
                          Background="Transparent" BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd" Background="Transparent" CornerRadius="12" Padding="14,10" Margin="8,2">
-                                            <ContentPresenter/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#332A84FF"/>
-                                            </Trigger>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#14FFFFFF"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" FontSize="14"/>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-
-                <Border DockPanel.Dock="Bottom" Margin="14,10,14,16" Padding="12" CornerRadius="8"
-                        Background="{StaticResource SurfaceAltBrush}"
-                        Visibility="{Binding ShowElevationBanner, Converter={StaticResource BoolToVisibility}}">
-                    <StackPanel>
-                        <TextBlock Text="Droits limités" Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="12.5"/>
-                        <TextBlock Text="Relance en administrateur pour débloquer tous les capteurs et réglages."
-                                   Style="{StaticResource Caption}" Margin="0,4,0,0"/>
-                    </StackPanel>
-                </Border>
-
-                <Grid/>
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
             </DockPanel>
         </Border>
 

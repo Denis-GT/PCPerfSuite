@@ -5,7 +5,8 @@ using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
-public sealed record NavEntry(string Title, object ViewModel);
+/// <summary>Entrée de la navigation latérale. <paramref name="Icon"/> est un glyphe de Segoe Fluent Icons.</summary>
+public sealed record NavEntry(string Title, string Icon, object ViewModel);
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -51,14 +52,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         NavItems = new ObservableCollection<NavEntry>
         {
-            new("Monitoring", _monitoring),
-            new("Processus", _processes),
-            new("Nettoyage", Cleanup),
-            new("Stockage", Storage),
-            new("Paramètres Windows", Settings),
-            new("Ventilateurs", _fans),
-            new("GPU", _gpu),
-            new("Overlay", _overlay),
+            new("Monitoring", Glyph(0xE9D9), _monitoring),
+            new("Processus", Glyph(0xE9F5), _processes),
+            new("Nettoyage", Glyph(0xE74D), Cleanup),
+            new("Stockage", Glyph(0xEDA2), Storage),
+            new("Paramètres Windows", Glyph(0xE713), Settings),
+            new("Ventilateurs", Glyph(0xE9CA), _fans),
+            new("GPU", Glyph(0xE950), _gpu),
+            new("Overlay", Glyph(0xE7FC), _overlay),
         };
 
         SelectedNavItem = NavItems[0];
@@ -70,6 +71,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// pas dépendre d'une chaîne.</summary>
     partial void OnSelectedNavItemChanged(NavEntry? value)
         => _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+
+    private static string Glyph(int codePoint) => char.ConvertFromUtf32(codePoint);
 
     /// <summary>Ordre important : les ventilateurs repassent en automatique avant que le service NVAPI
     /// ne rende la carte au pilote et ne décharge NVAPI.</summary>

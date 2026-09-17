@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Windows.Media;
+using PCPerfSuite.App.Styles;
 using PCPerfSuite.App.Utils;
 
 namespace PCPerfSuite.App.Controls;
@@ -44,15 +45,15 @@ public sealed class Sparkline : FrameworkElement
 
     public static readonly DependencyProperty LineBrushProperty = DependencyProperty.Register(
         nameof(LineBrush), typeof(Brush), typeof(Sparkline),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)), FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(ThemeColors.FrozenBrush(ThemeColors.Accent), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty FillBrushProperty = DependencyProperty.Register(
         nameof(FillBrush), typeof(Brush), typeof(Sparkline),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromArgb(0x30, 0x0A, 0x84, 0xFF)), FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(ThemeColors.FrozenBrush(ThemeColors.WithAlpha(ThemeColors.Accent, 0x30)), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty SecondaryLineBrushProperty = DependencyProperty.Register(
         nameof(SecondaryLineBrush), typeof(Brush), typeof(Sparkline),
-        new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(0x5F, 0xE0, 0xC7)), FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(ThemeColors.FrozenBrush(ThemeColors.Accent2), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty MaximumProperty = DependencyProperty.Register(
         nameof(Maximum), typeof(double), typeof(Sparkline),
@@ -134,9 +135,9 @@ public sealed class Sparkline : FrameworkElement
     private static readonly Pen MarkerDotPen = FrozenPen(Color.FromArgb(0xCC, 0x0B, 0x0D, 0x14), 1.5);
     private static readonly Pen MarkerBoxPen = FrozenPen(Color.FromArgb(0x3D, 0xFF, 0xFF, 0xFF), 1);
     private static readonly SolidColorBrush MarkerBoxBrush = FrozenBrush(Color.FromArgb(0xF2, 0x15, 0x19, 0x25));
-    private static readonly SolidColorBrush MarkerTextBrush = FrozenBrush(Color.FromRgb(0xF2, 0xF4, 0xFA));
+    private static readonly SolidColorBrush MarkerTextBrush = FrozenBrush(ThemeColors.TextPrimary);
 
-    private static readonly Typeface MarkerTypeface = new("Segoe UI");
+    private static readonly Typeface MarkerTypeface = new("Segoe UI Variable, Segoe UI");
 
     private const double MarkerFontSize = 11;
     private const double MarkerPadding = 5;

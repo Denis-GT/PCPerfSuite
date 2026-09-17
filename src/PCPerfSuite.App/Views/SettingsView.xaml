@@ -1,49 +1,82 @@
 <UserControl x:Class="PCPerfSuite.App.Views.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
-    <ScrollViewer Padding="32,28,32,28">
-        <StackPanel MaxWidth="1000">
+    <UserControl.Resources>
+        <!-- Réglages regroupés par catégorie : une carte par catégorie, une ligne par réglage. -->
+        <CollectionViewSource x:Key="GroupedTweaks" Source="{Binding Tweaks}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Category"/>
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+    </UserControl.Resources>
 
-            <TextBlock Text="Paramètres Windows" Style="{StaticResource H1}"/>
-            <TextBlock Text="Réglages de performance Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.)."
-                       Style="{StaticResource Caption}" Margin="0,4,0,16"/>
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
 
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
-                    Visibility="{Binding IsElevated, Converter={StaticResource BoolToVisibility}}"
-                    Background="#241A1000" BorderBrush="{StaticResource WarnBrush}">
-                <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap">
-                    <Run Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → &quot;Exécuter en tant qu'administrateur&quot;)." FontWeight="SemiBold"/>
-                </TextBlock>
+            <controls:PageHeader Title="Paramètres Windows"
+                                 Subtitle="Réglages de performance Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.)."/>
+
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,20"
+                    Visibility="{Binding IsElevated, Converter={StaticResource InverseBoolToVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" VerticalAlignment="Top" Margin="0,1,12,0"/>
+                    <TextBlock Grid.Column="1" Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
+                               Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → « Exécuter en tant qu'administrateur »)."/>
+                </Grid>
             </Border>
 
-            <ItemsControl ItemsSource="{Binding Tweaks}">
+            <ItemsControl ItemsSource="{Binding Source={StaticResource GroupedTweaks}}">
+                <ItemsControl.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.ContainerStyle>
+                            <Style TargetType="GroupItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="GroupItem">
+                                            <StackPanel Margin="0,0,0,20">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
+                                                <Border Style="{StaticResource Card}" Padding="20,4">
+                                                    <ItemsPresenter/>
+                                                </Border>
+                                            </StackPanel>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </GroupStyle.ContainerStyle>
+                    </GroupStyle>
+                </ItemsControl.GroupStyle>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                        <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                                    <TextBlock Text="{Binding Category}" Style="{StaticResource Caption}" Foreground="{StaticResource AccentBrush}"/>
-                                    <TextBlock Text="{Binding Name}" Style="{StaticResource H2}" Margin="0,2,0,0"/>
-                                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
 
                                     <WrapPanel Margin="0,8,0,0">
-                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                        <Border Style="{StaticResource Badge}"
                                                 Visibility="{Binding RequiresRestart, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="Redémarrage requis" Style="{StaticResource Caption}" FontSize="11"/>
+                                            <TextBlock Text="Redémarrage requis" Style="{StaticResource BadgeText}"/>
                                         </Border>
-                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                        <Border Style="{StaticResource BadgeWarn}"
                                                 Visibility="{Binding IsRisky, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="Compromis énergie/chaleur" Style="{StaticResource Caption}" FontSize="11" Foreground="{StaticResource WarnBrush}"/>
+                                            <TextBlock Text="Compromis énergie/chaleur" Style="{StaticResource BadgeText}"/>
                                         </Border>
-                                        <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="4" Padding="6,2"
+                                        <Border Style="{StaticResource Badge}"
                                                 Visibility="{Binding IsUnknownState, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="État inconnu sur cette config" Style="{StaticResource Caption}" FontSize="11"/>
+                                            <TextBlock Text="État inconnu sur cette config" Style="{StaticResource BadgeText}"/>
                                         </Border>
                                     </WrapPanel>
 
@@ -56,6 +89,12 @@
                                           IsChecked="{Binding IsOn, Mode=TwoWay}" IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolean}}"/>
                             </Grid>
                         </Border>
+                        <DataTemplate.Triggers>
+                            <!-- Pas de séparateur au-dessus de la première ligne d'une carte. -->
+                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

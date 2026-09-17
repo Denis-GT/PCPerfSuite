@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using PCPerfSuite.App.Styles;
 using PCPerfSuite.Core.Hardware;
 
 namespace PCPerfSuite.App.Controls;
@@ -64,10 +65,10 @@ public sealed class FanCurveEditor : FrameworkElement
     }
 
     private static readonly SolidColorBrush GridBrush = Freeze(Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF));
-    private static readonly SolidColorBrush AxisTextBrush = Freeze(Color.FromRgb(0xAC, 0xB4, 0xC8));
-    private static readonly SolidColorBrush CurveBrush = Freeze(Color.FromRgb(0x0A, 0x84, 0xFF));
-    private static readonly SolidColorBrush FillBrush = Freeze(Color.FromArgb(0x30, 0x0A, 0x84, 0xFF));
-    private static readonly SolidColorBrush MarkerBrush = Freeze(Color.FromRgb(0xFF, 0x9F, 0x0A));
+    private static readonly SolidColorBrush AxisTextBrush = Freeze(ThemeColors.TextSecondary);
+    private static readonly SolidColorBrush CurveBrush = Freeze(ThemeColors.Accent);
+    private static readonly SolidColorBrush FillBrush = Freeze(ThemeColors.WithAlpha(ThemeColors.Accent, 0x30));
+    private static readonly SolidColorBrush MarkerBrush = Freeze(ThemeColors.Warn);
 
     private const double TopPad = 8, BottomPad = 20, SidePad = 14;
     private const double HandleRadius = 6;
@@ -82,7 +83,7 @@ public sealed class FanCurveEditor : FrameworkElement
     private int _dragIndex = -1;
     private double _dragMinTemp;
     private double _dragMaxTemp;
-    private readonly Typeface _typeface = new("Segoe UI");
+    private readonly Typeface _typeface = new("Segoe UI Variable, Segoe UI");
 
     private static SolidColorBrush Freeze(Color c)
     {

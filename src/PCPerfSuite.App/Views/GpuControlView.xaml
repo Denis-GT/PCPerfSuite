@@ -3,15 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
-    <ScrollViewer Padding="32,28,32,28">
-        <StackPanel MaxWidth="880" HorizontalAlignment="Left">
-            <TextBlock Text="GPU" Style="{StaticResource H1}"/>
-            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap"
-                       Text="Overclocking via NVAPI, comme les curseurs de MSI Afterburner : décalage d'horloge cœur/mémoire, limite de puissance, limite de température et surtension, avec profils enregistrés. Les plages autorisées sont celles annoncées par ton pilote, et chaque réglage refusé par la carte est signalé plutôt que silencieux. Le ventilateur du GPU se règle dans l'onglet « Ventilateurs », avec tous les autres."/>
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
+            <controls:PageHeader Title="GPU"
+                                 Subtitle="Overclocking via NVAPI, comme les curseurs de MSI Afterburner : décalage d'horloge cœur/mémoire, limite de puissance, limite de température et surtension, avec profils enregistrés. Les plages autorisées sont celles annoncées par ton pilote, et chaque réglage refusé par la carte est signalé plutôt que silencieux. Le ventilateur du GPU se règle dans l'onglet « Ventilateurs », avec tous les autres."/>
 
-            <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,0,0,16"
-                       Text="Aucun GPU NVIDIA piloté par NVAPI détecté (pas de GPU NVIDIA, pilote absent, ou app pas lancée en administrateur)."
-                       Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}"/>
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                    Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                           Text="Aucun GPU NVIDIA piloté par NVAPI détecté (pas de GPU NVIDIA, pilote absent, ou app pas lancée en administrateur)."/>
+            </Border>
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">
 
@@ -23,63 +24,88 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding GpuName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1" Style="{StaticResource Caption}" VerticalAlignment="Center">
-                                <Run Text="Bridé par :"/>
-                                <Run Text="{Binding ActiveLimitText, Mode=OneWay}" FontWeight="SemiBold"/>
-                            </TextBlock>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Width="38" Height="38" CornerRadius="10" Background="{StaticResource BrandBrush}">
+                                    <TextBlock Text="&#xE950;" Style="{StaticResource Icon}" FontSize="18" Foreground="White"
+                                               HorizontalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="{Binding GpuName}" Style="{StaticResource H2}" FontSize="17" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" Margin="14,0,0,0"/>
+                            </StackPanel>
+                            <Border Grid.Column="1" Style="{StaticResource BadgeAccent}" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource BadgeText}">
+                                    <Run Text="Bridé par :"/>
+                                    <Run Text="{Binding ActiveLimitText, Mode=OneWay}"/>
+                                </TextBlock>
+                            </Border>
                         </Grid>
 
-                        <UniformGrid Rows="2" Columns="4" Margin="0,14,0,0">
-                            <StackPanel Margin="0,0,0,10">
-                                <TextBlock Text="Charge" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding LoadPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,0,10">
-                                <TextBlock Text="Température" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding CoreTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,0,10">
-                                <TextBlock Text="Hot spot" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding HotSpotTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,0,10">
-                                <TextBlock Text="Puissance" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding PowerWatts, Converter={StaticResource Metric}, ConverterParameter=' W', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
+                        <UniformGrid Rows="2" Columns="4" Margin="0,18,-10,-10">
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Charge" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding LoadPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Température" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding CoreTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Hot spot" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding HotSpotTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Puissance" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding PowerWatts, Converter={StaticResource Metric}, ConverterParameter=' W', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
 
-                            <StackPanel>
-                                <TextBlock Text="Horloge cœur" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding CoreClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="Horloge mémoire" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding MemoryClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="VRAM utilisée" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding VramUsedMb, Converter={StaticResource Metric}, ConverterParameter=' Mo', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="Ventilateur" Style="{StaticResource Caption}"/>
-                                <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" FontSize="15">
-                                    <Run Text="{Binding FanRpm, Converter={StaticResource Metric}, ConverterParameter=' RPM', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Horloge cœur" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding CoreClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Horloge mémoire" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding MemoryClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="VRAM utilisée" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding VramUsedMb, Converter={StaticResource Metric}, ConverterParameter=' Mo', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Ventilateur" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding FanRpm, Converter={StaticResource Metric}, ConverterParameter=' RPM', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
                         </UniformGrid>
                     </StackPanel>
                 </Border>
@@ -88,13 +114,15 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="Overclocking" Style="{StaticResource H2}"/>
+                        <TextBlock Text="Plages annoncées par le pilote. Chaque curseur s'applique quelques instants après avoir été relâché."
+                                   Style="{StaticResource Caption}" Margin="0,4,0,0"/>
 
                         <!-- Limite de puissance -->
                         <Grid Margin="0,16,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="170"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="90"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Limite de puissance" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
@@ -107,9 +135,9 @@
                         <!-- Limite de température -->
                         <Grid Margin="0,12,0,0" Visibility="{Binding IsTemperatureLimitSupported, Converter={StaticResource BoolToVisibility}}">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="170"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="90"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Limite de température" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Minimum="{Binding TemperatureLimitMin}" Maximum="{Binding TemperatureLimitMax}"
@@ -123,9 +151,9 @@
                         <StackPanel Visibility="{Binding IsClockOffsetSupported, Converter={StaticResource BoolToVisibility}}">
                             <Grid Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="170"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Horloge cœur" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                 <Slider Grid.Column="1" Minimum="{Binding CoreOffsetMin}" Maximum="{Binding CoreOffsetMax}"
@@ -137,9 +165,9 @@
 
                             <Grid Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="170"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Horloge mémoire" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                 <Slider Grid.Column="1" Minimum="{Binding MemoryOffsetMin}" Maximum="{Binding MemoryOffsetMax}"
@@ -149,7 +177,7 @@
                                            Text="{Binding MemoryOffsetMhz, StringFormat='{}{0:+0;-0;0} MHz'}"/>
                             </Grid>
 
-                            <TextBlock Text="{Binding AppliedOffsetsText}" Style="{StaticResource Caption}" Margin="150,8,0,0" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding AppliedOffsetsText}" Style="{StaticResource Caption}" Margin="170,8,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
 
                         <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
@@ -159,9 +187,9 @@
                         <!-- Surtension (Pascal uniquement) -->
                         <Grid Margin="0,12,0,0" Visibility="{Binding IsVoltageBoostSupported, Converter={StaticResource BoolToVisibility}}">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="170"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="90"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Surtension cœur" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                             <Slider Grid.Column="1" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="5"
@@ -171,7 +199,8 @@
                         </Grid>
 
                         <!-- Persistance -->
-                        <Grid Margin="0,18,0,0">
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>
+                        <Grid Margin="0,16,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -190,6 +219,7 @@
                         </StackPanel>
 
                         <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextTertiaryBrush}"
                                    Text="Un décalage d'horloge trop élevé fige l'écran ou fait planter le pilote (sans rien casser : un redémarrage remet tout d'origine, et l'overclock n'est pas réappliqué si la case ci-dessus est décochée). Monte par paliers de 15 à 25 MHz et teste entre chaque."/>
                     </StackPanel>
                 </Border>
@@ -215,8 +245,7 @@
                         <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,12,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="{StaticResource SurfaceAltBrush}" BorderBrush="{StaticResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="12" Padding="14,10" Margin="0,0,0,8">
+                                    <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -230,7 +259,7 @@
                                                 <Button Content="Appliquer" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
                                                         Command="{Binding DataContext.ApplyProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                         CommandParameter="{Binding}"/>
-                                                <Button Content="Supprimer" Style="{StaticResource GhostButton}"
+                                                <Button Content="&#xE74D;" Style="{StaticResource IconButton}" ToolTip="Supprimer ce profil"
                                                         Command="{Binding DataContext.DeleteProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                         CommandParameter="{Binding}"/>
                                             </StackPanel>
