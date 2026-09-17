@@ -40,10 +40,12 @@ public sealed class MeterBar : FrameworkElement
         set => SetValue(IndicatorBrushProperty, value);
     }
 
-    public MeterBar()
+    static MeterBar()
     {
-        Height = 8;
-        MinWidth = 40;
+        // Valeurs par défaut du type, et non valeurs locales posées dans le constructeur : une valeur locale
+        // l'emporterait sur un Height écrit dans un DataTemplate, qui serait alors ignoré sans bruit.
+        HeightProperty.OverrideMetadata(typeof(MeterBar), new FrameworkPropertyMetadata(8.0));
+        MinWidthProperty.OverrideMetadata(typeof(MeterBar), new FrameworkPropertyMetadata(40.0));
     }
 
     protected override void OnRender(DrawingContext dc)
