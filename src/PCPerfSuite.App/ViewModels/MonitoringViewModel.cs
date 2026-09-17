@@ -218,9 +218,7 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
 
         StatusText = intervalMs >= 1000 ? $"Relu toutes les {intervalMs / 1000:0.#} s" : $"Relu toutes les {intervalMs:0} ms";
 
-        // Même marge de 10 % que l'échéancier pour dire si l'automatique a espacé le groupe au-delà de l'actualisation.
-        bool spacedOut = intervalMs * 0.9 > refreshMs;
-        ReasonText = (IsAuto, spacedOut, cost) switch
+        ReasonText = (IsAuto, status.IsSpacedOut, cost) switch
         {
             (true, _, null) => $"Suit l'actualisation ({refreshMs} ms) · mesure du coût de lecture en cours…",
             (true, false, _) => $"Lecture rapide ({cost}) : suit l'actualisation ({refreshMs} ms).",
@@ -283,10 +281,14 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 {
     private readonly HardwareMonitorService _hardware;
     private readonly DiskHealthService _diskHealth = new();
-    private readonly DispatcherTimer _timer;
+    private readonly Dispatcher _dispatcher;
+    private readonly SamplingLoop _loop;
     private readonly Dictionary<string, SampleHistory> _histories = new();
     private MetricSample? _lastSample;
-    private bool _isRefreshing;
+    private long _tickIntervalTicks; // Lu par le thread des relevés : un long, lu et écrit avec Interlocked.
+
+    /// <summary>1 tant qu'un relevé attend d'être appliqué par l'interface (lu et écrit depuis deux threads).</summary>
+    private int _applyPending;
 
     public event Action<HardwareSnapshot>? SnapshotUpdated;
 
@@ -383,14 +385,11 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         MyMetrics.SelectionChanged += OnMyMetricsSelectionChanged;
         SyncMyMetricTiles();
 
-        _timer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TickInterval(),
-        };
-        _timer.Tick += async (_, _) => await RefreshAsync();
-        _timer.Start();
-
-        _ = RefreshAsync();
+        // Relevés sur un thread dédié, à échéances fixes : la cadence ne dépend plus de l'occupation de l'interface.
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _tickIntervalTicks = ComputeTickInterval().Ticks;
+        _loop = new SamplingLoop(() => TickInterval, OnSamplingTick);
+        _loop.Start();
     }
 
     private void OnMyMetricsSelectionChanged()
@@ -426,15 +425,21 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Le timer bat au rythme du groupe relu le plus souvent ; les autres attendent leur échéance.</summary>
-    private TimeSpan TickInterval()
-        => TimeSpan.FromMilliseconds(Math.Max(RefreshRates.MinMs, _hardware.ShortestInterval.TotalMilliseconds));
+    /// <summary>Durée d'un tick de relevé : chaque groupe est relu tous les N ticks. L'overlay s'en sert pour
+    /// n'afficher qu'un relevé sur N, à intervalle régulier.</summary>
+    public TimeSpan TickInterval => TimeSpan.FromTicks(Interlocked.Read(ref _tickIntervalTicks));
+
+    private TimeSpan ComputeTickInterval()
+        => TimeSpan.FromMilliseconds(Math.Max(RefreshRates.MinMs, _hardware.TickInterval.TotalMilliseconds));
 
     private void UpdateTimerInterval()
     {
-        TimeSpan interval = TickInterval();
-        // Réaffecter Interval relance le décompte du timer : seulement quand la valeur change vraiment.
-        if (_timer.Interval != interval) _timer.Interval = interval;
+        TimeSpan interval = ComputeTickInterval();
+        // Changer la durée du tick fait repartir le décompte : seulement quand la valeur change vraiment.
+        if (interval == TickInterval) return;
+
+        Interlocked.Exchange(ref _tickIntervalTicks, interval.Ticks);
+        _loop.IntervalChanged();
     }
 
     private SampleHistory GetHistory(string metricId)
@@ -447,21 +452,55 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         return history;
     }
 
-    private async Task RefreshAsync()
+    /// <summary>
+    /// Tick de la boucle de relevé, sur son thread. Les lectures se font ici, l'application à l'interface est
+    /// ensuite postée au thread de l'interface. Si l'interface n'a pas encore appliqué le relevé précédent, ce tick
+    /// est sauté : empiler les relevés lui ferait accumuler un retard qu'elle ne rattraperait jamais.
+    /// </summary>
+    private void OnSamplingTick(SamplingTick tick)
     {
-        // Le timer continue de sonner pendant la lecture. Si la précédente n'est pas terminée, on saute ce
-        // tick : sinon les lectures s'empilent en parallèle sur LibreHardwareMonitor, qui n'est pas prévu
-        // pour ça, et l'interface accumule un retard qu'elle ne rattrape jamais.
-        if (_isRefreshing)
+        int skipped = tick.Skipped;
+
+        if (Interlocked.CompareExchange(ref _applyPending, 1, 0) != 0)
         {
-            SkippedTicks++;
+            _dispatcher.InvokeAsync(() => SkippedTicks += skipped + 1);
             return;
         }
 
-        _isRefreshing = true;
+        HardwareSnapshot snapshot;
         try
         {
-            HardwareSnapshot snapshot = await Task.Run(() => _hardware.GetSnapshot());
+            snapshot = _hardware.GetSnapshot(tick.Epoch, tick.Index);
+        }
+        catch (Exception ex)
+        {
+            _dispatcher.InvokeAsync(() =>
+            {
+                Interlocked.Exchange(ref _applyPending, 0);
+                SkippedTicks += skipped;
+                ErrorMessage = $"Lecture des capteurs impossible : {ex.Message}";
+            });
+            return;
+        }
+
+        _dispatcher.InvokeAsync(() =>
+        {
+            try
+            {
+                SkippedTicks += skipped;
+                ApplyTick(snapshot);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _applyPending, 0);
+            }
+        }, DispatcherPriority.Normal);
+    }
+
+    private void ApplyTick(HardwareSnapshot snapshot)
+    {
+        try
+        {
             long applyStart = Stopwatch.GetTimestamp();
             Apply(snapshot);
             TimeSpan applyDuration = Stopwatch.GetElapsedTime(applyStart);
@@ -470,18 +509,11 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             {
                 SensorCadences.FirstOrDefault(c => c.Group == status.Group)?.Apply(status, RefreshMs);
             }
-
-            // Une cadence automatique peut changer avec le coût de lecture mesuré.
-            UpdateTimerInterval();
             ErrorMessage = null;
         }
         catch (Exception ex)
         {
             ErrorMessage = $"Lecture des capteurs impossible : {ex.Message}";
-        }
-        finally
-        {
-            _isRefreshing = false;
         }
     }
 
@@ -577,6 +609,6 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _timer.Stop();
+        _loop.Dispose();
     }
 }
