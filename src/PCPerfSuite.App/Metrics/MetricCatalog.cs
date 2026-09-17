@@ -198,7 +198,7 @@ public static class MetricCatalog
     {
         MetricReading Format(double bytesPerSecond)
         {
-            (string value, string unit) = ByteFormatter.Split(Math.Max(0, bytesPerSecond));
+            (string value, string unit) = ByteFormatter.Split(Math.Max(0, bytesPerSecond), fixedDecimal: true);
             return new MetricReading(bytesPerSecond, value, unit + "/s");
         }
 

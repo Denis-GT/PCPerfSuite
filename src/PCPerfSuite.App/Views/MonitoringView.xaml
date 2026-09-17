@@ -130,7 +130,11 @@
                                         <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" Margin="0,2,0,0"
                                                    TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
                                     </StackPanel>
-                                    <TextBlock Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <!-- Chiffres de largeur égale, et une place qui ne rétrécit pas : la valeur ne se
+                                         tortille plus d'un relevé à l'autre. -->
+                                    <TextBlock Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center"
+                                               TextAlignment="Right" Typography.NumeralAlignment="Tabular"
+                                               controls:StickyWidth.IsEnabled="True">
                                         <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                         <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </TextBlock>
