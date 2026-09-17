@@ -12,12 +12,65 @@ using PCPerfSuite.Core.Storage;
 
 namespace PCPerfSuite.App.ViewModels;
 
+/// <summary>Disque proposé à l'analyse, affiché en tuile : icône selon le type, nom, jauge d'occupation.</summary>
 public sealed partial class DriveOption : ObservableObject
 {
+    /// <summary>Seuil de la jauge rouge, le même que l'Explorateur.</summary>
+    private const double AlmostFullPercent = 90;
+
     public required string RootPath { get; init; }
-    public required string Label { get; init; }
+    public required string Title { get; init; }
+    public required string Kind { get; init; }
+
+    /// <summary>Glyphe Segoe Fluent Icons du type de disque.</summary>
+    public required string Icon { get; init; }
+
+    public bool IsSystem { get; init; }
+    public long UsedBytes { get; init; }
+    public long TotalBytes { get; init; }
+
+    public double UsedPercent => TotalBytes > 0 ? 100.0 * UsedBytes / TotalBytes : 0;
+    public bool IsAlmostFull => UsedPercent >= AlmostFullPercent;
+    public string UsageText => $"{ByteFormatter.Format(UsedBytes)} utilisés sur {ByteFormatter.Format(TotalBytes)}";
 
     [ObservableProperty] private bool isSelected;
+
+    public static DriveOption FromDrive(DriveInfo drive, string? systemRoot)
+    {
+        (string kind, int glyph) = drive.DriveType switch
+        {
+            DriveType.Removable => ("Disque amovible", 0xE88E),
+            DriveType.Network => ("Lecteur réseau", 0xE8CE),
+            DriveType.CDRom => ("Lecteur optique", 0xE958),
+            DriveType.Ram => ("Disque RAM", 0xE964),
+            _ => ("Disque local", 0xEDA2),
+        };
+
+        // Nom de volume illisible (lecteur réseau déconnecté entre-temps, droits) : on nomme le disque par son
+        // type, comme l'Explorateur le fait pour un volume sans nom.
+        string volumeLabel;
+        try
+        {
+            volumeLabel = drive.VolumeLabel;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            volumeLabel = "";
+        }
+
+        string letter = drive.Name.TrimEnd('\\');
+        string root = drive.RootDirectory.FullName;
+        return new DriveOption
+        {
+            RootPath = root,
+            Title = $"{(string.IsNullOrWhiteSpace(volumeLabel) ? kind : volumeLabel)} ({letter})",
+            Kind = kind,
+            Icon = char.ConvertFromUtf32(glyph),
+            IsSystem = string.Equals(root, systemRoot, StringComparison.OrdinalIgnoreCase),
+            UsedBytes = drive.TotalSize - drive.AvailableFreeSpace,
+            TotalBytes = drive.TotalSize,
+        };
+    }
 }
 
 public sealed partial class StorageViewModel : ObservableObject
@@ -44,14 +97,10 @@ public sealed partial class StorageViewModel : ObservableObject
 
     public StorageViewModel()
     {
+        string? systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
         foreach (DriveInfo drive in DriveInfo.GetDrives().Where(d => d.IsReady))
         {
-            long used = drive.TotalSize - drive.AvailableFreeSpace;
-            Drives.Add(new DriveOption
-            {
-                RootPath = drive.RootDirectory.FullName,
-                Label = $"{drive.Name.TrimEnd('\\')} — {ByteFormatter.Format(used)} / {ByteFormatter.Format(drive.TotalSize)}",
-            });
+            Drives.Add(DriveOption.FromDrive(drive, systemRoot));
         }
 
         if (Drives.Count > 0) Drives[0].IsSelected = true;

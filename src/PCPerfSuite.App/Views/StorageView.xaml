@@ -26,12 +26,59 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox Style="{StaticResource Chip}" Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,0,8,8"/>
+                            <CheckBox Style="{StaticResource SelectableTile}" IsChecked="{Binding IsSelected}" Width="264" Margin="0,0,10,10"
+                                      AutomationProperties.Name="{Binding Title}">
+                                <StackPanel>
+                                    <!-- Marge droite : laisse libre le coin de la pastille de sélection de la tuile. -->
+                                    <Grid Margin="0,0,28,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border x:Name="IconPlate" Width="38" Height="38" CornerRadius="10" Background="{StaticResource HoverBrush}">
+                                            <TextBlock x:Name="Glyph" Text="{Binding Icon}" Style="{StaticResource Icon}" FontSize="20"
+                                                       HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" FontSize="13.5" FontWeight="SemiBold"
+                                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                <TextBlock Text="{Binding Kind}" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                                                <Border Style="{StaticResource BadgeAccent}" Margin="8,0,0,0" Padding="6,1" VerticalAlignment="Center"
+                                                        Visibility="{Binding IsSystem, Converter={StaticResource BoolToVisibility}}">
+                                                    <TextBlock Text="Système" Style="{StaticResource BadgeText}" FontSize="10"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <controls:MeterBar x:Name="Meter" Value="{Binding UsedPercent}" Height="6" Margin="0,14,0,0"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding UsageText}" Style="{StaticResource Caption}"
+                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
+                                                   FontWeight="SemiBold" Margin="8,0,0,0"/>
+                                    </Grid>
+                                </StackPanel>
+                            </CheckBox>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                    <Setter TargetName="IconPlate" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="Glyph" Property="Foreground" Value="White"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsAlmostFull}" Value="True">
+                                    <Setter TargetName="Meter" Property="IndicatorBrush" Value="{StaticResource DangerBrush}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <Grid Margin="0,6,0,0">
+                <Grid Margin="0,4,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -39,10 +86,19 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="{Binding StatusText}" Style="{StaticResource Caption}"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
-                    <Button Grid.Column="1" Content="Annuler" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
-                            Command="{Binding CancelScanCommand}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>
-                    <Button Grid.Column="2" Content="Analyser" Style="{StaticResource AccentButton}"
-                            Command="{Binding ScanCommand}"/>
+                    <Button Grid.Column="1" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
+                            Command="{Binding CancelScanCommand}" Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE711;" Style="{StaticResource Icon}" FontSize="12" Margin="0,0,8,0"/>
+                            <TextBlock Text="Annuler" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="2" Style="{StaticResource AccentButton}" Command="{Binding ScanCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                            <TextBlock Text="Analyser" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
                 <ProgressBar IsIndeterminate="True" Margin="0,14,0,0"
                              Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>

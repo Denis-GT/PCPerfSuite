@@ -423,37 +423,71 @@
         </Setter>
     </Style>
 
-    <!-- Puce cochable (choix multiple compact, ex. disques à analyser). -->
-    <Style x:Key="Chip" TargetType="CheckBox">
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-        <Setter Property="FontSize" Value="12.5"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
+    <!-- Tuile cochable (choix multiple détaillé, ex. disques à analyser). La pastille de sélection est posée
+         en haut à droite PAR-DESSUS le contenu, qui garde ainsi toute la largeur pour ses jauges : c'est
+         au contenu de laisser libre ce coin (20 px de large). -->
+    <Style x:Key="TileFocusVisual">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-3" CornerRadius="17" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5"
+                            SnapsToDevicePixels="True"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="SelectableTile" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Background" Value="{StaticResource SubtleFillBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}"/>
+        <Setter Property="Padding" Value="14,12"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="FocusVisualStyle" Value="{StaticResource SegmentFocusVisual}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource TileFocusVisual}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
-                    <Border x:Name="Bd" Background="{StaticResource SubtleFillBrush}" BorderBrush="{StaticResource DividerBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="10,6" RenderOptions.ClearTypeHint="Enabled">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="Check" Text="&#xE73E;" Style="{StaticResource Icon}" FontSize="11"
-                                       Margin="0,0,7,0" Visibility="Collapsed"/>
-                            <ContentPresenter VerticalAlignment="Center"/>
-                        </StackPanel>
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="14" Padding="{TemplateBinding Padding}"
+                            RenderOptions.ClearTypeHint="Enabled">
+                        <Grid>
+                            <ContentPresenter/>
+                            <Grid Width="20" Height="20" HorizontalAlignment="Right" VerticalAlignment="Top">
+                                <Ellipse x:Name="Ring" Stroke="#40FFFFFF" StrokeThickness="1.5"/>
+                                <Ellipse x:Name="Dot" Fill="{StaticResource AccentBrush}" Visibility="Collapsed"/>
+                                <Path x:Name="Tick" Data="M 5.75,10.25 L 8.75,13.25 L 14.25,6.75" Stroke="White" StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed"/>
+                            </Grid>
+                        </Grid>
                     </Border>
+                    <!-- Ordre significatif : l'état coché l'emporte sur le survol, puis le survol d'une tuile cochée
+                         l'emporte sur les deux pour qu'elle réagisse elle aussi au pointeur. -->
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
-                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                            <Setter TargetName="Ring" Property="Stroke" Value="#8CFFFFFF"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PressedBrush}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentSoftBorderBrush}"/>
-                            <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
-                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="Ring" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
                         </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="True"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background" Value="#3D0A84FF"/>
+                            <Setter TargetName="Dot" Property="Fill" Value="{StaticResource AccentHoverBrush}"/>
+                        </MultiTrigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45"/>
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
