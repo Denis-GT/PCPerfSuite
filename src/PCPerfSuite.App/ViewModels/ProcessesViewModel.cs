@@ -384,7 +384,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// remplace la collection en bloc plutôt que de la remettre en ordre ligne à ligne.</summary>
     private const int BulkReorderThreshold = 64;
 
-
     private readonly ProcessService _service = new();
     private readonly MonitoringViewModel _monitoring;
     private readonly DispatcherTimer _timer;
@@ -737,9 +736,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         return Rows.Count;
     }
 
-    /// <summary>Remet la collection dans l'ordre voulu à coups de Move : la liste déplace ses conteneurs au
-    /// lieu de les détruire, donc la sélection, le focus et le défilement survivent — ce qu'un Clear suivi
-    /// d'Add perdrait tous les trois.</summary>
     /// <summary>Met un reclassement en file au lieu de l'appliquer sur-le-champ, et remet du même coup
     /// sélection et compteur d'aplomb.
     ///
@@ -747,7 +743,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// dispatcher, en priorité DataBind. Réordonner la collection par des Move alors qu'une réévaluation de
     /// filtre est encore en attente corrompt la vue — une ligne finit par y figurer DEUX FOIS, l'utilisateur
     /// voit le même processus sur deux lignes, et rien ne le répare jamais. Vérifié : reclassement en ligne,
-    /// 20 tirages cassés sur 30 ; reclassement mis en file ici, 0 sur 30.
+    /// 36 tirages cassés sur 40 ; reclassement mis en file ici, 0 sur 40.
     ///
     /// La file est en priorité Background, donc après la remise en forme (DataBind) et avant le relevé
     /// suivant, dont le timer est lui aussi en Background.</summary>
@@ -771,21 +767,31 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             // L'ordre des trois étapes est celui qui a été validé au banc, et il n'est pas interchangeable.
             // 1. La vue reflète ici les appartenances déclarées au tour précédent : c'est donc le moment où
             //    l'on sait ce qu'elle affiche réellement, et quelles lignes ont cessé d'être visibles.
-            SyncSelectionToView();
-            VisibleCount = _rowsView.Count;
-            UpdateHeaderSummary();
+            ReconcileWithView();
 
             // 2. Reclasser maintenant, pendant qu'aucune réévaluation n'est en attente. Des Move appliqués
             //    alors qu'une ligne attend d'entrer ou de sortir corrompent la vue — elle finit par afficher
-            //    le même processus deux fois, et rien ne le répare jamais (mesuré : 36 tirages sur 40).
+            //    le même processus deux fois, et rien ne le répare jamais.
             ApplyOrder(forced);
 
             // 3. Déclarer enfin les nouvelles appartenances. La vue les traitera avant le prochain relevé,
             //    puisque ce travail est posté à une priorité supérieure à celle de cette file.
-            if (!IsListBusy) UpdateFilterMembership();
+            if (IsListBusy || !UpdateFilterMembership()) return;
+
+            // 4. Remettre sélection et compteur d'aplomb dès que la vue a traité ces changements, sans
+            //    attendre le relevé suivant : c'est justement le moment où l'utilisateur, qui vient de
+            //    quitter la liste, va cliquer sur « Terminer ». Posté à la même priorité, donc après la
+            //    remise en forme ; et sans Move ni changement d'appartenance, donc sans risque pour la vue.
+            _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (!_disposed) ReconcileWithView();
+            }));
         }));
     }
 
+    /// <summary>Remet la collection dans l'ordre voulu à coups de Move : la liste déplace ses conteneurs au
+    /// lieu de les détruire, donc la sélection, le focus et le défilement survivent — ce qu'un Clear suivi
+    /// d'Add perdrait tous les trois.</summary>
     private void ApplyOrder(bool force = false)
     {
         if (!force)
@@ -914,9 +920,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         // vue est à jour dès la ligne suivante et tout se réconcilie ici même, sans passer par la file.
         UpdateFilterMembership();
         _rowsView.Refresh();
-        SyncSelectionToView();
-        VisibleCount = _rowsView.Count;
-        UpdateHeaderSummary();
+        ReconcileWithView();
     }
 
     /// <summary>Aucune ligne absente de la vue ne reste sélectionnée. Une ligne qui quitte la vue perd son
@@ -925,8 +929,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// surlignées, et « Terminer » tuerait le troisième avec les autres.
     ///
     /// La question posée est « la vue l'affiche-t-elle ? », pas « passe-t-elle le filtre ? » : tant que la
-    /// mise en forme dynamique est suspendue, une ligne qui ne passe plus le filtre reste volontairement
-    /// affichée, et elle doit donc rester sélectionnable.</summary>
+    /// liste est visée, une ligne qui ne passe plus le filtre reste volontairement affichée, et elle doit
+    /// donc rester sélectionnable.</summary>
     private void SyncSelectionToView()
     {
         foreach (ProcessRowViewModel row in Rows)
@@ -944,9 +948,29 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// bien de type dans sa colonne, mais sa ligne reste en place. Sans cette retenue, tout ce qui est en
     /// dessous remonterait d'une hauteur de ligne au moment du clic — le défaut même que cet onglet corrige,
     /// et celui contre lequel l'insertion, le retrait et le reclassement sont déjà protégés.</summary>
-    private void UpdateFilterMembership()
+    /// <returns>Vrai si au moins une ligne a changé d'appartenance.</returns>
+    private bool UpdateFilterMembership()
     {
-        foreach (ProcessRowViewModel row in Rows) row.MatchesFilter = PassesFilter(row);
+        bool changed = false;
+        foreach (ProcessRowViewModel row in Rows)
+        {
+            bool matches = PassesFilter(row);
+            if (row.MatchesFilter == matches) continue;
+
+            row.MatchesFilter = matches;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>Aligne sélection, compteur et entête sur ce que la vue affiche réellement.</summary>
+    private void ReconcileWithView()
+    {
+        SyncSelectionToView();
+        // Compté sur la vue et non sur la source : le compteur annonce ce qui est réellement affiché.
+        VisibleCount = _rowsView.Count;
+        UpdateHeaderSummary();
     }
 
     /// <summary>La liste vient d'être visée, ou relâchée. Au relâchement, tout ce qui a été retenu pendant
@@ -958,7 +982,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         QueueOrder();
     }
-
 
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
@@ -1037,7 +1060,11 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanTerminateSelection))]
     private async Task TerminateSelectionAsync()
     {
-        List<ProcessRowViewModel> targets = Rows.Where(r => r.IsSelected && !r.IsGone).ToList();
+        // Seules les lignes affichées : une sélection peut survivre un instant à la sortie de sa ligne du
+        // filtre, et l'on ne termine jamais un processus que l'utilisateur ne voit pas.
+        List<ProcessRowViewModel> targets = Rows
+            .Where(r => r.IsSelected && !r.IsGone && _rowsView.Contains(r))
+            .ToList();
         if (targets.Count == 0) return;
         if (targets.Count == 1)
         {
