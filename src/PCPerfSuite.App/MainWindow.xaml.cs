@@ -51,6 +51,10 @@ public partial class MainWindow : Window
     {
         if (_isQuitting || !_viewModel.Settings.MinimizeToTrayOnClose) return;
 
+        // Sans icône réellement inscrite auprès du shell, masquer la fenêtre la rendrait
+        // irrécupérable : on laisse alors la fermeture suivre son cours normal.
+        if (!_tray.IsAvailable) return;
+
         e.Cancel = true;
         Hide();
         ShowTrayHintOnce();

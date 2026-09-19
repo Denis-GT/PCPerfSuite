@@ -131,11 +131,16 @@ internal sealed class TrayIcon : IDisposable
     private IntPtr _icon;
     private bool _iconIsShared;
     private bool _useVersion4;
+    private bool _added;
     private bool _disposed;
 
     /// <summary>HWND de la fenêtre cachée qui reçoit les clics : à passer au premier plan avant
     /// d'ouvrir un menu contextuel, sinon Windows ne le referme pas quand on clique ailleurs.</summary>
     public IntPtr Handle => _source?.Handle ?? IntPtr.Zero;
+
+    /// <summary>Faux si la fenêtre cachée ou l'inscription auprès du shell a échoué : appelant ne doit
+    /// alors pas compter sur l'icône pour rouvrir l'app (masquer la fenêtre la rendrait irrécupérable).</summary>
+    public bool IsAvailable => _source != null && _added;
 
     /// <summary>À créer sur le thread de l'interface : Windows rappelle l'icône par la boucle de messages.</summary>
     public TrayIcon(string tooltip)
@@ -159,8 +164,17 @@ internal sealed class TrayIcon : IDisposable
             ExtendedWindowStyle = WS_EX_TOOLWINDOW,
         };
 
-        _source = new HwndSource(parameters);
-        _source.AddHook(_hook);
+        try
+        {
+            _source = new HwndSource(parameters);
+            _source.AddHook(_hook);
+        }
+        catch
+        {
+            // Sans fenêtre cachée, l'icône ne peut pas s'inscrire : IsAvailable reste faux et
+            // MainWindow ferme normalement au lieu de se masquer vers une icône inexistante.
+            return;
+        }
 
         AllowMessagesFromShell();
         _icon = LoadTrayIcon();
@@ -235,7 +249,13 @@ internal sealed class TrayIcon : IDisposable
         try
         {
             NOTIFYICONDATAW data = Build(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP);
-            if (!Shell_NotifyIcon(NIM_ADD, ref data)) return;
+            if (!Shell_NotifyIcon(NIM_ADD, ref data))
+            {
+                _added = false;
+                return;
+            }
+
+            _added = true;
 
             // Protocole récent : clics rapportés par NIN_SELECT/WM_CONTEXTMENU, avec le point d'ancrage
             // de l'icône dans wParam (plus fiable que la position du curseur, écran secondaire compris).
@@ -335,6 +355,8 @@ internal sealed class TrayIcon : IDisposable
         {
             // Au pire l'icône s'efface au prochain survol de la souris.
         }
+
+        _added = false;
 
         if (_icon != IntPtr.Zero && !_iconIsShared) DestroyIcon(_icon);
         _icon = IntPtr.Zero;
