@@ -3,20 +3,23 @@ using System.Runtime.InteropServices;
 namespace PCPerfSuite.Core.Hardware;
 
 /// <summary>
-/// Charge CPU totale telle que l'affiche le Gestionnaire des tâches : le compteur de performances Windows
-/// "% Processor Utility", qui tient compte de la fréquence réelle des cœurs. Le temps processeur (GetSystemTimes,
-/// ou le "CPU Total" de LibreHardwareMonitor) restait à 1-6 % quand le Gestionnaire affichait 30-60 % sur un
-/// i5-13500T. Le compteur est ajouté par son nom anglais, donc indépendamment de la langue de Windows.
+/// Lit un compteur de performances Windows de type taux, ajouté par son nom anglais, donc indépendamment de la
+/// langue de Windows. Sert notamment à reproduire le Gestionnaire des tâches, qui pondère le temps processeur par
+/// la fréquence réelle des cœurs : "% Processor Utility" pour la charge totale, "% Processor Performance" pour le
+/// facteur de fréquence. Le temps processeur brut (GetSystemTimes, le "CPU Total" de LibreHardwareMonitor, ou
+/// GetProcessTimes par processus) restait à 1-6 % quand le Gestionnaire affichait 30-60 % sur un i5-13500T.
 /// </summary>
-internal sealed class CpuLoadSampler : IDisposable
+internal sealed class PdhCounterSampler : IDisposable
 {
-    private const string CounterPath = @"\Processor Information(_Total)\% Processor Utility";
+    public const string ProcessorUtility = @"\Processor Information(_Total)\% Processor Utility";
+    public const string ProcessorPerformance = @"\Processor Information(_Total)\% Processor Performance";
+
     private const uint PdhFmtDouble = 0x00000200;
 
     private IntPtr _query;
     private readonly IntPtr _counter;
 
-    public CpuLoadSampler()
+    public PdhCounterSampler(string counterPath)
     {
         if (PdhOpenQueryW(null, IntPtr.Zero, out _query) != 0)
         {
@@ -24,7 +27,7 @@ internal sealed class CpuLoadSampler : IDisposable
             return;
         }
 
-        if (PdhAddEnglishCounterW(_query, CounterPath, IntPtr.Zero, out _counter) != 0)
+        if (PdhAddEnglishCounterW(_query, counterPath, IntPtr.Zero, out _counter) != 0)
         {
             Dispose();
             return;
@@ -34,8 +37,9 @@ internal sealed class CpuLoadSampler : IDisposable
         PdhCollectQueryData(_query);
     }
 
-    /// <summary>Charge en % depuis l'appel précédent ; null si le compteur est indisponible ou pas encore calculable.</summary>
-    public float? Sample()
+    /// <summary>Valeur moyenne depuis l'appel précédent, non plafonnée (les deux compteurs processeur dépassent
+    /// 100 % en turbo) ; null si le compteur est indisponible ou pas encore calculable.</summary>
+    public double? Sample()
     {
         if (_query == IntPtr.Zero) return null;
         if (PdhCollectQueryData(_query) != 0) return null;
@@ -45,9 +49,7 @@ internal sealed class CpuLoadSampler : IDisposable
             return null;
         }
 
-        // L'utilité dépasse 100 % quand les cœurs tournent au-dessus de leur fréquence nominale : le Gestionnaire
-        // des tâches plafonne aussi à 100.
-        return (float)Math.Clamp(value.DoubleValue, 0, 100);
+        return value.DoubleValue;
     }
 
     public void Dispose()

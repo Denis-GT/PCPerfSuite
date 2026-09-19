@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using PCPerfSuite.Core.Hardware;
 
 namespace PCPerfSuite.Core.Processes;
 
@@ -77,6 +78,10 @@ public sealed class ProcessService : IDisposable
     private readonly uint _processorCount;
     private readonly string _windowsDirectory;
 
+    /// <summary>Fréquence réelle des cœurs rapportée à leur fréquence nominale, collectée à chaque relevé pour
+    /// couvrir exactement le même intervalle que les écarts de temps processeur.</summary>
+    private readonly PdhCounterSampler _cpuPerformance = new(PdhCounterSampler.ProcessorPerformance);
+
     private long _lastTimestamp;
 
     /// <summary>PROCESS_MEMORY_COUNTERS_EX2 n'existe qu'à partir des mises à jour cumulatives de septembre
@@ -140,6 +145,11 @@ public sealed class ProcessService : IDisposable
             : Stopwatch.GetElapsedTime(_lastTimestamp, start).TotalSeconds;
         bool isFirstSample = elapsedSeconds <= 0;
 
+        // Repli sur 1 (temps processeur brut) si le compteur est indisponible.
+        double frequencyFactor = _cpuPerformance.Sample() is { } performance && performance > 0
+            ? performance / 100.0
+            : 1.0;
+
         List<ProcessEntry> entries = EnumerateProcesses();
         Dictionary<int, string> windowTitles = CollectWindowTitles();
 
@@ -193,8 +203,9 @@ public sealed class ProcessService : IDisposable
                     {
                         // 1 unité = 100 ns, donc 10 000 000 unités de temps processeur disponibles par
                         // seconde et par cœur. Diviser par le nombre de processeurs logiques donne la part de
-                        // la machine entière, comme l'affiche le Gestionnaire des tâches.
-                        double percent = delta / (elapsedSeconds * _processorCount * 100_000.0);
+                        // la machine entière. Le Gestionnaire des tâches pondère en plus par la fréquence réelle
+                        // des cœurs (turbo) : sans ce facteur, les valeurs étaient 2 à 3 fois plus basses.
+                        double percent = delta / (elapsedSeconds * _processorCount * 100_000.0) * frequencyFactor;
                         cpuPercent = Math.Clamp(percent, 0, 100);
                     }
                     else
@@ -362,6 +373,7 @@ public sealed class ProcessService : IDisposable
                 tracked.Handle = IntPtr.Zero;
             }
             _tracked.Clear();
+            _cpuPerformance.Dispose();
         }
     }
 

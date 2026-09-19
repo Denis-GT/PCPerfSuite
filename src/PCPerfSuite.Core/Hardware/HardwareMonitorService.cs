@@ -29,7 +29,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         Enum.GetValues<SensorGroup>().Select(group => new SensorReadSchedule(group)).ToArray();
 
     /// <summary>Charge CPU (groupe CpuLoad), lue indépendamment de la lecture LibreHardwareMonitor du CPU.</summary>
-    private readonly CpuLoadSampler _cpuLoad = new();
+    private readonly PdhCounterSampler _cpuLoad = new(PdhCounterSampler.ProcessorUtility);
 
     // Dernières valeurs lues hors LibreHardwareMonitor, reprises dans les relevés où leur groupe n'est pas relu.
     private float? _lastCpuLoad;
@@ -67,7 +67,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         if (due[(int)SensorGroup.CpuLoad])
         {
             long loadStart = Stopwatch.GetTimestamp();
-            _lastCpuLoad = _cpuLoad.Sample();
+            // Le Gestionnaire des tâches plafonne aussi l'utilité à 100 %.
+            _lastCpuLoad = _cpuLoad.Sample() is { } load ? (float)Math.Clamp(load, 0, 100) : null;
             RecordRead(SensorGroup.CpuLoad, "cpuload", "Charge CPU (compteur Windows)", loadStart, timings, groupDurations, groupRead);
         }
 
