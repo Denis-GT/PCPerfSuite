@@ -3,7 +3,7 @@
   <assemblyIdentity version="1.0.0.0" name="PCPerfSuite.App"/>
 
   <!--
-    Droits administrateur requis : lecture des capteurs matériel (pilote WinRing0 utilisé par
+    Droits administrateur requis : lecture des capteurs matériel (pilote PawnIO utilisé par
     LibreHardwareMonitor), écriture des courbes de ventilation, et modification des clés de registre
     HKLM pour les réglages de performance Windows.
   -->

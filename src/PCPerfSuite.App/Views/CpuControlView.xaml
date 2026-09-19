@@ -1,0 +1,156 @@
+<UserControl x:Class="PCPerfSuite.App.Views.CpuControlView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
+            <controls:PageHeader Title="Processeur"
+                                 Subtitle="La limite de puissance du CPU, en watts. L'abaisser fait chuter la température, le bruit et la consommation pour une perte de performance souvent minime. La relever laisse le processeur tenir ses fréquences plus longtemps, tant que le refroidissement suit. Chaque valeur écrite est relue : si le firmware de ton PC impose la sienne, c'est dit ici."/>
+
+            <!-- ============ Compatibilité ============ -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Compatibilité" Style="{StaticResource H2}"/>
+                    <TextBlock Text="{Binding CpuName}" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,8,0,0"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding PlatformText}" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding DriverText}" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
+                                Visibility="{Binding IsDriverMissing, Converter={StaticResource BoolToVisibility}}">
+                        <Button Content="Installer PawnIO" Style="{StaticResource AccentButton}"
+                                Command="{Binding OpenDriverSiteCommand}"/>
+                        <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   TextWrapping="Wrap" MaxWidth="480"
+                                   Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ============ Indisponible ============ -->
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                    Visibility="{Binding IsPowerLimitUnavailable, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap">
+                    <Run Text="N/D :"/>
+                    <Run Text="{Binding UnavailableReason, Mode=OneWay}"/>
+                </TextBlock>
+            </Border>
+
+            <StackPanel Visibility="{Binding IsPowerLimitAvailable, Converter={StaticResource BoolToVisibility}}">
+
+                <!-- ============ Relevés ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <UniformGrid Rows="1" Columns="4" Margin="0,0,-10,-10">
+                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="Puissance" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                <TextBlock Style="{StaticResource StatValue}">
+                                    <Run Text="{Binding PowerWatts, Converter={StaticResource Metric}, ConverterParameter=' W', Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="Température" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                <TextBlock Style="{StaticResource StatValue}">
+                                    <Run Text="{Binding PackageTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="Fréquence max" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                <TextBlock Style="{StaticResource StatValue}">
+                                    <Run Text="{Binding MaxClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="Charge" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                <TextBlock Style="{StaticResource StatValue}">
+                                    <Run Text="{Binding LoadPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+                </Border>
+
+                <!-- ============ Limites ============ -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Limites de puissance" Style="{StaticResource H2}"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
+
+                        <!-- Avertissement, à accepter une fois -->
+                        <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
+                                Visibility="{Binding NeedsRiskAcceptance, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
+                                           Text="Ces réglages écrivent directement dans le processeur. Relever une limite augmente la chaleur et la consommation, et ne tient que si le refroidissement suit. Les limites ne survivent pas à un redémarrage, et l'app les rend d'origine en quittant : en cas de souci, redémarrer suffit toujours."/>
+                                <Button Content="J'ai compris, débloquer les réglages" Style="{StaticResource AccentButton}"
+                                        HorizontalAlignment="Left" Margin="0,12,0,0" Command="{Binding AcceptRiskCommand}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel IsEnabled="{Binding RiskAccepted}">
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Limite soutenue" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding SustainedWatts, Delay=400}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                           Text="{Binding SustainedWatts, StringFormat={}{0:0} W}"/>
+                            </Grid>
+
+                            <Grid Margin="0,12,0,0" Visibility="{Binding HasBurstLimit, Converter={StaticResource BoolToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Limite de pointe" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding BurstWatts, Delay=400}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                           Text="{Binding BurstWatts, StringFormat={}{0:0} W}"/>
+                            </Grid>
+
+                            <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Appliquer au démarrage" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                    <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"
+                                               Text="Réapplique ces limites au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, le processeur repart toujours de ses limites d'origine."/>
+                                </StackPanel>
+                                <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ApplyAtStartup}" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <Button Content="Limites d'origine" Style="{StaticResource GhostButton}" Command="{Binding ResetLimitsCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}" Margin="0,14,0,0" TextWrapping="Wrap"/>
+
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                   Text="Sécurité : si le processeur reste collé à 98 °C pendant 15 secondes avec une limite relevée, l'app rétablit d'elle-même les limites d'origine."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

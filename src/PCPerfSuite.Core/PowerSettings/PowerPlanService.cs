@@ -95,14 +95,15 @@ public sealed partial class PowerPlanService
         await RunPowercfgAsync("/S scheme_current");
     }
 
-    /// <summary>Lit la valeur AC courante d'un sous-réglage. On prend la 1ère valeur hexadécimale de la sortie
-    /// (toujours l'index AC en 1er, quelle que soit la langue).</summary>
+    /// <summary>Lit la valeur AC courante d'un sous-réglage. Les index AC puis DC sont toujours les deux
+    /// dernières valeurs hexadécimales de la sortie, quelle que soit la langue : avant elles, un réglage à
+    /// plage liste aussi son minimum, son maximum et son incrément possibles.</summary>
     public async Task<uint?> GetValueIndexAsync(string subGroupGuid, string settingGuid)
     {
         string output = await RunPowercfgAsync($"/query scheme_current {subGroupGuid} {settingGuid}");
-        Match m = HexValueRegex().Match(output);
-        if (!m.Success) return null;
-        return Convert.ToUInt32(m.Groups["hex"].Value, 16);
+        MatchCollection matches = HexValueRegex().Matches(output);
+        if (matches.Count < 2) return null;
+        return Convert.ToUInt32(matches[^2].Groups["hex"].Value, 16);
     }
 
     private static async Task<string> RunPowercfgAsync(string arguments)
