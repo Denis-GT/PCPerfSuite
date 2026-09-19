@@ -93,6 +93,17 @@ public sealed class SampleHistory
         return max;
     }
 
+    /// <summary>Plus grande valeur absolue présente, 0 s'il n'y en a aucune : échelle d'une valeur signée.</summary>
+    public double MaxAbs()
+    {
+        double max = 0;
+        for (int i = 0; i < Count; i++)
+        {
+            if (Math.Abs(this[i]) > max) max = Math.Abs(this[i]);
+        }
+        return max;
+    }
+
     /// <summary>Moyenne des valeurs présentes, null s'il n'y en a aucune.</summary>
     public double? Average()
     {

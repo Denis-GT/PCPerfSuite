@@ -165,17 +165,20 @@
                                          tortille plus d'un relevé à l'autre. -->
                                     <TextBlock Grid.Column="2" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center"
                                                TextAlignment="Right" Typography.NumeralAlignment="Tabular"
-                                               controls:StickyWidth.IsEnabled="True">
+                                               controls:StickyWidth.IsEnabled="True" ToolTip="{Binding Note}">
                                         <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                         <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </TextBlock>
                                 </Grid>
+                                <!-- Pourquoi la valeur n'est pas un nombre (conso totale "secteur" sur un portable branché). -->
+                                <TextBlock Text="{Binding Note}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Visibility="{Binding Note, Converter={StaticResource NullToVisibility}}"/>
                                 <!-- Clic gauche : épingle la valeur exacte du relevé visé (glisser pour la déplacer,
                                      clic droit ou Échap pour l'enlever). -->
                                 <controls:Sparkline Series="{Binding History}" Height="64" Margin="0,10,0,0"
                                                     LineBrush="{Binding LineBrush}" FillBrush="{Binding FillBrush}"
                                                     AutoScale="{Binding AutoScale}" Maximum="{Binding GraphMaximum}"
-                                                    MinimumScale="{Binding MinimumScale}"
+                                                    MinimumScale="{Binding MinimumScale}" CenterZero="{Binding CenterZero}"
                                                     ValueFormatter="{Binding FormatSample}"/>
                             </StackPanel>
                         </Border>
@@ -184,6 +187,59 @@
             </ItemsControl>
             <TextBlock Text="Aucun capteur affiché — active « Choisir les graphiques » pour en choisir." Style="{StaticResource Caption}"
                        Visibility="{Binding MyMetricTiles.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,0,0,16"/>
+
+            <!-- Batterie : ce qui n'évolue qu'au fil des mois (santé, capacités, cycles), donc sans courbe. Charge,
+                 décharge et capacité restante sont des tuiles comme les autres. Masquée sans batterie (PC fixe). -->
+            <Border Style="{StaticResource Card}" Margin="0,18,0,0" DataContext="{Binding Battery}"
+                    Visibility="{Binding IsPresent, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <TextBlock Text="Batterie" Style="{StaticResource H2}"/>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="50"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#xE83F;" Style="{StaticResource Icon}" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
+                                       Margin="0,0,10,0"/>
+                            <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                <Run Text="État de santé" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <Run Text="{Binding Name, Mode=OneWay, StringFormat={}  ·  {0}}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </TextBlock>
+                        </StackPanel>
+                        <controls:MeterBar Grid.Column="1" Value="{Binding HealthPercent}" VerticalAlignment="Center" Margin="8,0"
+                                           ToolTip="État de santé : capacité à pleine charge rapportée à la capacité nominale"/>
+                        <TextBlock Grid.Column="2" Text="{Binding HealthDisplay}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                                   TextAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Capacité nominale" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DesignCapacityDisplay}" Style="{StaticResource Body}" Margin="0,2"/>
+                        <TextBlock Grid.Row="1" Text="Capacité à pleine charge" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FullChargeCapacityDisplay}" Style="{StaticResource Body}" Margin="0,2"/>
+                        <TextBlock Grid.Row="2" Text="Cycles de charge" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CycleCountDisplay}" Style="{StaticResource Body}" Margin="0,2"/>
+                        <TextBlock Grid.Row="3" Text="Alimentation" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StateDisplay}" Style="{StaticResource Body}" Margin="0,2"/>
+                        <TextBlock Grid.Row="4" Text="Fabricant · chimie" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DetailsDisplay}" Style="{StaticResource Body}" Margin="0,2"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                               Text="Valeurs du pilote de batterie Windows, en mWh. Les mAh en sont déduits à la tension actuelle de la batterie."/>
+                </StackPanel>
+            </Border>
 
             <!-- Disques : occupation, usure et test de santé. Débits et température sont des tuiles comme les autres. -->
             <Border Style="{StaticResource Card}" Margin="0,18,0,16">
