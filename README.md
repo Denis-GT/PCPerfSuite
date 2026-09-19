@@ -47,9 +47,10 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **GPU** — overclocking NVAPI complet : décalage d'horloge cœur et mémoire, limite de
   puissance, limite de température, surtension cœur quand la carte l'accepte, profils
   enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
-- **Processeur** — la limite de puissance du CPU en watts : PL1/PL2 sur Intel, PPT/STAPM sur AMD,
-  avec relecture systématique de ce que le processeur a réellement retenu et sécurité thermique.
-  Verrouillé par le firmware sur Snapdragon, ce que l'onglet explique. Détail plus bas.
+- **Processeur** — deux étages : les réglages d'alimentation Windows (mode boost, fréquence max,
+  EPP), qui marchent sur Intel, AMD *et* Snapdragon sans pilote ; et la limite de puissance en watts
+  (PL1/PL2 sur Intel, PPT/STAPM sur AMD), avec relecture systématique de ce que le processeur a
+  réellement retenu et sécurité thermique. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
   transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
   Détail plus bas.
@@ -112,9 +113,28 @@ Tout passe par NVAPI (NvAPIWrapper.Net), sans pilote ni service supplémentaire 
 Le ventilateur du GPU n'est pas dans cet onglet : il est dans **Ventilateurs** avec tous les autres
 (avec passage forcé à 100 % au-delà de 88 °C tant que l'app le pilote).
 
-## Limite de puissance du processeur
+## Processeur
 
-L'onglet **Processeur** règle la puissance que le CPU a le droit de consommer, en watts. C'est le
+L'onglet **Processeur** a deux étages.
+
+### Réglages d'alimentation (Intel, AMD et Snapdragon)
+
+Les réglages processeur du plan d'alimentation Windows actif : mode boost, état minimal et maximal,
+fréquence maximale en MHz, et arbitrage performance/économie (EPP). Sans pilote, sans risque, et avec
+une valeur « sur secteur » et une valeur « sur batterie » sur les portables. Sur les processeurs
+hybrides (Intel 12e génération et plus, Snapdragon X), les réglages propres aux cœurs rapides
+apparaissent en plus.
+
+Tout passe par l'API `powrprof` et non par `powercfg.exe` : la moitié de ces réglages sont masqués
+par défaut et n'apparaissent pas dans la sortie de `powercfg`, dont le texte est en plus traduit dans
+la langue de Windows, donc impossible à analyser de façon fiable. Chaque modification est relue : si
+Windows retient autre chose, l'onglet l'affiche.
+
+C'est le seul étage disponible sur Snapdragon, où le reste est verrouillé par le firmware.
+
+### Limite de puissance en watts (Intel et AMD)
+
+Le second étage règle la puissance que le CPU a le droit de consommer, en watts. C'est le
 réglage qui change le plus le comportement d'un PC : l'abaisser fait chuter température, bruit et
 consommation pour une perte de performance souvent minime (utile sur un portable), le relever laisse
 le processeur tenir ses fréquences plus longtemps quand le refroidissement suit.

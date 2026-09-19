@@ -6,7 +6,7 @@
     <ScrollViewer Padding="{StaticResource PagePadding}">
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
             <controls:PageHeader Title="Processeur"
-                                 Subtitle="La limite de puissance du CPU, en watts. L'abaisser fait chuter la température, le bruit et la consommation pour une perte de performance souvent minime. La relever laisse le processeur tenir ses fréquences plus longtemps, tant que le refroidissement suit. Chaque valeur écrite est relue : si le firmware de ton PC impose la sienne, c'est dit ici."/>
+                                 Subtitle="Deux étages de réglage. Les réglages d'alimentation Windows marchent partout, sans pilote et sans risque. La limite de puissance en watts écrit directement dans le processeur, sur Intel et AMD : l'abaisser fait chuter température, bruit et consommation pour une perte souvent minime, la relever laisse le CPU tenir ses fréquences plus longtemps si le refroidissement suit. Chaque valeur écrite est relue : si ton firmware impose la sienne, c'est dit ici."/>
 
             <!-- ============ Compatibilité ============ -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
@@ -25,6 +25,74 @@
                                    TextWrapping="Wrap" MaxWidth="480"
                                    Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
                     </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ============ Réglages Windows (toutes plateformes) ============ -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Réglages d'alimentation" Style="{StaticResource H2}"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Text="Les réglages processeur du plan d'alimentation Windows actif, appliqués immédiatement. Sans pilote et sans risque : ce sont les mêmes que ceux du panneau de configuration, y compris ceux que Windows masque par défaut. Ils fonctionnent sur Intel, AMD comme Snapdragon."/>
+
+                    <ItemsControl ItemsSource="{Binding PowerSettings}" Margin="0,14,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Label}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}"
+                                                   Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                                        <!-- Sur secteur -->
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="100"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Sur secteur" Style="{StaticResource Caption}"
+                                                       VerticalAlignment="Center"/>
+                                            <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
+                                                      DisplayMemberPath="Label" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                      Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                                            <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    Value="{Binding AcValue, Delay=400}" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding AcText}" Style="{StaticResource Body}"
+                                                       TextAlignment="Right" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                        </Grid>
+
+                                        <!-- Sur batterie -->
+                                        <Grid Margin="0,8,0,0" Visibility="{Binding ShowBattery, Converter={StaticResource BoolToVisibility}}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="100"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Sur batterie" Style="{StaticResource Caption}"
+                                                       VerticalAlignment="Center"/>
+                                            <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
+                                                      DisplayMemberPath="Label" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                      Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                                            <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    Value="{Binding BatteryValue, Delay=400}" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding BatteryText}" Style="{StaticResource Body}"
+                                                       TextAlignment="Right" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="{Binding PowerSettingsStatus}" Style="{StaticResource Caption}"
+                               Margin="0,6,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
