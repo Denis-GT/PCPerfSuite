@@ -1,0 +1,139 @@
+<UserControl x:Class="PCPerfSuite.App.Views.AppSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
+
+            <controls:PageHeader Title="Paramètres"
+                                 Subtitle="Réglages de PCPerfSuite lui-même et diagnostic de ce que l'app peut lire et piloter sur ce PC."/>
+
+            <!-- Sous-onglets : ajouter une section dans AppSettingsViewModel.Sections, puis son panneau ci-dessous. -->
+            <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
+                     DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+
+            <!-- Général -->
+            <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=general}">
+                <Border Style="{StaticResource Card}" Margin="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                            <TextBlock Text="Réduire dans la zone de notification à la fermeture"
+                                       Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                                       Text="La croix range l'app près de l'horloge au lieu de la quitter : le monitoring, les courbes de ventilation et l'overlay continuent de tourner. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer vraiment l'app."/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                  IsChecked="{Binding MinimizeToTrayOnClose}"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Compatibilité de ce PC : ce que PCPerfSuite peut lire et piloter ici, et pourquoi le reste manque. -->
+            <StackPanel DataContext="{Binding Compatibility}"
+                        Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=compatibility}">
+                <Grid Margin="4,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Compatibilité de ce PC" Style="{StaticResource Eyebrow}" FontSize="12" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Actualiser" Style="{StaticResource GhostButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Content="Copier le rapport" Style="{StaticResource AccentButton}" Command="{Binding CopyReportCommand}"
+                            ToolTip="Copie ce diagnostic en texte, à joindre à un signalement de problème"/>
+                </Grid>
+                <Border Style="{StaticResource Card}" Padding="20,4">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,24,0">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                            <Border x:Name="StatusBadge" Grid.Column="1" Style="{StaticResource BadgeSuccess}" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Status}" Style="{StaticResource BadgeText}"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSupported}" Value="False">
+                                            <Setter TargetName="StatusBadge" Property="Style" Value="{StaticResource BadgeWarn}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                            <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+                            <StackPanel>
+                                <TextBlock Text="Métriques non disponibles sur ce PC (« N/D »)" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                <TextBlock Text="Ces valeurs ne sont pas fournies par le matériel ou les pilotes de ce PC : ce n'est pas un dysfonctionnement de PCPerfSuite."
+                                           Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,6"/>
+                                <TextBlock Text="Aucune : tout ce que propose PCPerfSuite est lu sur ce PC." Style="{StaticResource Caption}"
+                                           Visibility="{Binding UnavailableMetrics.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                                <ItemsControl ItemsSource="{Binding UnavailableMetrics}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0" ToolTip="{Binding Detail}">
+                                                <Run Text="•"/>
+                                                <Run Text="{Binding Title, Mode=OneWay}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <Run Text="—"/>
+                                                <Run Text="{Binding Detail, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="{Binding CopyStatus}" Style="{StaticResource Caption}" Margin="0,0,0,12"
+                                   Visibility="{Binding CopyStatus, Converter={StaticResource NullToVisibility}}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Thèmes : réservé au futur chantier des thèmes (remplacer ce contenu). -->
+            <StackPanel DataContext="{Binding Themes}"
+                        Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=themes}">
+                <Border Style="{StaticResource BadgeAccent}" HorizontalAlignment="Left">
+                    <TextBlock Text="Bientôt disponible" Style="{StaticResource BadgeText}"/>
+                </Border>
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Body}" Foreground="{StaticResource TextSecondaryBrush}"
+                           TextWrapping="Wrap" Margin="0,10,0,16"/>
+                <Border Style="{StaticResource Card}">
+                    <ItemsControl ItemsSource="{Binding Bullets}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Ellipse Grid.Column="0" Width="6" Height="6" Fill="{StaticResource AccentBrush}"
+                                             VerticalAlignment="Top" Margin="2,7,10,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding}" Style="{StaticResource Body}" TextWrapping="Wrap"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

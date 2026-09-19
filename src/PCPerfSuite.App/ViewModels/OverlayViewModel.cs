@@ -165,6 +165,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private void OnMetricsUpdated(MetricSample sample)
     {
         _lastSample = sample;
+        Metrics.UpdateAvailability(sample);
 
         // Conso totale et batterie : proposées seulement une fois que le relevé montre que la machine les mesure.
         Metrics.AddDefinitions(PowerMetricCatalog.FromSnapshot(sample.Hardware));

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -33,14 +34,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ProcessesViewModel Processes => _processes;
     public CleanupViewModel Cleanup { get; } = new();
     public StorageViewModel Storage { get; } = new();
-    public SettingsViewModel Settings { get; } = new();
+    public OptimizationViewModel Optimization { get; } = new();
+    public AppSettingsViewModel AppSettings { get; }
     public FanCurvesViewModel Fans => _fans;
     public GpuControlViewModel Gpu => _gpu;
     public OverlayViewModel Overlay => _overlay;
 
     public ObservableCollection<NavEntry> NavItems { get; }
 
+    /// <summary>Bouton "Paramètres" en bas de la barre latérale, hors de <see cref="NavItems"/>.</summary>
+    public NavEntry AppSettingsNav { get; }
+
+    /// <summary>Élément sélectionné dans la liste de navigation ; null quand les Paramètres sont affichés.</summary>
     [ObservableProperty] private NavEntry? selectedNavItem;
+
+    /// <summary>Page affichée : un élément de la liste, ou les Paramètres (qui n'en font pas partie). Les vues de
+    /// MainWindow s'affichent d'après son titre.</summary>
+    [ObservableProperty] private NavEntry? currentPage;
+
+    public bool IsAppSettingsSelected => ReferenceEquals(CurrentPage, AppSettingsNav);
 
     public MainViewModel()
     {
@@ -50,6 +62,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
+        AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _fans, _gpu));
+        AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
 
         NavItems = new ObservableCollection<NavEntry>
         {
@@ -57,7 +71,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Processus", Glyph(0xE9F5), _processes),
             new("Nettoyage", Glyph(0xE74D), Cleanup),
             new("Stockage", Glyph(0xEDA2), Storage),
-            new("Paramètres", Glyph(0xE713), Settings),
+            new("Optimisation Windows", Glyph(0xEC4A), Optimization),
             new("Ventilateurs", Glyph(0xE9CA), _fans),
             new("GPU", Glyph(0xE950), _gpu),
             new("Overlay", Glyph(0xE7FC), _overlay),
@@ -66,12 +80,29 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         SelectedNavItem = NavItems[0];
     }
 
+    /// <summary>Un choix dans la liste l'affiche ; la désélection (passage aux Paramètres) ne change rien.</summary>
+    partial void OnSelectedNavItemChanged(NavEntry? value)
+    {
+        if (value is not null) CurrentPage = value;
+    }
+
     /// <summary>La liste des processus ne se relève que quand son onglet est affiché : contrairement au
     /// Monitoring, dont l'overlay a besoin en permanence, une liste cachée ne sert à personne et son relevé
     /// coûte bien plus cher qu'une lecture de capteurs. On compare le ViewModel plutôt que le titre, pour ne
     /// pas dépendre d'une chaîne.</summary>
-    partial void OnSelectedNavItemChanged(NavEntry? value)
-        => _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+    partial void OnCurrentPageChanged(NavEntry? value)
+    {
+        _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+        OnPropertyChanged(nameof(IsAppSettingsSelected));
+    }
+
+    /// <summary>Bouton "Paramètres" : la liste se désélectionne, pour qu'un seul élément paraisse actif.</summary>
+    [RelayCommand]
+    private void ShowAppSettings()
+    {
+        SelectedNavItem = null;
+        CurrentPage = AppSettingsNav;
+    }
 
     private static string Glyph(int codePoint) => char.ConvertFromUtf32(codePoint);
 

@@ -33,12 +33,15 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   dossier" et "Nettoyer".
 - **Stockage** — carte proportionnelle (treemap) de ce qui occupe un disque, avec menu
   contextuel (ouvrir, explorer, supprimer) sur chaque bloc.
-- **Paramètres** — le comportement de PCPerfSuite, puis les réglages Windows, y compris
-  ceux qui sont masqués : plan d'alimentation
+- **Optimisation Windows** — les réglages de performance de Windows, y compris ceux qui
+  sont masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
   par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
+- **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
+  onglets : Général (zone de notification), Compatibilité de ce PC (voir plus bas) et Thèmes
+  (à venir).
 - **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
   celui du GPU** (NVAPI, ADLX ou IGCL selon la marque). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
@@ -53,7 +56,7 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **Zone de notification** — la croix ne quitte pas l'app, elle la range près de l'horloge :
   le monitoring, les courbes de ventilation et l'overlay continuent de tourner pendant que tu
   joues. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer
-  vraiment. Décochable dans Paramètres si tu préfères que la croix ferme l'app.
+  vraiment. Décochable dans Paramètres › Général si tu préfères que la croix ferme l'app.
 
 ## Overlay en jeu
 
@@ -156,6 +159,37 @@ et l'overclock n'est pas réappliqué tant que cette case est décochée. Monte 
 15 à 25 MHz et teste entre chaque. Chaque réglage refusé par le pilote est signalé dans
 l'onglet plutôt que d'échouer en silence.
 
+## Compatibilité et capteurs non disponibles
+
+Tous les PC n'exposent pas les mêmes capteurs : cela dépend du CPU, du GPU, de la carte mère,
+des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement :
+
+- `--` : valeur pas encore lue (juste après le lancement) ;
+- `N/D` : **ce PC ne fournit pas cette valeur**. La tuile du Monitoring explique pourquoi, et le
+  choix des métriques (Monitoring et overlay) signale « Non disponible sur ce PC ». Exemple : la
+  température mémoire (junction) n'existe que sur les GPU NVIDIA en GDDR6X.
+- **Paramètres › Compatibilité de ce PC** résume ce qui est lu et pilotable sur la machine, et
+  pourquoi le reste manque. « Copier le rapport » en fait un texte à joindre à un signalement.
+
+**Ventilateurs des portables** : ils sont gérés par le contrôleur embarqué du constructeur, que
+LibreHardwareMonitor ne voit pas. L'app les lit (en lecture seule, jamais pilotés) via l'interface
+WMI de la marque, comme son utilitaire officiel :
+
+| Marque | Interface | État |
+|---|---|---|
+| ASUS | `AsusAtkWmi_WMNB` (Armoury Crate) | vérifié, RPM et % |
+| Lenovo Legion / LOQ | `LENOVO_FAN_METHOD` (Legion Zone) | expérimental, RPM et % |
+| HP Omen / Victus | `hpqBIntM` (Omen Gaming Hub) | expérimental, RPM |
+| MSI | `MSI_ACPI` (MSI Center) | expérimental, RPM |
+| Acer Predator / Nitro | `AcerGamingFunction` (PredatorSense) | expérimental, RPM |
+
+« Expérimental » : protocole repris des pilotes Linux et des outils open source de référence, mais
+pas encore confirmé sur une vraie machine. Les autres marques de portables sont signalées « non
+prises en charge ».
+
+Le **contrôle GPU** (onglet GPU) ne fonctionne qu'avec NVIDIA pour l'instant ; le monitoring GPU,
+lui, couvre NVIDIA, AMD et Intel.
+
 ## Points d'attention importants
 
 - **L'app doit tourner en administrateur.** Le manifeste (`app.manifest`) le demande déjà
@@ -165,13 +199,11 @@ l'onglet plutôt que d'échouer en silence.
 - **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : si cette
   option est activée dans Windows, elle peut bloquer le pilote (WinRing0) utilisé par
   LibreHardwareMonitor pour lire certains capteurs bas niveau. L'app affiche l'état de ce
-  réglage dans l'onglet Paramètres avec un lien direct vers le réglage Windows concerné —
+  réglage dans l'onglet Optimisation Windows avec un lien direct vers le réglage Windows concerné —
   à toi de juger le compromis sécurité/monitoring.
 - **Fermer la fenêtre n'arrête pas l'app** (voir « Zone de notification » plus haut). Tant
   qu'elle tourne, les ventilateurs pilotés par une courbe restent sous son contrôle : c'est
   « Quitter » depuis l'icône qui les repasse en automatique et rend la carte au pilote.
-- Les valeurs manquantes s'affichent en `--` plutôt qu'un plantage : selon ta carte mère,
-  tous les capteurs ne sont pas forcément exposés par LibreHardwareMonitorLib.
 - Les réglages sont stockés dans
   `%LOCALAPPDATA%\PCPerfSuite\settings.json` (lisible et modifiable à la main).
 

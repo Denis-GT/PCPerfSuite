@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
@@ -67,6 +68,47 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private bool isAvailable;
     public bool IsUnavailable => !IsAvailable;
+
+    /// <summary>Pourquoi le contrôle GPU est absent sur ce PC : sans administrateur, pilote muet, ou carte dont
+    /// aucune API d'overclocking ne s'occupe (GPU intégré, marque exotique). Le monitoring, lui, marche partout.</summary>
+    public string UnavailableMessage
+    {
+        get
+        {
+            if (!ElevationHelper.IsAdministrator())
+                return "PCPerfSuite n'est pas lancé en administrateur : les pilotes graphiques refusent alors tout réglage. " +
+                       "Relance l'app en administrateur.";
+
+            MachineInfo machine = MachineInfo.Current;
+            if (DedicatedGpu(machine) is { } vendor)
+                return $"Un GPU {vendor} est présent, mais son pilote ne répond pas (pilote absent, trop ancien, ou GPU désactivé). " +
+                       "Installe le dernier pilote du constructeur de la carte.";
+
+            string gpus = machine.VideoControllers.Count > 0 ? string.Join(", ", machine.VideoControllers) : "aucun GPU identifié";
+            return $"Aucun GPU pilotable détecté. GPU de ce PC : {gpus}. L'overclocking demande une carte NVIDIA (NVAPI), " +
+                   "une AMD Radeon RX 5000 ou plus récente (ADLX), ou une Intel Arc (IGCL). Les GPU intégrés (Intel UHD/Iris, " +
+                   "Radeon des processeurs AMD) n'exposent pas ces réglages. Leur monitoring (charge, températures, fréquences) " +
+                   "fonctionne dans l'onglet Monitoring.";
+        }
+    }
+
+    /// <summary>Marque de la carte dédiée vue par Windows, quand il y en a une : c'est elle qui devrait être
+    /// pilotable, donc son pilote qu'il faut soupçonner quand l'API ne répond pas.</summary>
+    private static string? DedicatedGpu(MachineInfo machine)
+    {
+        foreach (string name in machine.VideoControllers)
+        {
+            if (name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || name.Contains("GeForce", StringComparison.OrdinalIgnoreCase))
+                return "NVIDIA";
+            // "Radeon Graphics" tout court est l'iGPU des processeurs AMD : seules les gammes RX et Pro sont dédiées.
+            if (name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) || name.Contains("Radeon Pro", StringComparison.OrdinalIgnoreCase))
+                return "AMD Radeon";
+            if (name.Contains("Arc", StringComparison.OrdinalIgnoreCase))
+                return "Intel Arc";
+        }
+
+        return null;
+    }
 
     [ObservableProperty] private string gpuName = "…";
 

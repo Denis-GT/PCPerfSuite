@@ -10,8 +10,9 @@
 
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
-                           Text="Aucun GPU pilotable détecté. L'overclocking fonctionne avec une carte NVIDIA, une AMD Radeon RX 5000 ou plus récente, ou une Intel Arc, avec le pilote du constructeur installé et l'app lancée en administrateur. Les GPU intégrés (Intel UHD/Iris, Radeon des processeurs AMD) et les autres marques n'exposent pas de réglages d'overclocking."/>
+                <!-- Message adapté au PC : droits manquants, pilote muet, ou carte non pilotable (voir UnavailableMessage). -->
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                           Text="{Binding UnavailableMessage, Mode=OneTime}" TextWrapping="Wrap"/>
             </Border>
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">

@@ -12,7 +12,7 @@
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding Fans.Count, Converter={StaticResource ZeroCountToVisibility}}">
                 <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                           Text="Aucun ventilateur pilotable détecté — vérifie que l'app tourne en administrateur et que ta carte mère expose un contrôle logiciel via LibreHardwareMonitor."/>
+                           Text="{Binding NoFansMessage, Mode=OneTime}" TextWrapping="Wrap"/>
             </Border>
 
             <ItemsControl ItemsSource="{Binding Fans}">

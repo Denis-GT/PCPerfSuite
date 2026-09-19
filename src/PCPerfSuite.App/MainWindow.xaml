@@ -54,8 +54,12 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Pied : état des droits. -->
-                <StackPanel DockPanel.Dock="Bottom" Margin="14,10,14,16">
+                <!-- Pied : Paramètres de l'app, puis état des droits. -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,16">
+                    <!-- Hors de la liste : Tag porte son état actif (voir NavButton). -->
+                    <Button Style="{StaticResource NavButton}" Command="{Binding ShowAppSettingsCommand}"
+                            Content="{Binding AppSettingsNav}" Tag="{Binding IsAppSettingsSelected}" Margin="0,0,0,10"/>
+                    <StackPanel Margin="14,0">
                     <Border Style="{StaticResource CalloutWarn}"
                             Visibility="{Binding ShowElevationBanner, Converter={StaticResource BoolToVisibility}}">
                         <Grid>
@@ -78,6 +82,7 @@
                         <TextBlock Text="Administrateur" Style="{StaticResource Caption}" FontSize="11.5" Margin="8,0,0,0"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
                 <ListBox ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNavItem}"
@@ -92,21 +97,23 @@
              avec leur historique — à chaque changement d'onglet) ; seule sa Visibility change. -->
         <Grid Grid.Column="1">
             <views:MonitoringView DataContext="{Binding Monitoring}"
-                                  Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Monitoring}"/>
+                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Monitoring}"/>
             <views:ProcessesView DataContext="{Binding Processes}"
-                                 Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processus}"/>
+                                 Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processus}"/>
             <views:CleanupView DataContext="{Binding Cleanup}"
-                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Nettoyage}"/>
+                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Nettoyage}"/>
             <views:StorageView DataContext="{Binding Storage}"
-                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Stockage}"/>
-            <views:SettingsView DataContext="{Binding Settings}"
-                                Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres'}"/>
+                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Stockage}"/>
+            <views:OptimizationView DataContext="{Binding Optimization}"
+                                    Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Optimisation Windows'}"/>
+            <views:AppSettingsView DataContext="{Binding AppSettings}"
+                                   Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres'}"/>
             <views:FanCurvesView DataContext="{Binding Fans}"
-                                 Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
+                                 Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
             <views:GpuControlView DataContext="{Binding Gpu}"
-                                  Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=GPU}"/>
+                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=GPU}"/>
             <views:OverlayView DataContext="{Binding Overlay}"
-                               Visibility="{Binding DataContext.SelectedNavItem.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Overlay}"/>
+                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Overlay}"/>
         </Grid>
         </Grid>
     </Grid>

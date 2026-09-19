@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
@@ -223,6 +224,26 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     public ObservableCollectionEx<FanControlItemViewModel> Fans { get; } = new();
 
     [ObservableProperty] private bool hasGpu;
+
+    /// <summary>Pourquoi aucun ventilateur n'est pilotable ici, adapté au PC : sans administrateur, portable (dont
+    /// les ventilateurs appartiennent au firmware du constructeur) ou carte mère sans pilotage logiciel.</summary>
+    public string NoFansMessage
+    {
+        get
+        {
+            if (!ElevationHelper.IsAdministrator())
+                return "PCPerfSuite n'est pas lancé en administrateur : les ventilateurs ne peuvent être ni lus ni pilotés. Relance l'app en administrateur.";
+
+            if (MachineInfo.Current.IsLaptop)
+                return "Sur un portable, les ventilateurs sont pilotés par le firmware du constructeur (Armoury Crate, Legion Zone, " +
+                       "Omen Gaming Hub, MSI Center, PredatorSense…). Par sécurité, PCPerfSuite ne les pilote pas : leur vitesse " +
+                       "s'affiche dans le Monitoring quand la marque est prise en charge (voir Paramètres › Compatibilité de ce PC).";
+
+            return "Aucun ventilateur pilotable détecté : la puce de gestion de la carte mère n'est pas reconnue ou n'accepte pas de " +
+                   "pilotage logiciel (sur certaines cartes, il faut passer les ventilateurs en mode PWM/DC manuel dans le BIOS). " +
+                   "Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+        }
+    }
 
     public FanCurvesViewModel(HardwareMonitorService hardware, GpuControlService gpu, MonitoringViewModel monitoring)
     {

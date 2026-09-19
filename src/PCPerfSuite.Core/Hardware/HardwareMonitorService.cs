@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
+using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Overlay;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Hardware;
 
@@ -39,11 +41,19 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private float? _lastCpuLoad;
     private RtssFrameStats? _lastGame;
     private BatterySnapshot? _lastBattery;
+    private IReadOnlyList<LaptopFanReading> _lastLaptopFans = Array.Empty<LaptopFanReading>();
 
     /// <summary>Marque du GPU piloté par l'onglet GPU. Dans un PC à deux GPU (iGPU + carte dédiée), le
     /// relevé "GPU" porte alors sur cette carte-là, pour que températures et fréquences affichées
     /// correspondent à celle qu'on overclocke. Null : le dernier GPU rencontré, comme avant.</summary>
     public GpuVendor? PreferredGpuVendor { get; set; }
+
+    /// <summary>Groupes lus au moins une fois depuis le démarrage : une valeur encore nulle après la lecture de
+    /// son groupe n'est pas "en attente" mais absente de ce PC.</summary>
+    private readonly bool[] _everRead = new bool[Enum.GetValues<SensorGroup>().Length];
+
+    /// <summary>Ventilateurs des portables, lus via l'interface du constructeur (LibreHardwareMonitor ne les voit pas).</summary>
+    public LaptopFanService LaptopFans { get; }
 
     public HardwareMonitorService()
     {
@@ -60,6 +70,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         };
 
         _computer.Open();
+
+        LaptopFans = new LaptopFanService(MachineInfo.Current);
     }
 
     /// <summary>Relevé du tick <paramref name="tick"/> : chaque groupe n'est relu que si c'est son tour.</summary>
@@ -98,6 +110,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             RecordRead(SensorGroup.Battery, "battery", "Batterie (pilote Windows)", batteryStart, timings, groupDurations, groupRead);
         }
 
+        if (due[(int)SensorGroup.Motherboard] && LaptopFans.Support == LaptopFanSupport.Active)
+        {
+            long fansStart = Stopwatch.GetTimestamp();
+            _lastLaptopFans = LaptopFans.Read();
+            RecordRead(SensorGroup.Motherboard, "laptopfans", $"Ventilateurs {LaptopFans.Vendor} (WMI)", fansStart, timings, groupDurations, groupRead);
+        }
+
         foreach (IHardware hardware in _computer.Hardware)
         {
             int group = (int)GroupOf(hardware.HardwareType);
@@ -119,8 +138,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         for (int group = 0; group < _schedules.Length; group++)
         {
-            if (groupRead[group]) _schedules[group].RecordRead(epoch, tick, groupDurations[group], tickInterval);
+            if (!groupRead[group]) continue;
+            _schedules[group].RecordRead(epoch, tick, groupDurations[group], tickInterval);
+            _everRead[group] = true;
         }
+
+        LaptopFanReading? laptopGpuFan = _lastLaptopFans.FirstOrDefault(f => f.Role == LaptopFanRole.Gpu);
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
@@ -147,7 +170,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                     bool preferred = IsPreferredGpu(hardware.HardwareType);
                     if (PreferredGpuVendor is null || gpu is null || (preferred && !gpuIsPreferred))
                     {
-                        gpu = ReadGpu(hardware);
+                        gpu = ReadGpu(hardware, laptopGpuFan);
                         gpuIsPreferred = preferred;
                     }
                     CollectFans(hardware, SensorGroup.Gpu, fans);
@@ -183,6 +206,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             }
         }
 
+        CollectLaptopFans(_lastLaptopFans, fans);
+
         return new HardwareSnapshot
         {
             Cpu = cpu,
@@ -198,6 +223,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             ReadDuration = Stopwatch.GetElapsedTime(start),
             GroupStatuses = _schedules.Select(schedule => schedule.GetStatus(tickInterval)).ToArray(),
             GroupsRead = Enum.GetValues<SensorGroup>().Where(group => groupRead[(int)group]).ToArray(),
+            GroupsEverRead = Enum.GetValues<SensorGroup>().Where(group => _everRead[(int)group]).ToArray(),
             Game = _lastGame,
         };
     }
@@ -305,7 +331,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         _ => false,
     };
 
-    private static GpuSnapshot ReadGpu(IHardware hardware)
+    /// <param name="laptopFan">Ventilateur GPU du portable, repris quand le pilote graphique n'en expose aucun
+    /// (NVAPI, ADLX et IGCL ne voient pas les ventilateurs pilotés par le contrôleur embarqué d'un portable).</param>
+    private static GpuSnapshot ReadGpu(IHardware hardware, LaptopFanReading? laptopFan)
     {
         string vendor = hardware.HardwareType switch
         {
@@ -334,8 +362,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                          ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power)?.Value,
             VramUsedMb = FindSensor(hardware, SensorType.SmallData, "GPU Memory Used")?.Value,
             VramTotalMb = FindSensor(hardware, SensorType.SmallData, "GPU Memory Total")?.Value,
-            FanRpm = fanSensor?.Value,
-            FanPercent = fanControl?.Value,
+            FanRpm = fanSensor is null ? laptopFan?.Rpm : fanSensor.Value,
+            FanPercent = fanSensor is null ? laptopFan?.Percent : fanControl?.Value,
         };
     }
 
@@ -475,6 +503,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         }
     }
 
+    /// <summary>Ventilateurs du portable, en lecture seule (aucun capteur de contrôle associé).</summary>
+    private void CollectLaptopFans(IReadOnlyList<LaptopFanReading> readings, List<FanReading> into)
+    {
+        string hardwareName = LaptopFans.IsVerified ? LaptopFans.Vendor! : $"{LaptopFans.Vendor}, expérimental";
+
+        foreach (LaptopFanReading fan in readings)
+        {
+            into.Add(new FanReading
+            {
+                HardwareName = hardwareName,
+                Group = SensorGroup.Motherboard,
+                SensorName = fan.Name,
+                Rpm = fan.Rpm,
+                PercentControl = fan.Percent,
+                SensorId = $"laptop/{LaptopFans.Vendor!.ToLowerInvariant()}/{fan.Key}",
+            });
+        }
+    }
+
     private static ISensor? FindSensor(IHardware hardware, SensorType type, string nameContains)
         => FindSensor(hardware.Sensors, type, nameContains);
 
@@ -540,6 +587,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         _disposed = true;
         _cpuLoad.Dispose();
         _battery.Dispose();
+        LaptopFans.Dispose();
         _computer.Close();
     }
 }

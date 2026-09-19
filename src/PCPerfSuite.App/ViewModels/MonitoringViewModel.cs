@@ -170,6 +170,12 @@ public sealed partial class MetricTileViewModel : ObservableObject
     /// <summary>Pourquoi la valeur n'est pas un nombre (conso totale "secteur"), null sinon.</summary>
     [ObservableProperty] private string? note;
 
+    /// <summary>Vrai quand ce PC ne fournit pas la valeur ("N/D") : la tuile affiche alors pourquoi, pour qu'on
+    /// ne prenne pas l'absence de chiffre pour une panne de l'app.</summary>
+    [ObservableProperty] private bool isUnavailable;
+
+    public string UnavailableHint => Definition.UnavailableHint;
+
     /// <summary>Min, moyenne et max depuis le démarrage ou la dernière remise à zéro, affichés en petit face
     /// à la valeur en direct. Sans unité quand elle est la même que celle de la valeur en direct (juste à
     /// côté) ; répétée sinon, pour un débit dont l'échelle (o/s, Ko/s, Mo/s...) diffère de celle du direct.</summary>
@@ -207,6 +213,7 @@ public sealed partial class MetricTileViewModel : ObservableObject
         DisplayValue = reading.Value;
         Unit = reading.Unit;
         Note = reading.Note;
+        IsUnavailable = reading.IsUnavailable;
         RefreshStats();
     }
 
@@ -692,6 +699,8 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         {
             tile.Apply(sample);
         }
+
+        MyMetrics.UpdateAvailability(sample);
 
         SnapshotUpdated?.Invoke(s);
         MetricsUpdated?.Invoke(sample);
