@@ -77,7 +77,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         PlatformText = $"{_cpu.Platform.VendorLabel} · {_cpu.Backend.Description}";
 
         DriverText = PawnIoDriver.IsInstalled
-            ? $"Pilote PawnIO {PawnIoDriver.Version} détecté."
+            ? $"Pilote PawnIO {PawnIoDriver.Version} détecté (API {PawnIoDriver.ApiVersion})."
             : PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.";
         IsDriverMissing = !PawnIoDriver.IsInstalled && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
 

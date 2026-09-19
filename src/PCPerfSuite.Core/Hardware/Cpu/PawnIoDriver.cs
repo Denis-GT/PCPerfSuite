@@ -27,8 +27,12 @@ public static class PawnIoDriver
     private static IntPtr _library;
     private static string? _loadError;
 
-    /// <summary>Version du pilote installé ("3.1.0"), ou null s'il est absent.</summary>
+    /// <summary>Version du produit installé ("2.2.0"), telle que l'inscrit son installeur.</summary>
     public static string? Version { get; private set; }
+
+    /// <summary>Version de l'interface de programmation exposée par PawnIOLib ("2.0"), à ne pas confondre
+    /// avec celle du produit : pawnio_version renvoie l'API, qui bouge bien plus rarement.</summary>
+    public static string? ApiVersion { get; private set; }
 
     /// <summary>Vrai si PawnIOLib est présent et chargeable dans ce processus.</summary>
     public static bool IsInstalled
@@ -77,7 +81,8 @@ public static class PawnIoDriver
             }
 
             _library = library;
-            Version = ReadVersion();
+            ApiVersion = ReadApiVersion();
+            Version ??= ApiVersion;
         }
     }
 
@@ -86,6 +91,14 @@ public static class PawnIoDriver
         try
         {
             using RegistryKey? key = Registry.LocalMachine.OpenSubKey(UninstallKey);
+
+            // La version du produit ne se lit que là : la bibliothèque, elle, ne connaît que sa version d'API.
+            // "2.2.0.0" est inscrit en quatre composants, on n'en montre que les trois qui parlent.
+            if (key?.GetValue("DisplayVersion") as string is { Length: > 0 } displayVersion)
+            {
+                Version = string.Join('.', displayVersion.Split('.').Take(3));
+            }
+
             if (key?.GetValue("InstallLocation") as string is { Length: > 0 } location)
             {
                 string fromRegistry = Path.Combine(location, "PawnIOLib.dll");
@@ -102,7 +115,8 @@ public static class PawnIoDriver
         return File.Exists(fallback) ? fallback : null;
     }
 
-    private static string? ReadVersion()
+    /// <summary>Version d'API, encodée (majeure &lt;&lt; 16) | (mineure &lt;&lt; 8) | correctif.</summary>
+    private static string? ReadApiVersion()
     {
         try
         {

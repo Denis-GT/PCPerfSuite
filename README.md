@@ -181,8 +181,10 @@ l'onglet plutôt que d'échouer en silence.
   Defender signale depuis 2025 comme pilote vulnérable (CVE-2020-14979) et que la liste de blocage
   des pilotes refuse de charger. PawnIO n'ouvre pas un accès brut au matériel : il exécute des
   modules signés qui décident eux-mêmes de ce qu'ils autorisent, et un accès refusé est affiché
-  comme tel par l'app. Installe-le en version **3.x ou plus récente** : c'est ce qu'attend
-  LibreHardwareMonitor 0.9.6.
+  comme tel par l'app. Prends simplement la dernière version proposée par son site (testé avec la
+  2.2.0). L'onglet Processeur affiche la version installée, et entre parenthèses la version de
+  l'interface de programmation, qui est celle que renvoie le pilote lui-même et qui bouge bien plus
+  rarement.
 - **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : cette option
   n'empêche pas PawnIO de fonctionner (contrairement à WinRing0), mais l'app affiche quand même
   l'état du réglage dans l'onglet Paramètres, avec un lien direct vers le réglage Windows.
