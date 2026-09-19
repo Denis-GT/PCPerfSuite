@@ -166,6 +166,9 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     {
         _lastSample = sample;
 
+        // Conso totale et batterie : proposées seulement une fois que le relevé montre que la machine les mesure.
+        Metrics.AddDefinitions(PowerMetricCatalog.FromSnapshot(sample.Hardware));
+
         // Un relevé sur N, N entier : un rendu tombe toujours sur un relevé, à intervalle régulier. Un seuil en
         // millisecondes, lui, retombait tantôt sur un relevé, tantôt sur le suivant selon la gigue.
         double tickMs = Math.Max(1, _monitoring.TickInterval.TotalMilliseconds);

@@ -91,6 +91,58 @@ public sealed partial class DiskItemViewModel : ObservableObject
     }
 }
 
+/// <summary>Carte "Batterie" : ce qui ne mérite pas de courbe parce que ça ne bouge qu'au fil des mois (état de
+/// santé, capacités, cycles) ou qui décrit la batterie. Les valeurs temps réel sont des métriques graphiques.</summary>
+public sealed partial class BatteryInfoViewModel : ObservableObject
+{
+    [ObservableProperty] private bool isPresent;
+    [ObservableProperty] private string name = "Batterie";
+    [ObservableProperty] private double healthPercent;
+    [ObservableProperty] private string healthDisplay = "--";
+    [ObservableProperty] private string stateDisplay = "--";
+    [ObservableProperty] private string designCapacityDisplay = "--";
+    [ObservableProperty] private string fullChargeCapacityDisplay = "--";
+    [ObservableProperty] private string cycleCountDisplay = "--";
+    [ObservableProperty] private string detailsDisplay = "";
+
+    /// <summary>Pourquoi santé et capacités restent "--" (pilote en unités relatives), null sinon.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNote))]
+    private string? note;
+
+    public bool HasNote => Note is not null;
+
+    public void Apply(BatterySnapshot? b)
+    {
+        IsPresent = b is not null;
+        if (b is null) return;
+
+        Name = b.BatteryCount > 1 ? $"{b.BatteryCount} batteries" : b.Name ?? "Batterie";
+        HealthPercent = b.HealthPercent ?? 0;
+        HealthDisplay = b.HealthPercent is { } h ? $"{h:0}%" : "--";
+        StateDisplay = (b.PowerOnline, b.Charging, b.Discharging) switch
+        {
+            (_, true, _) => "En charge",
+            (_, _, true) => "Sur batterie",
+            (true, _, _) => "Sur secteur, batterie pleine ou charge en pause",
+            _ => "Inconnu",
+        };
+        DesignCapacityDisplay = Capacity(b, b.DesignMWh);
+        FullChargeCapacityDisplay = Capacity(b, b.FullChargeMWh);
+        CycleCountDisplay = b.CycleCount is { } c ? c.ToString(CultureInfo.CurrentCulture) : "non communiqué";
+        DetailsDisplay = string.Join(" · ", new[] { b.Manufacturer, b.Chemistry }.Where(x => !string.IsNullOrEmpty(x)));
+        Note = b.IsCapacityRelative ? PowerMetricCatalog.RelativeUnitsNote : null;
+    }
+
+    /// <summary>"90 005 mWh · 6 087 mAh" : les mWh du pilote, et leur équivalent en mAh à la tension actuelle.</summary>
+    private static string Capacity(BatterySnapshot b, double? mWh)
+    {
+        if (mWh is not { } energy) return "--";
+        string text = $"{energy.ToString("N0", CultureInfo.CurrentCulture)} mWh";
+        return b.ToMah(energy) is { } mah ? $"{text} · {mah.ToString("N0", CultureInfo.CurrentCulture)} mAh" : text;
+    }
+}
+
 /// <summary>Tuile graphique d'un capteur : valeur courante et courbe de son historique, dans la couleur de sa
 /// catégorie. Mise à jour en place à chaque relevé plutôt que recréée (pas de clignotement).</summary>
 public sealed partial class MetricTileViewModel : ObservableObject
@@ -109,8 +161,14 @@ public sealed partial class MetricTileViewModel : ObservableObject
     public double GraphMaximum => Definition.GraphMaximum ?? 100;
     public double MinimumScale => Definition.GraphMinimumScale;
 
+    /// <summary>Valeur signée (charge/décharge) : courbe de part et d'autre d'un axe à zéro.</summary>
+    public bool CenterZero => Definition.IsSigned;
+
     [ObservableProperty] private string displayValue = "--";
     [ObservableProperty] private string unit = "";
+
+    /// <summary>Pourquoi la valeur n'est pas un nombre (conso totale "secteur"), null sinon.</summary>
+    [ObservableProperty] private string? note;
 
     /// <summary>Min, moyenne et max depuis le démarrage ou la dernière remise à zéro, affichés en petit face
     /// à la valeur en direct. Sans unité quand elle est la même que celle de la valeur en direct (juste à
@@ -148,6 +206,7 @@ public sealed partial class MetricTileViewModel : ObservableObject
         MetricReading reading = Definition.Read(sample);
         DisplayValue = reading.Value;
         Unit = reading.Unit;
+        Note = reading.Note;
         RefreshStats();
     }
 
@@ -229,6 +288,7 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
             SensorGroup.Storage => ("Disques", "Débits, température, espace utilisé"),
             SensorGroup.Network => ("Réseau", "Débits de toutes les cartes"),
             SensorGroup.Fps => ("FPS (RTSS)", "FPS, temps de frame et 1 % low du jeu au premier plan"),
+            SensorGroup.Battery => ("Batterie / alimentation", "Charge, décharge, capacité, conso totale"),
             _ => (group.ToString(), ""),
         };
 
@@ -372,6 +432,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool isCustomizingMyMetrics;
 
     public ObservableCollectionEx<DiskItemViewModel> Disks { get; } = new();
+
+    /// <summary>Infos batterie sans courbe (santé, capacités, cycles) ; carte masquée sans batterie.</summary>
+    public BatteryInfoViewModel Battery { get; } = new();
 
     [ObservableProperty] private string? errorMessage;
 
@@ -606,12 +669,14 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     private void Apply(HardwareSnapshot s)
     {
         ApplyDisks(s.Disks);
+        Battery.Apply(s.Battery);
 
         var sample = new MetricSample { Hardware = s, Game = s.Game, LocalTime = DateTime.Now };
         _lastSample = sample;
 
         // Capteurs propres à la machine, découverts au fil des relevés (un disque branché en cours de route...).
         MyMetrics.AddDefinitions(MonitoringSensorCatalog.FromSnapshot(s));
+        MyMetrics.AddDefinitions(PowerMetricCatalog.FromSnapshot(s));
 
         // Historique tenu pour tous les capteurs, affichés ou non : une tuile qu'on active a déjà sa courbe. Un point
         // n'est ajouté que quand le groupe du capteur vient d'être relu, pour que chaque courbe avance à sa propre fréquence.

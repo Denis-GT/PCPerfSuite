@@ -31,9 +31,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// <summary>Charge CPU (groupe CpuLoad), lue indépendamment de la lecture LibreHardwareMonitor du CPU.</summary>
     private readonly PdhCounterSampler _cpuLoad = new(PdhCounterSampler.ProcessorUtility);
 
+    /// <summary>Batterie (groupe Battery), lue auprès du pilote Windows plutôt que par LibreHardwareMonitor : il faut
+    /// l'état secteur et la capacité nominale, que la lib n'expose pas toutes.</summary>
+    private readonly BatteryReader _battery = new();
+
     // Dernières valeurs lues hors LibreHardwareMonitor, reprises dans les relevés où leur groupe n'est pas relu.
     private float? _lastCpuLoad;
     private RtssFrameStats? _lastGame;
+    private BatterySnapshot? _lastBattery;
 
     public HardwareMonitorService()
     {
@@ -45,6 +50,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             IsMotherboardEnabled = true,
             IsStorageEnabled = true,
             IsNetworkEnabled = true,
+            // Alimentations connectées (Corsair HXi/RMi...) : seule mesure de la conso totale d'un PC fixe.
+            IsPsuEnabled = true,
         };
 
         _computer.Open();
@@ -79,6 +86,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             RecordRead(SensorGroup.Fps, "rtss", "FPS (RTSS)", fpsStart, timings, groupDurations, groupRead);
         }
 
+        if (due[(int)SensorGroup.Battery])
+        {
+            long batteryStart = Stopwatch.GetTimestamp();
+            _lastBattery = _battery.Read();
+            RecordRead(SensorGroup.Battery, "battery", "Batterie (pilote Windows)", batteryStart, timings, groupDurations, groupRead);
+        }
+
         foreach (IHardware hardware in _computer.Hardware)
         {
             int group = (int)GroupOf(hardware.HardwareType);
@@ -111,6 +125,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         var disks = new List<DiskSnapshot>();
         float? uploadRate = null;
         float? downloadRate = null;
+        float? psuPower = null;
 
         foreach (IHardware hardware in _computer.Hardware)
         {
@@ -148,6 +163,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                     uploadRate = AddIfPresent(uploadRate, FindSensor(hardware, SensorType.Throughput, "Upload Speed")?.Value);
                     downloadRate = AddIfPresent(downloadRate, FindSensor(hardware, SensorType.Throughput, "Download Speed")?.Value);
                     break;
+
+                case HardwareType.Psu:
+                    // "Total watts" chez Corsair : la puissance fournie au PC, toutes sorties confondues.
+                    psuPower = AddIfPresent(psuPower, (FindSensor(hardware, SensorType.Power, "Total")
+                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power))?.Value);
+                    break;
             }
         }
 
@@ -160,6 +181,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Fans = fans,
             Disks = disks,
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
+            Battery = _lastBattery,
+            PsuPowerWatts = psuPower,
             ReadTimings = timings,
             ReadDuration = Stopwatch.GetElapsedTime(start),
             GroupStatuses = _schedules.Select(schedule => schedule.GetStatus(tickInterval)).ToArray(),
@@ -207,6 +230,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         HardwareType.Memory => SensorGroup.Memory,
         HardwareType.Storage => SensorGroup.Storage,
         HardwareType.Network => SensorGroup.Network,
+        HardwareType.Psu => SensorGroup.Battery,
         // Carte mère et le reste de ce que LibreHardwareMonitor rattache à la carte (Super I/O, contrôleur embarqué).
         _ => SensorGroup.Motherboard,
     };
@@ -496,6 +520,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         if (_disposed) return;
         _disposed = true;
         _cpuLoad.Dispose();
+        _battery.Dispose();
         _computer.Close();
     }
 }

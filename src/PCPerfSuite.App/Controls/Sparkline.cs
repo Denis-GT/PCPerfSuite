@@ -67,6 +67,10 @@ public sealed class Sparkline : FrameworkElement
         nameof(MinimumScale), typeof(double), typeof(Sparkline),
         new FrameworkPropertyMetadata(1d, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty CenterZeroProperty = DependencyProperty.Register(
+        nameof(CenterZero), typeof(bool), typeof(Sparkline),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public static readonly DependencyProperty ValueFormatterProperty = DependencyProperty.Register(
         nameof(ValueFormatter), typeof(Func<double, string>), typeof(Sparkline),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -121,6 +125,15 @@ public sealed class Sparkline : FrameworkElement
         set => SetValue(MinimumScaleProperty, value);
     }
 
+    /// <summary>Valeur signée (charge/décharge d'une batterie) : un axe à zéro coupe le graphique en deux, la courbe
+    /// passe au-dessus pour une valeur positive et en dessous pour une négative. L'échelle, automatique, est
+    /// symétrique : calée sur la plus grande valeur absolue visible.</summary>
+    public bool CenterZero
+    {
+        get => (bool)GetValue(CenterZeroProperty);
+        set => SetValue(CenterZeroProperty, value);
+    }
+
     /// <summary>Met en forme la valeur affichée par le repère (unité comprise). Fournie par le ViewModel, qui
     /// seul connaît la métrique : le contrôle, lui, ne manipule que des double. Null : format numérique neutre.</summary>
     public Func<double, string>? ValueFormatter
@@ -136,6 +149,7 @@ public sealed class Sparkline : FrameworkElement
     private static readonly Pen MarkerBoxPen = FrozenPen(Color.FromArgb(0x3D, 0xFF, 0xFF, 0xFF), 1);
     private static readonly SolidColorBrush MarkerBoxBrush = FrozenBrush(Color.FromArgb(0xF2, 0x15, 0x19, 0x25));
     private static readonly SolidColorBrush MarkerTextBrush = FrozenBrush(ThemeColors.TextPrimary);
+    private static readonly Pen ZeroAxisPen = FrozenPen(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF), 1);
 
     private static readonly Typeface MarkerTypeface = new("Segoe UI Variable, Segoe UI");
 
@@ -249,28 +263,46 @@ public sealed class Sparkline : FrameworkElement
 
         SampleHistory? secondary = SecondarySeries;
         // 15 % de marge au-dessus du pic pour que la courbe ne colle pas au bord supérieur.
-        double top = AutoScale
-            ? Math.Max(MinimumScale, Math.Max(series.Max(), secondary?.Max() ?? 0) * 1.15)
-            : Maximum;
+        double top = CenterZero
+            ? Math.Max(MinimumScale, Math.Max(series.MaxAbs(), secondary?.MaxAbs() ?? 0) * 1.15)
+            : AutoScale
+                ? Math.Max(MinimumScale, Math.Max(series.Max(), secondary?.Max() ?? 0) * 1.15)
+                : Maximum;
         if (top <= 0) return;
 
-        double stepX = StepOf(series, w);
-        if (secondary is not null) DrawSeries(dc, secondary, null, new Pen(SecondaryLineBrush, 1.5), w, h, stepX, top);
-        DrawSeries(dc, series, FillBrush, new Pen(LineBrush, 1.75), w, h, stepX, top);
+        var scale = new VerticalScale(top, h, CenterZero);
+        if (CenterZero) dc.DrawLine(ZeroAxisPen, new Point(0, Math.Round(scale.Baseline) + 0.5), new Point(w, Math.Round(scale.Baseline) + 0.5));
 
-        DrawMarker(dc, series, secondary, w, h, stepX, top);
+        double stepX = StepOf(series, w);
+        if (secondary is not null) DrawSeries(dc, secondary, null, new Pen(SecondaryLineBrush, 1.5), w, scale, stepX);
+        DrawSeries(dc, series, FillBrush, new Pen(LineBrush, 1.75), w, scale, stepX);
+
+        DrawMarker(dc, series, secondary, w, scale, stepX);
+    }
+
+    /// <summary>Passage d'une valeur à une ordonnée, partagé par le tracé et le repère pour que le point épinglé
+    /// tombe pile sur la courbe. De 0 (en bas) à <c>top</c> (en haut) ; centré, de -top à +top autour d'un axe à
+    /// mi-hauteur, vers lequel se remplit l'aire sous la courbe.</summary>
+    private readonly record struct VerticalScale(double Top, double Height, bool Centered)
+    {
+        public double Baseline => Centered ? Height / 2 : Height;
+
+        public double Y(double value) => Centered
+            ? Height / 2 - Math.Clamp(value / Top, -1, 1) * Height / 2
+            : Height - Math.Clamp(value / Top, 0, 1) * Height;
     }
 
     /// <summary>Trace une série alignée à droite (le relevé le plus récent sur le bord droit), en coupant
     /// la courbe là où la valeur manque plutôt que de la faire plonger à zéro.</summary>
     private static void DrawSeries(DrawingContext dc, SampleHistory series, Brush? fill, Pen pen,
-                                   double w, double h, double stepX, double top)
+                                   double w, VerticalScale scale, double stepX)
     {
         int n = series.Count;
         if (n < 2) return;
 
+        double h = scale.Baseline;
         double startX = StartOf(series, w, stepX);
-        Point At(int i) => new(startX + i * stepX, h - Math.Clamp(series[i] / top, 0, 1) * h);
+        Point At(int i) => new(startX + i * stepX, scale.Y(series[i]));
 
         var line = new StreamGeometry();
         var area = new StreamGeometry();
@@ -313,9 +345,10 @@ public sealed class Sparkline : FrameworkElement
     /// <summary>Repère épinglé : trait vertical, point sur la courbe, et étiquette donnant la valeur exacte
     /// du relevé et son ancienneté. Dessiné après les courbes pour rester lisible par-dessus.</summary>
     private void DrawMarker(DrawingContext dc, SampleHistory series, SampleHistory? secondary,
-                            double w, double h, double stepX, double top)
+                            double w, VerticalScale scale, double stepX)
     {
         if (_pinnedSequence < 0) return;
+        double h = scale.Height;
 
         int i = series.IndexOf(_pinnedSequence);
         if (i < 0)
@@ -336,7 +369,7 @@ public sealed class Sparkline : FrameworkElement
         }
 
         double x = StartOf(series, w, stepX) + i * stepX;
-        double y = h - Math.Clamp(value / top, 0, 1) * h;
+        double y = scale.Y(value);
 
         // Trait posé sur le demi-pixel : à coordonnée entière, un trait d'un pixel est réparti sur deux
         // colonnes et ressort gris et flou. Ramené dans la boîte au passage : le relevé le plus récent est

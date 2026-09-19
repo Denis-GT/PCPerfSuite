@@ -22,8 +22,9 @@ public sealed class MetricSample
 public sealed record MetricCategory(string Key, string Name, string OsdLabel, string DefaultColor);
 
 /// <summary>Valeur formatée. Value et Unit restent séparés pour les tuiles (unité en plus petit) ; Text les
-/// combine pour l'OSD. Number alimente la jauge des métriques en %.</summary>
-public readonly record struct MetricReading(double? Number, string Value, string Unit)
+/// combine pour l'OSD. Number alimente la jauge des métriques en %. Note explique une valeur qui n'est pas un
+/// nombre (conso totale "secteur") : affichée en petit sous la tuile et en infobulle.</summary>
+public readonly record struct MetricReading(double? Number, string Value, string Unit, string? Note = null)
 {
     public static MetricReading Missing => new(null, "--", "");
 
@@ -46,7 +47,13 @@ public sealed class MetricDefinition
     /// <summary>Libellé court (ASCII) pour le mode OSD "une ligne par métrique".</summary>
     public required string OsdLabel { get; init; }
 
+    /// <summary>Précisions sur la métrique, en infobulle dans les sélecteurs (Monitoring et overlay).</summary>
+    public string? Description { get; init; }
+
     public bool IsPercent { get; init; }
+
+    /// <summary>Valeur signée (charge positive, décharge négative) : le graphique est centré sur un axe à zéro.</summary>
+    public bool IsSigned { get; init; }
     public required Func<MetricSample, MetricReading> Read { get; init; }
 
     /// <summary>Haut de l'échelle fixe du graphique (pourcentages, températures) ; null : échelle calée sur le pic visible.</summary>
@@ -83,6 +90,7 @@ public static class MetricCatalog
     internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0");
     internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C");
     internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8");
+    internal static readonly MetricCategory Power = new("power", "Énergie", "PWR", "#FFE066");
 
     /// <summary>1 Mo/s : plancher des graphiques de débit disque.</summary>
     internal const double DiskRateFloor = 1_048_576;
@@ -93,7 +101,7 @@ public static class MetricCatalog
     /// <summary>Catégories dans l'ordre du catalogue — sert au réglage des couleurs de l'overlay.</summary>
     public static IReadOnlyList<MetricCategory> Categories { get; } = new[]
     {
-        Cpu, Gpu, Ram, Motherboard, Storage, Network, Game, Sys,
+        Cpu, Gpu, Ram, Motherboard, Storage, Network, Game, Sys, Power,
     };
 
     public static IReadOnlyList<MetricDefinition> All { get; } = new[]
@@ -225,6 +233,7 @@ public static class MetricCatalog
         "storage" => SensorGroup.Storage,
         "net" => SensorGroup.Network,
         "game" => SensorGroup.Fps,
+        "power" => SensorGroup.Battery,
         _ => null,
     };
 

@@ -112,6 +112,55 @@ public sealed class NetworkSnapshot
     public float? DownloadBytesPerSecond { get; init; }
 }
 
+/// <summary>Batterie(s) du portable telles que les rapporte le pilote Windows — additionnées s'il y en a
+/// plusieurs. Capacités en mWh, null si le pilote ne donne que des unités relatives.</summary>
+public sealed class BatterySnapshot
+{
+    /// <summary>Chargeur branché.</summary>
+    public bool PowerOnline { get; init; }
+    public bool Charging { get; init; }
+    public bool Discharging { get; init; }
+
+    public double? RemainingMWh { get; init; }
+
+    /// <summary>Capacité à pleine charge actuelle : la capacité nominale diminuée de l'usure.</summary>
+    public double? FullChargeMWh { get; init; }
+
+    /// <summary>Capacité nominale, celle de la batterie neuve.</summary>
+    public double? DesignMWh { get; init; }
+
+    public double? VoltageMv { get; init; }
+
+    /// <summary>Débit en mW : positif en charge, négatif en décharge, null si le pilote ne le mesure pas.</summary>
+    public double? RateMw { get; init; }
+
+    public int? CycleCount { get; init; }
+    public string? Name { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Chemistry { get; init; }
+    public int BatteryCount { get; init; } = 1;
+
+    /// <summary>Le pilote ne donne capacités et débit qu'en unités relatives, pas en mWh / mW (certains portables,
+    /// onduleurs USB) : ni watts, ni mA, ni mAh ne sont alors mesurables.</summary>
+    public bool IsCapacityRelative { get; init; }
+
+    /// <summary>Pourcentage calculé sur les unités relatives, quand <see cref="IsCapacityRelative"/>.</summary>
+    public double? RelativeChargePercent { get; init; }
+
+    public double? ChargePercent => RemainingMWh is { } r && FullChargeMWh is { } f && f > 0
+        ? Math.Min(100, r / f * 100)
+        : RelativeChargePercent;
+
+    /// <summary>État de santé : capacité à pleine charge rapportée à la capacité nominale.</summary>
+    public double? HealthPercent => FullChargeMWh is { } f && DesignMWh is { } d && d > 0 ? f / d * 100 : null;
+
+    /// <summary>Courant en mA (mW ÷ V), même signe que <see cref="RateMw"/>.</summary>
+    public double? RateMa => RateMw is { } p && VoltageMv is { } v && v > 0 ? p / v * 1000 : null;
+
+    /// <summary>Convertit une énergie en mWh en charge en mAh, à la tension mesurée.</summary>
+    public double? ToMah(double? mWh) => mWh is { } e && VoltageMv is { } v && v > 0 ? e / v * 1000 : null;
+}
+
 /// <summary>Durée de la mise à jour d'un matériel (sous-matériel compris) lors d'un relevé.</summary>
 public sealed class HardwareReadTiming
 {
@@ -131,6 +180,13 @@ public sealed class HardwareSnapshot
     public IReadOnlyList<FanReading> Fans { get; init; } = Array.Empty<FanReading>();
     public IReadOnlyList<DiskSnapshot> Disks { get; init; } = Array.Empty<DiskSnapshot>();
     public NetworkSnapshot Network { get; init; } = new();
+
+    /// <summary>Null sans batterie (PC fixe).</summary>
+    public BatterySnapshot? Battery { get; init; }
+
+    /// <summary>Puissance mesurée par une alimentation connectée (Corsair HXi/RMi...), null sinon.</summary>
+    public float? PsuPowerWatts { get; init; }
+
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
 
     /// <summary>Matériel effectivement mis à jour pour ce relevé : le matériel lent en est absent

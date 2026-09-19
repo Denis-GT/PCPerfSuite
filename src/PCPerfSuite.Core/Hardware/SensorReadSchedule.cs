@@ -14,6 +14,9 @@ public enum SensorGroup
 
     /// <summary>FPS et temps de frame lus dans la mémoire partagée de RTSS.</summary>
     Fps,
+
+    /// <summary>Batterie (pilote Windows) et alimentation connectée : charge, décharge, conso totale.</summary>
+    Battery,
 }
 
 /// <summary>Cadence d'un groupe de capteurs au moment d'un relevé, pour l'afficher et la régler.</summary>
