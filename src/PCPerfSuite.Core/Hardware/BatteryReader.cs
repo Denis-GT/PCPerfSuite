@@ -76,7 +76,11 @@ internal sealed class BatteryReader : IDisposable
         double? remaining = absolute ? 0 : null;
         double? full = absolute ? 0 : null;
         double? design = absolute ? 0 : null;
-        double? rate = 0;
+        // En unités relatives, le débit l'est aussi (unités par heure, pas des mW) : il n'est pas exposé.
+        double? rate = absolute ? 0 : null;
+        // Rapport restant / pleine charge, valable même en unités relatives : sert au pourcentage dans ce cas.
+        double? rawRemaining = 0;
+        double? rawFull = 0;
         double? voltage = null;
         int? cycles = null;
 
@@ -86,6 +90,8 @@ internal sealed class BatteryReader : IDisposable
             remaining = Add(remaining, status.Capacity);
             full = Add(full, info.FullChargedCapacity);
             design = Add(design, info.DesignedCapacity);
+            rawRemaining = Add(rawRemaining, status.Capacity);
+            rawFull = Add(rawFull, info.FullChargedCapacity);
             rate = status.Rate == BatteryUnknownRate || rate is null ? null : rate + status.Rate;
             if (voltage is null && status.Voltage is not (0 or BatteryUnknownValue)) voltage = status.Voltage;
             if (info.CycleCount > 0) cycles = Math.Max(cycles ?? 0, (int)info.CycleCount);
@@ -112,6 +118,8 @@ internal sealed class BatteryReader : IDisposable
             Manufacturer = first.Manufacturer,
             Chemistry = Encoding.ASCII.GetString(firstInfo.Chemistry).TrimEnd('\0', ' '),
             BatteryCount = batteries.Count,
+            IsCapacityRelative = !absolute,
+            RelativeChargePercent = !absolute && rawRemaining is { } r && rawFull is { } f && f > 0 ? Math.Min(100, r / f * 100) : null,
         };
 
         static double? Add(double? total, uint value)

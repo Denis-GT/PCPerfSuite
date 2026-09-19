@@ -105,6 +105,13 @@ public sealed partial class BatteryInfoViewModel : ObservableObject
     [ObservableProperty] private string cycleCountDisplay = "--";
     [ObservableProperty] private string detailsDisplay = "";
 
+    /// <summary>Pourquoi santé et capacités restent "--" (pilote en unités relatives), null sinon.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNote))]
+    private string? note;
+
+    public bool HasNote => Note is not null;
+
     public void Apply(BatterySnapshot? b)
     {
         IsPresent = b is not null;
@@ -124,6 +131,7 @@ public sealed partial class BatteryInfoViewModel : ObservableObject
         FullChargeCapacityDisplay = Capacity(b, b.FullChargeMWh);
         CycleCountDisplay = b.CycleCount is { } c ? c.ToString(CultureInfo.CurrentCulture) : "non communiqué";
         DetailsDisplay = string.Join(" · ", new[] { b.Manufacturer, b.Chemistry }.Where(x => !string.IsNullOrEmpty(x)));
+        Note = b.IsCapacityRelative ? PowerMetricCatalog.RelativeUnitsNote : null;
     }
 
     /// <summary>"90 005 mWh · 6 087 mAh" : les mWh du pilote, et leur équivalent en mAh à la tension actuelle.</summary>

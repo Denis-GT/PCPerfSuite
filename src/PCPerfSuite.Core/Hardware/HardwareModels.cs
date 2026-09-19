@@ -140,7 +140,16 @@ public sealed class BatterySnapshot
     public string? Chemistry { get; init; }
     public int BatteryCount { get; init; } = 1;
 
-    public double? ChargePercent => RemainingMWh is { } r && FullChargeMWh is { } f && f > 0 ? Math.Min(100, r / f * 100) : null;
+    /// <summary>Le pilote ne donne capacités et débit qu'en unités relatives, pas en mWh / mW (certains portables,
+    /// onduleurs USB) : ni watts, ni mA, ni mAh ne sont alors mesurables.</summary>
+    public bool IsCapacityRelative { get; init; }
+
+    /// <summary>Pourcentage calculé sur les unités relatives, quand <see cref="IsCapacityRelative"/>.</summary>
+    public double? RelativeChargePercent { get; init; }
+
+    public double? ChargePercent => RemainingMWh is { } r && FullChargeMWh is { } f && f > 0
+        ? Math.Min(100, r / f * 100)
+        : RelativeChargePercent;
 
     /// <summary>État de santé : capacité à pleine charge rapportée à la capacité nominale.</summary>
     public double? HealthPercent => FullChargeMWh is { } f && DesignMWh is { } d && d > 0 ? f / d * 100 : null;

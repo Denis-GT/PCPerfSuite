@@ -15,29 +15,40 @@ public static class PowerMetricCatalog
         "Sur secteur, Windows ne mesure que ce qui entre dans la batterie, pas la consommation du PC : " +
         "le chargeur alimente le PC directement, sans capteur. Débranchez-le pour voir la conso totale.";
 
+    /// <summary>Pilote qui ne parle qu'en unités relatives (certains portables, onduleurs USB vus comme une batterie).</summary>
+    internal const string RelativeUnitsNote =
+        "Le pilote de cette batterie ne donne que des valeurs relatives, sans watts ni milliwattheures : " +
+        "Windows ne permet pas de mesurer les watts, les mA ni les mAh sur ce matériel. Seul le pourcentage est fiable.";
+
+    private static readonly MetricReading RelativeUnitsReading = new(null, "non mesuré", "", RelativeUnitsNote);
+
     public static IEnumerable<MetricDefinition> FromSnapshot(HardwareSnapshot snapshot)
     {
         BatterySnapshot? battery = snapshot.Battery;
+        bool relative = battery?.IsCapacityRelative == true;
 
-        if (snapshot.PsuPowerWatts is not null || battery?.RateMw is not null)
+        // En unités relatives, les métriques en W, mA et mAh restent proposées pour dire à l'utilisateur pourquoi
+        // elles ne sont pas mesurables, plutôt que de disparaître sans explication.
+        if (snapshot.PsuPowerWatts is not null || battery?.RateMw is not null || relative)
         {
             yield return Describe(MetricCatalog.Numeric("power.total", MetricCatalog.Power, "Conso totale du PC", "total", "W", "0.0",
                     s => TotalPowerWatts(s.Hardware)),
                 "Puissance consommée par tout le PC. Mesurée par l'alimentation connectée sur un fixe ; sur un portable, " +
                 "c'est la décharge de la batterie, donc mesurable seulement sur batterie (\"secteur\" sinon).",
-                read: s => s.Hardware.PsuPowerWatts is null && s.Hardware.Battery is { PowerOnline: true }
-                    ? new MetricReading(null, "secteur", "", OnMainsNote)
+                read: s => s.Hardware.PsuPowerWatts is not null ? null
+                    : s.Hardware.Battery is { IsCapacityRelative: true } ? RelativeUnitsReading
+                    : s.Hardware.Battery is { PowerOnline: true } ? new MetricReading(null, "secteur", "", OnMainsNote)
                     : null);
         }
 
         if (battery is null) yield break;
 
-        if (battery.RateMw is not null)
+        if (battery.RateMw is not null || relative)
         {
             yield return Signed("battery.rate.w", "Charge/décharge (W)", "W", "0.0", 10, s => s.Hardware.Battery?.RateMw / 1000);
         }
 
-        if (battery.RateMa is not null)
+        if (battery.RateMa is not null || relative)
         {
             yield return Signed("battery.rate.ma", "Charge/décharge (mA)", "mA", "0", 500, s => s.Hardware.Battery?.RateMa);
         }
@@ -52,7 +63,15 @@ public static class PowerMetricCatalog
         {
             yield return Capacity(fullMah);
         }
+        else if (relative)
+        {
+            yield return Capacity(null);
+        }
     }
+
+    /// <summary>"non mesuré" et son explication quand la batterie ne parle qu'en unités relatives, null sinon.</summary>
+    private static MetricReading? RelativeUnits(MetricSample s)
+        => s.Hardware.Battery is { IsCapacityRelative: true } ? RelativeUnitsReading : null;
 
     /// <summary>Puissance totale en W : l'alimentation connectée si elle existe, sinon la décharge de la batterie.
     /// Null sur secteur, où rien ne la mesure.</summary>
@@ -80,15 +99,16 @@ public static class PowerMetricCatalog
             IsSigned = true,
             GraphMinimumScale = minimumScale,
             ReadGroup = SensorGroup.Battery,
-            Read = s => get(s) is { } v ? Format(v) : MetricReading.Missing,
+            Read = s => RelativeUnits(s) ?? (get(s) is { } v ? Format(v) : MetricReading.Missing),
             FormatNumber = Format,
         };
     }
 
     /// <summary>Capacité restante "actuelle / max" en mAh. Le max est la capacité nominale ajustée de l'usure
     /// (capacité à pleine charge) ; les deux sont convertis depuis les mWh du pilote à la tension mesurée.
-    /// La courbe suit la valeur actuelle, sur une échelle fixe allant jusqu'au max relevé à la découverte.</summary>
-    private static MetricDefinition Capacity(double fullMahAtDiscovery)
+    /// La courbe suit la valeur actuelle, sur une échelle fixe allant jusqu'au max relevé à la découverte (automatique
+    /// s'il n'est pas connu, batterie en unités relatives).</summary>
+    private static MetricDefinition Capacity(double? fullMahAtDiscovery)
     {
         static MetricReading FormatCurrent(double mah) => new(mah, mah.ToString("0", CultureInfo.CurrentCulture), "mAh");
 
@@ -101,9 +121,12 @@ public static class PowerMetricCatalog
             Description = "Charge restante / capacité maximale estimée (capacité nominale × état de santé), " +
                           "converties depuis les mWh du pilote à la tension actuelle.",
             ReadGroup = SensorGroup.Battery,
-            GraphMaximum = Math.Ceiling(fullMahAtDiscovery),
+            GraphMaximum = fullMahAtDiscovery is { } full ? Math.Ceiling(full) : null,
+            GraphMinimumScale = 100,
             Read = s =>
             {
+                if (RelativeUnits(s) is { } relative) return relative;
+
                 BatterySnapshot? b = s.Hardware.Battery;
                 if (b?.ToMah(b.RemainingMWh) is not { } current) return MetricReading.Missing;
 
