@@ -37,6 +37,25 @@ public sealed class AppSettings
 
     /// <summary>Réglages de l'onglet Processus.</summary>
     public ProcessesSettings Processes { get; set; } = new();
+
+    /// <summary>Comportement de la fenêtre principale de PCPerfSuite.</summary>
+    public AppWindowSettings Window { get; set; } = new();
+}
+
+/// <summary>
+/// Comportement de la fenêtre principale — des réglages propres à PCPerfSuite, à ne pas confondre
+/// avec les réglages Windows de <see cref="PerformanceTweak"/>.
+/// </summary>
+public sealed class AppWindowSettings
+{
+    /// <summary>Le bouton de fermeture range l'app dans la zone de notification au lieu de la quitter ;
+    /// on quitte alors par « Quitter » dans le menu de l'icône. Activé par défaut : le monitoring, les
+    /// courbes de ventilation et l'overlay en jeu n'ont d'intérêt que s'ils continuent fenêtre fermée.</summary>
+    public bool MinimizeToTrayOnClose { get; set; } = true;
+
+    /// <summary>Le message expliquant que l'app continue en arrière-plan n'est affiché qu'une fois :
+    /// passé la première fermeture, l'utilisateur sait où retrouver la fenêtre.</summary>
+    public bool TrayHintShown { get; set; }
 }
 
 /// <summary>
