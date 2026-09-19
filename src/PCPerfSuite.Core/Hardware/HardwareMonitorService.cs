@@ -10,8 +10,8 @@ namespace PCPerfSuite.Core.Hardware;
 /// Encapsule LibreHardwareMonitorLib pour exposer un instantané typé et
 /// indépendant du fabricant (Intel/AMD, NVIDIA/AMD/Intel) plutôt que l'arbre
 /// brut de capteurs. Nécessite les droits administrateur pour la plupart des
-/// capteurs (le pilote WinRing0 embarqué par la lib s'installe/se charge au
-/// premier accès).
+/// capteurs, qui passent par le pilote PawnIO (à installer séparément : sans lui, les
+/// capteurs bas niveau comme les températures CPU restent vides).
 /// </summary>
 public sealed class HardwareMonitorService : IFanController, IDisposable
 {

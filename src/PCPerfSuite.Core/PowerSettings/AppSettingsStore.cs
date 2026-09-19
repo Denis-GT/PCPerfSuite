@@ -32,6 +32,9 @@ public sealed class AppSettings
     /// <summary>Réglages de contrôle GPU (limite de puissance, overclocking, ventilateurs NVAPI).</summary>
     public GpuControlSettings Gpu { get; set; } = new();
 
+    /// <summary>Réglages de contrôle du processeur (limites de puissance en watts).</summary>
+    public CpuControlSettings Cpu { get; set; } = new();
+
     /// <summary>Réglages de l'overlay en jeu (RTSS et/ou fenêtre PCPerfSuite).</summary>
     public OverlaySettings Overlay { get; set; } = new();
 
@@ -145,6 +148,29 @@ public sealed class GpuControlSettings
         if (VoltageBoostPercent is { } legacy) return (legacy, GpuVoltageUnit.Percent);
         return null;
     }
+}
+
+/// <summary>
+/// Réglages du processeur. Les limites de puissance ne survivent pas à un redémarrage (le firmware les
+/// repose à chaque démarrage) : ce qui est enregistré ici sert à les réappliquer, jamais à supposer
+/// qu'elles sont encore en place.
+/// </summary>
+public sealed class CpuControlSettings
+{
+    /// <summary>Limite soutenue en watts (PL1 chez Intel, PPT/STAPM chez AMD) — null tant que
+    /// l'utilisateur n'y a pas touché, auquel cas on laisse le processeur tel que le firmware l'a réglé.</summary>
+    public float? SustainedWatts { get; set; }
+
+    /// <summary>Limite courte durée en watts (PL2 chez Intel, limite rapide chez AMD).</summary>
+    public float? BurstWatts { get; set; }
+
+    /// <summary>Réapplique les limites au lancement — et, dans ce cas seulement, les laisse en place en
+    /// quittant. Décoché (défaut), le processeur repart toujours de ses limites d'origine.</summary>
+    public bool ApplyAtStartup { get; set; }
+
+    /// <summary>L'utilisateur a lu et accepté l'avertissement avant la première écriture. Mémorisé pour ne
+    /// pas le reposer à chaque réglage.</summary>
+    public bool RiskAccepted { get; set; }
 }
 
 public sealed class OverlaySettings

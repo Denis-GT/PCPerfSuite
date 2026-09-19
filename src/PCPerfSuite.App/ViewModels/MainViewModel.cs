@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -17,10 +18,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// Ventilateurs (ventilateur GPU) parlent à la même carte.</summary>
     private readonly GpuControlService _gpuControl = new();
 
+    /// <summary>Réglage bas niveau du processeur : réglages d'alimentation Windows sur toutes les
+    /// plateformes, et limites de puissance en watts via PawnIO sur Intel/AMD.</summary>
+    private readonly CpuControlService _cpuControl = new();
+
     private readonly MonitoringViewModel _monitoring;
     private readonly ProcessesViewModel _processes;
     private readonly FanCurvesViewModel _fans;
     private readonly GpuControlViewModel _gpu;
+    private readonly CpuControlViewModel _cpu;
     private readonly OverlayViewModel _overlay;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
@@ -38,6 +44,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public AppSettingsViewModel AppSettings { get; }
     public FanCurvesViewModel Fans => _fans;
     public GpuControlViewModel Gpu => _gpu;
+    public CpuControlViewModel Cpu => _cpu;
     public OverlayViewModel Overlay => _overlay;
 
     public ObservableCollection<NavEntry> NavItems { get; }
@@ -60,6 +67,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
         AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _fans, _gpu));
@@ -74,6 +82,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new("Optimisation Windows", Glyph(0xEC4A), Optimization),
             new("Ventilateurs", Glyph(0xE9CA), _fans),
             new("GPU", Glyph(0xE950), _gpu),
+            new("Processeur", Glyph(0xE964), _cpu),
             new("Overlay", Glyph(0xE7FC), _overlay),
         };
 
@@ -114,9 +123,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _processes.Dispose();
         _fans.Dispose();
         _gpu.Dispose();
+        _cpu.Dispose();
         _overlay.Dispose();
         _monitoring.Dispose();
         _gpuControl.Dispose();
+        _cpuControl.Dispose();
         _hardware.Dispose();
     }
 }

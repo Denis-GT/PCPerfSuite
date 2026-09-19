@@ -112,6 +112,8 @@
                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
             <views:GpuControlView DataContext="{Binding Gpu}"
                                   Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=GPU}"/>
+            <views:CpuControlView DataContext="{Binding Cpu}"
+                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processeur}"/>
             <views:OverlayView DataContext="{Binding Overlay}"
                                Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Overlay}"/>
         </Grid>

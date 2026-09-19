@@ -50,6 +50,10 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **GPU** — overclocking NVIDIA, AMD Radeon et Intel Arc : décalage d'horloge cœur et
   mémoire, limite de puissance, limite de température, tension quand la carte l'accepte,
   profils enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
+- **Processeur** — deux étages : les réglages d'alimentation Windows (mode boost, fréquence max,
+  EPP), qui marchent sur Intel, AMD *et* Snapdragon sans pilote ; et la limite de puissance en watts
+  (PL1/PL2 sur Intel, PPT/STAPM sur AMD), avec relecture systématique de ce que le processeur a
+  réellement retenu et sécurité thermique. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
   transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
   Détail plus bas.
@@ -134,6 +138,58 @@ l'onglet l'explique au lieu d'afficher des curseurs sans effet.
 Le ventilateur du GPU n'est pas dans cet onglet : il est dans **Ventilateurs** avec tous les autres
 (avec passage forcé à 100 % au-delà de 88 °C tant que l'app le pilote).
 
+## Processeur
+
+L'onglet **Processeur** a deux étages.
+
+### Réglages d'alimentation (Intel, AMD et Snapdragon)
+
+Les réglages processeur du plan d'alimentation Windows actif : mode boost, état minimal et maximal,
+fréquence maximale en MHz, et arbitrage performance/économie (EPP). Sans pilote, sans risque, et avec
+une valeur « sur secteur » et une valeur « sur batterie » sur les portables. Sur les processeurs
+hybrides (Intel 12e génération et plus, Snapdragon X), les réglages propres aux cœurs rapides
+apparaissent en plus.
+
+Tout passe par l'API `powrprof` et non par `powercfg.exe` : la moitié de ces réglages sont masqués
+par défaut et n'apparaissent pas dans la sortie de `powercfg`, dont le texte est en plus traduit dans
+la langue de Windows, donc impossible à analyser de façon fiable. Chaque modification est relue : si
+Windows retient autre chose, l'onglet l'affiche.
+
+C'est le seul étage disponible sur Snapdragon, où le reste est verrouillé par le firmware.
+
+### Limite de puissance en watts (Intel et AMD)
+
+Le second étage règle la puissance que le CPU a le droit de consommer, en watts. C'est le réglage qui
+change le plus le comportement d'un PC : l'abaisser fait chuter température, bruit et consommation
+pour une perte de performance souvent minime (utile sur un portable), le relever laisse le processeur
+tenir ses fréquences plus longtemps quand le refroidissement suit.
+
+- **Intel** : PL1 (limite soutenue) et PL2 (limite de pointe), via le registre `MSR_PKG_POWER_LIMIT`
+  — le même que règle le BIOS. Si le BIOS a posé son verrou (bit 63), l'onglet le dit et n'écrit
+  rien : seul un redémarrage peut le lever, et encore, si le BIOS ne le repose pas.
+- **AMD** : PPT sur les processeurs de bureau (Ryzen 3000 à 9000), et STAPM + limites lente/rapide
+  sur les portables (Ryzen 4000 à 8040), via la SMU — le même chemin que Ryzen Master.
+- **Snapdragon** : impossible. La fréquence, la tension et les limites de puissance sont verrouillées
+  par le firmware Qualcomm et aucune interface publique ne permet d'y toucher. L'onglet l'affiche en
+  « N/D » avec cette explication plutôt que de laisser croire à une panne.
+
+Garde-fous :
+
+- Les valeurs sont bornées : jamais moins de 5 W, jamais plus de 1,5 fois la limite d'usine.
+- **Chaque écriture est relue.** Un MSR comme un SMU peut accepter une consigne et n'en rien faire :
+  si le firmware impose la sienne, l'onglet affiche la valeur réellement retenue au lieu d'annoncer
+  un succès en l'air.
+- Un avertissement est à accepter une fois avant le premier réglage.
+- **Sécurité thermique** : si le processeur reste à 98 °C pendant 15 secondes avec une limite
+  relevée, l'app rétablit d'elle-même les limites d'origine.
+- Rien n'est appliqué au lancement et tout repart d'origine en quittant, sauf si tu coches
+  « Appliquer au démarrage ». De toute façon, **les limites ne survivent pas à un redémarrage** :
+  le firmware les repose à chaque démarrage, ce qui fait du bouton d'arrêt le filet de sécurité
+  ultime.
+
+Cet étage a besoin du pilote **PawnIO** (voir « Points d'attention ») : sans lui, l'onglet affiche
+« N/D » et propose de l'installer.
+
 ## Courbes de ventilation
 
 Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
@@ -196,11 +252,17 @@ lui, couvre NVIDIA, AMD et Intel.
   automatiquement au lancement — Windows affichera l'invite UAC. Sans ça, la plupart des
   capteurs et tous les réglages système resteront inaccessibles (l'app te le signale dans
   l'interface plutôt que de planter).
-- **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : si cette
-  option est activée dans Windows, elle peut bloquer le pilote (WinRing0) utilisé par
-  LibreHardwareMonitor pour lire certains capteurs bas niveau. L'app affiche l'état de ce
-  réglage dans l'onglet Optimisation Windows avec un lien direct vers le réglage Windows concerné —
-  à toi de juger le compromis sécurité/monitoring.
+- **Pilote PawnIO** : les capteurs bas niveau et la limite de puissance du processeur passent
+  par [PawnIO](https://pawnio.eu/), un pilote signé et à jour. Il remplace WinRing0, que Windows
+  Defender signale depuis 2025 comme pilote vulnérable (CVE-2020-14979) et que la liste de blocage
+  des pilotes refuse de charger. PawnIO n'ouvre pas un accès brut au matériel : il exécute des
+  modules signés qui décident eux-mêmes de ce qu'ils autorisent, et un accès refusé est affiché
+  comme tel par l'app. Prends simplement la dernière version proposée par son site (testé avec la
+  2.2.0). L'onglet Processeur affiche la version installée, et entre parenthèses la version de
+  l'interface de programmation, qui est celle que renvoie le pilote lui-même.
+- **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : cette option
+  n'empêche pas PawnIO de fonctionner (contrairement à WinRing0), mais l'app affiche quand même
+  l'état du réglage dans l'onglet Optimisation Windows, avec un lien direct vers le réglage Windows.
 - **Fermer la fenêtre n'arrête pas l'app** (voir « Zone de notification » plus haut). Tant
   qu'elle tourne, les ventilateurs pilotés par une courbe restent sous son contrôle : c'est
   « Quitter » depuis l'icône qui les repasse en automatique et rend la carte au pilote.
