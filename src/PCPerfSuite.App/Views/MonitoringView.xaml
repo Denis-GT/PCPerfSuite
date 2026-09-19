@@ -138,7 +138,7 @@
                                     </StackPanel>
                                     <!-- Min, moyenne et max depuis le démarrage (ou la dernière remise à zéro), face à la
                                          valeur en direct et au tiers de sa taille : c'est l'instantané qui se lit en
-                                         premier. Sans unité, elle est juste à côté. -->
+                                         premier. Sans unité si elle est la même que la valeur en direct juste à côté. -->
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0"
                                                 Typography.NumeralAlignment="Tabular"
                                                 ToolTip="Min, moyenne et max depuis le démarrage ou la dernière remise à zéro">

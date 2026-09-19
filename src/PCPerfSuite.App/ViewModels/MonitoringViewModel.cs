@@ -113,8 +113,8 @@ public sealed partial class MetricTileViewModel : ObservableObject
     [ObservableProperty] private string unit = "";
 
     /// <summary>Min, moyenne et max depuis le démarrage ou la dernière remise à zéro, affichés en petit face
-    /// à la valeur en direct. Sans unité : celle de la valeur en direct est juste à côté, la répéter trois
-    /// fois mangerait la largeur de la tuile pour rien.</summary>
+    /// à la valeur en direct. Sans unité quand elle est la même que celle de la valeur en direct (juste à
+    /// côté) ; répétée sinon, pour un débit dont l'échelle (o/s, Ko/s, Mo/s...) diffère de celle du direct.</summary>
     [ObservableProperty] private string minimumDisplay = "--";
     [ObservableProperty] private string averageDisplay = "--";
     [ObservableProperty] private string maximumDisplay = "--";
@@ -124,8 +124,8 @@ public sealed partial class MetricTileViewModel : ObservableObject
     /// chiffre affiché juste au-dessus.</summary>
     public Func<double, string> FormatSample { get; }
 
-    /// <summary>Le nombre seul, arrondi comme la valeur en direct mais sans son unité.</summary>
-    private readonly Func<double, string> _formatNumber;
+    /// <summary>Met en forme une valeur d'historique exactement comme la valeur courante de la tuile.</summary>
+    private readonly Func<double, MetricReading> _format;
 
     public MetricTileViewModel(MetricDefinition definition, SampleHistory history)
     {
@@ -136,7 +136,7 @@ public sealed partial class MetricTileViewModel : ObservableObject
             ?? new MetricReading(value, value.ToString("0.##", CultureInfo.CurrentCulture), "");
 
         FormatSample = value => Read(value).Text;
-        _formatNumber = value => Read(value).Value;
+        _format = Read;
 
         var color = (Color)ColorConverter.ConvertFromString(definition.Category.DefaultColor);
         LineBrush = Frozen(new SolidColorBrush(color));
@@ -156,9 +156,19 @@ public sealed partial class MetricTileViewModel : ObservableObject
     public void RefreshStats()
     {
         RunningStats stats = History.Stats;
-        MinimumDisplay = stats.HasValue ? _formatNumber(stats.Minimum) : "--";
-        AverageDisplay = stats.HasValue ? _formatNumber(stats.Average) : "--";
-        MaximumDisplay = stats.HasValue ? _formatNumber(stats.Maximum) : "--";
+        MinimumDisplay = FormatStat(stats.HasValue, stats.Minimum);
+        AverageDisplay = FormatStat(stats.HasValue, stats.Average);
+        MaximumDisplay = FormatStat(stats.HasValue, stats.Maximum);
+    }
+
+    /// <summary>Bare pour une unité fixe (déjà celle de la valeur en direct juste à côté) ; sinon avec son
+    /// unité, car un débit change d'échelle (o/s, Ko/s, Mo/s...) et taire l'unité tromperait sur la grandeur.</summary>
+    private string FormatStat(bool hasValue, double value)
+    {
+        if (!hasValue) return "--";
+
+        MetricReading reading = _format(value);
+        return reading.Unit == Unit ? reading.Value : reading.Text;
     }
 
     private static Brush Frozen(SolidColorBrush brush)
