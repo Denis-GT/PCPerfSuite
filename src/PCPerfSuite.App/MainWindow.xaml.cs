@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     /// Paramètres prenne effet immédiatement, sans relire le fichier à chaque fermeture.</summary>
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (_isQuitting || !_viewModel.Settings.MinimizeToTrayOnClose) return;
+        if (_isQuitting || !_viewModel.AppSettings.MinimizeToTrayOnClose) return;
 
         // Sans icône réellement inscrite auprès du shell, masquer la fenêtre la rendrait
         // irrécupérable : on laisse alors la fermeture suivre son cours normal.

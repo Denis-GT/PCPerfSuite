@@ -84,7 +84,9 @@ public sealed partial class TweakItemViewModel : ObservableObject
     }
 }
 
-public sealed partial class SettingsViewModel : ObservableObject
+/// <summary>Onglet "Optimisation Windows" : réglages de performance de Windows, y compris ceux masqués dans les
+/// menus standards. Les réglages de l'app elle-même sont dans <see cref="AppSettingsViewModel"/>.</summary>
+public sealed partial class OptimizationViewModel : ObservableObject
 {
     private readonly WindowsPerformanceSettingsService _service = new();
 
@@ -93,33 +95,13 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool isLoading;
 
-    /// <summary>Diagnostic "Compatibilité de ce PC", fourni par <see cref="MainViewModel"/> qui détient les services matériels.</summary>
-    [ObservableProperty] private CompatibilityViewModel? compatibility;
-
-    /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
-    [ObservableProperty] private bool minimizeToTrayOnClose;
-
-    public SettingsViewModel()
+    public OptimizationViewModel()
     {
-        // Le champ plutôt que la propriété : passer par la propriété déclencherait l'enregistrement
-        // du fichier au démarrage, avant toute action de l'utilisateur.
-        minimizeToTrayOnClose = AppSettingsStore.Load().Window?.MinimizeToTrayOnClose ?? true;
-
         foreach (PerformanceTweak tweak in _service.GetTweaks())
         {
             Tweaks.Add(new TweakItemViewModel(tweak));
         }
         _ = LoadCommand.ExecuteAsync(null);
-    }
-
-    partial void OnMinimizeToTrayOnCloseChanged(bool value)
-    {
-        // Relit le fichier plutôt que de garder une copie : les autres onglets y écrivent aussi.
-        AppSettings settings = AppSettingsStore.Load();
-        AppWindowSettings window = settings.Window ?? new AppWindowSettings();
-        window.MinimizeToTrayOnClose = value;
-        settings.Window = window;
-        AppSettingsStore.Save(settings);
     }
 
     [RelayCommand]

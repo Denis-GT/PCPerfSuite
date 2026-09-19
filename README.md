@@ -33,12 +33,15 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   dossier" et "Nettoyer".
 - **Stockage** — carte proportionnelle (treemap) de ce qui occupe un disque, avec menu
   contextuel (ouvrir, explorer, supprimer) sur chaque bloc.
-- **Paramètres** — le comportement de PCPerfSuite, puis les réglages Windows, y compris
-  ceux qui sont masqués : plan d'alimentation
+- **Optimisation Windows** — les réglages de performance de Windows, y compris ceux qui
+  sont masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
   par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
+- **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
+  onglets : Général (zone de notification), Compatibilité de ce PC (voir plus bas) et Thèmes
+  (à venir).
 - **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
   celui du GPU** (NVAPI). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
@@ -53,7 +56,7 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **Zone de notification** — la croix ne quitte pas l'app, elle la range près de l'horloge :
   le monitoring, les courbes de ventilation et l'overlay continuent de tourner pendant que tu
   joues. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer
-  vraiment. Décochable dans Paramètres si tu préfères que la croix ferme l'app.
+  vraiment. Décochable dans Paramètres › Général si tu préfères que la croix ferme l'app.
 
 ## Overlay en jeu
 
@@ -174,7 +177,7 @@ lui, couvre NVIDIA, AMD et Intel.
 - **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : si cette
   option est activée dans Windows, elle peut bloquer le pilote (WinRing0) utilisé par
   LibreHardwareMonitor pour lire certains capteurs bas niveau. L'app affiche l'état de ce
-  réglage dans l'onglet Paramètres avec un lien direct vers le réglage Windows concerné —
+  réglage dans l'onglet Optimisation Windows avec un lien direct vers le réglage Windows concerné —
   à toi de juger le compromis sécurité/monitoring.
 - **Fermer la fenêtre n'arrête pas l'app** (voir « Zone de notification » plus haut). Tant
   qu'elle tourne, les ventilateurs pilotés par une courbe restent sous son contrôle : c'est

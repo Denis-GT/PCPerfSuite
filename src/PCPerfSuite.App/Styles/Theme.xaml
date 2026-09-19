@@ -375,6 +375,51 @@
         </Setter>
     </Style>
 
+    <!-- Bouton de la barre latérale hors de la liste (Paramètres, en bas) : même rendu que NavListItem.
+         Content est un NavEntry (Title, Icon) ; Tag à True le montre actif. -->
+    <Style x:Key="NavButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid Margin="10,1">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="10" Padding="12,9">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="28"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="Glyph" Grid.Column="0" Style="{StaticResource Icon}" HorizontalAlignment="Left"
+                                           Text="{Binding Content.Icon, RelativeSource={RelativeSource TemplatedParent}}"/>
+                                <TextBlock Grid.Column="1" FontSize="13.5" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" RenderOptions.ClearTypeHint="Enabled"
+                                           Text="{Binding Content.Title, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            </Grid>
+                        </Border>
+                        <Border x:Name="Indicator" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left"
+                                Background="{StaticResource AccentBrush}" Visibility="Hidden"/>
+                    </Grid>
+                    <!-- Ordre significatif : l'état actif, déclaré après le survol, l'emporte. -->
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        </Trigger>
+                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SelectedBrush}"/>
+                            <Setter TargetName="Indicator" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Sélecteur segmenté : des RadioButton côte à côte dans un SegmentedGroup ; l'option active prend
          l'accent (même rendu que PillSelector, pour des choix liés à une propriété enum). -->
     <Style x:Key="SegmentedGroup" TargetType="Border">
