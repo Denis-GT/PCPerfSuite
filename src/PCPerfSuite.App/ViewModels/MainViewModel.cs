@@ -48,6 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
+        _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
 
         NavItems = new ObservableCollection<NavEntry>

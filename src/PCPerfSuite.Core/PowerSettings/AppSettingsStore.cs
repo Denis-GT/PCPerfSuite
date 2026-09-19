@@ -114,8 +114,23 @@ public sealed class GpuControlSettings
     /// <summary>Limite de température en °C — null tant que l'utilisateur n'y a pas touché.</summary>
     public int? TemperatureLimitC { get; set; }
 
-    /// <summary>Surtension cœur en % (API réservée aux GPU Pascal) — null si jamais modifiée.</summary>
+    /// <summary>Ancien champ : surtension cœur NVIDIA en %. Relu tant que <see cref="VoltageValue"/> est
+    /// vide, pour ne pas perdre les réglages des versions précédentes.</summary>
     public int? VoltageBoostPercent { get; set; }
+
+    /// <summary>Tension choisie, dans l'unité <see cref="VoltageUnit"/> — null si jamais modifiée.</summary>
+    public int? VoltageValue { get; set; }
+
+    public GpuVoltageUnit? VoltageUnit { get; set; }
+
+    /// <summary>Marque de la carte sur laquelle ces réglages ont été faits (null = NVIDIA, seule marque
+    /// gérée avant). Après un changement de carte, on ne réapplique pas au démarrage un overclock pensé
+    /// pour une autre.</summary>
+    public GpuVendor? OverclockVendor { get; set; }
+
+    /// <summary>Intel exige que l'utilisateur accepte explicitement la renonciation de garantie avant
+    /// tout overclock ; l'accord est mémorisé ici, comme le prévoit la documentation IGCL.</summary>
+    public bool IntelOverclockWaiverAccepted { get; set; }
 
     /// <summary>Profils d'overclocking enregistrés par l'utilisateur.</summary>
     public List<GpuOverclockProfile> OverclockProfiles { get; set; } = new();
@@ -123,6 +138,13 @@ public sealed class GpuControlSettings
     /// <summary>Réapplique l'overclock au lancement de l'app — et, dans ce cas seulement, le laisse en
     /// place en quittant. Décoché (défaut), la carte repart toujours d'origine.</summary>
     public bool ApplyOverclockAtStartup { get; set; }
+
+    public (int Value, GpuVoltageUnit Unit)? GetVoltage()
+    {
+        if (VoltageValue is { } value) return (value, VoltageUnit ?? GpuVoltageUnit.Percent);
+        if (VoltageBoostPercent is { } legacy) return (legacy, GpuVoltageUnit.Percent);
+        return null;
+    }
 }
 
 public sealed class OverlaySettings

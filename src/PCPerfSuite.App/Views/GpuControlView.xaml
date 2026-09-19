@@ -6,12 +6,12 @@
     <ScrollViewer Padding="{StaticResource PagePadding}">
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
             <controls:PageHeader Title="GPU"
-                                 Subtitle="Overclocking via NVAPI, comme les curseurs de MSI Afterburner : décalage d'horloge cœur/mémoire, limite de puissance, limite de température et surtension, avec profils enregistrés. Les plages autorisées sont celles annoncées par ton pilote, et chaque réglage refusé par la carte est signalé plutôt que silencieux. Le ventilateur du GPU se règle dans l'onglet « Ventilateurs », avec tous les autres."/>
+                                 Subtitle="Overclocking façon MSI Afterburner pour les cartes NVIDIA (NVAPI), AMD Radeon (ADLX) et Intel Arc (IGCL) : décalage d'horloge cœur/mémoire, limite de puissance, limite de température et tension, avec profils enregistrés. Les plages autorisées sont celles annoncées par ton pilote, et chaque réglage refusé ou absent est signalé plutôt que silencieux. Le ventilateur du GPU se règle dans l'onglet « Ventilateurs », avec tous les autres."/>
 
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                           Text="Aucun GPU NVIDIA piloté par NVAPI détecté (pas de GPU NVIDIA, pilote absent, ou app pas lancée en administrateur)."/>
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                           Text="Aucun GPU pilotable détecté. L'overclocking fonctionne avec une carte NVIDIA, une AMD Radeon RX 5000 ou plus récente, ou une Intel Arc, avec le pilote du constructeur installé et l'app lancée en administrateur. Les GPU intégrés (Intel UHD/Iris, Radeon des processeurs AMD) et les autres marques n'exposent pas de réglages d'overclocking."/>
             </Border>
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">
@@ -29,10 +29,13 @@
                                     <TextBlock Text="&#xE950;" Style="{StaticResource Icon}" FontSize="18" Foreground="White"
                                                HorizontalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Text="{Binding GpuName}" Style="{StaticResource H2}" FontSize="17" TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center" Margin="14,0,0,0"/>
+                                <StackPanel VerticalAlignment="Center" Margin="14,0,0,0">
+                                    <TextBlock Text="{Binding GpuName}" Style="{StaticResource H2}" FontSize="17" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding VendorLabel}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                </StackPanel>
                             </StackPanel>
-                            <Border Grid.Column="1" Style="{StaticResource BadgeAccent}" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <Border Grid.Column="1" Style="{StaticResource BadgeAccent}" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    ToolTip="{Binding ActiveLimitTooltip}">
                                 <TextBlock Style="{StaticResource BadgeText}">
                                     <Run Text="Bridé par :"/>
                                     <Run Text="{Binding ActiveLimitText, Mode=OneWay}"/>
@@ -117,39 +120,54 @@
                         <TextBlock Text="Plages annoncées par le pilote. Chaque curseur s'applique quelques instants après avoir été relâché."
                                    Style="{StaticResource Caption}" Margin="0,4,0,0"/>
 
-                        <!-- Limite de puissance -->
-                        <Grid Margin="0,16,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="170"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="90"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Limite de puissance" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
-                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                    Value="{Binding PowerLimitPercent, Delay=250}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                       Text="{Binding PowerLimitPercent, StringFormat={}{0:0}%}"/>
-                        </Grid>
+                        <!-- Accord Intel : IGCL refuse tout overclock tant que l'utilisateur n'a pas accepté -->
+                        <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
+                                Visibility="{Binding IsWaiverRequired, Converter={StaticResource BoolToVisibility}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                                           Text="Intel demande ton accord avant tout overclocking : pousser fréquences, tension ou limites augmente les contraintes électriques et thermiques et peut réduire la durée de vie de la carte (renonciation de garantie Intel). Coche pour accepter ; ton choix est mémorisé."/>
+                                <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsWaiverAccepted}"
+                                          VerticalAlignment="Center" Margin="14,0,0,0"/>
+                            </Grid>
+                        </Border>
 
-                        <!-- Limite de température -->
-                        <Grid Margin="0,12,0,0" Visibility="{Binding IsTemperatureLimitSupported, Converter={StaticResource BoolToVisibility}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="170"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="90"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Limite de température" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="{Binding TemperatureLimitMin}" Maximum="{Binding TemperatureLimitMax}"
-                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                    Value="{Binding TemperatureLimitC, Delay=250}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                       Text="{Binding TemperatureLimitC, StringFormat={}{0:0} °C}"/>
-                        </Grid>
+                        <StackPanel IsEnabled="{Binding CanOverclock}">
+                            <!-- Limite de puissance -->
+                            <Grid Margin="0,16,0,0" Visibility="{Binding IsPowerLimitSupported, Converter={StaticResource BoolToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Limite de puissance" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding PowerLimitPercent, Delay=250}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                           Text="{Binding PowerLimitPercent, StringFormat={}{0:0}%}"/>
+                            </Grid>
 
-                        <!-- Décalages d'horloge -->
-                        <StackPanel Visibility="{Binding IsClockOffsetSupported, Converter={StaticResource BoolToVisibility}}">
-                            <Grid Margin="0,12,0,0">
+                            <!-- Limite de température -->
+                            <Grid Margin="0,12,0,0" Visibility="{Binding IsTemperatureLimitSupported, Converter={StaticResource BoolToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Limite de température" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="{Binding TemperatureLimitMin}" Maximum="{Binding TemperatureLimitMax}"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding TemperatureLimitC, Delay=250}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                           Text="{Binding TemperatureLimitC, StringFormat={}{0:0} °C}"/>
+                            </Grid>
+
+                            <!-- Décalages d'horloge -->
+                            <Grid Margin="0,12,0,0" Visibility="{Binding IsCoreOffsetSupported, Converter={StaticResource BoolToVisibility}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="170"/>
                                     <ColumnDefinition Width="*"/>
@@ -163,7 +181,7 @@
                                            Text="{Binding CoreOffsetMhz, StringFormat='{}{0:+0;-0;0} MHz'}"/>
                             </Grid>
 
-                            <Grid Margin="0,12,0,0">
+                            <Grid Margin="0,12,0,0" Visibility="{Binding IsMemoryOffsetSupported, Converter={StaticResource BoolToVisibility}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="170"/>
                                     <ColumnDefinition Width="*"/>
@@ -173,30 +191,35 @@
                                 <Slider Grid.Column="1" Minimum="{Binding MemoryOffsetMin}" Maximum="{Binding MemoryOffsetMax}"
                                         IsSnapToTickEnabled="True" TickFrequency="5"
                                         Value="{Binding MemoryOffsetMhz, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding MemoryOffsetMhz, StringFormat='{}{0:+0;-0;0} MHz'}"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center">
+                                    <Run Text="{Binding MemoryOffsetMhz, StringFormat='{}{0:+0;-0;0}', Mode=OneWay}"/>
+                                    <Run Text="{Binding MemoryOffsetUnit, Mode=OneWay}"/>
+                                </TextBlock>
                             </Grid>
 
-                            <TextBlock Text="{Binding AppliedOffsetsText}" Style="{StaticResource Caption}" Margin="170,8,0,0" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding AppliedOffsetsText}" Style="{StaticResource Caption}" Margin="170,8,0,0" TextWrapping="Wrap"
+                                       Visibility="{Binding IsClockOffsetSupported, Converter={StaticResource BoolToVisibility}}"/>
+
+                            <!-- Tension : % chez NVIDIA (Pascal), mV chez AMD et Intel -->
+                            <Grid Margin="0,12,0,0" Visibility="{Binding IsVoltageSupported, Converter={StaticResource BoolToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding VoltageLabel}" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" Minimum="{Binding VoltageMin}" Maximum="{Binding VoltageMax}"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding VoltageValue, Delay=400}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                           Text="{Binding VoltageText}"/>
+                            </Grid>
                         </StackPanel>
 
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
-                                   Visibility="{Binding IsClockOffsetSupported, Converter={StaticResource InverseBoolToVisibility}}"
-                                   Text="Ton pilote n'expose pas les décalages d'horloge (P-States 2.0) pour cette carte : la limite de puissance, la limite de température et la ventilation restent disponibles."/>
-
-                        <!-- Surtension (Pascal uniquement) -->
-                        <Grid Margin="0,12,0,0" Visibility="{Binding IsVoltageBoostSupported, Converter={StaticResource BoolToVisibility}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="170"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="90"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Surtension cœur" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="5"
-                                    Value="{Binding VoltageBoostPercent, Delay=400}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                       Text="{Binding VoltageBoostPercent, StringFormat={}{0:0}%}"/>
-                        </Grid>
+                        <!-- Ce que la carte n'expose pas, avec la raison -->
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Text="{Binding UnsupportedNotes}"
+                                   Visibility="{Binding UnsupportedNotes, Converter={StaticResource NullToVisibility}}"/>
 
                         <!-- Persistance -->
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>
