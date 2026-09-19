@@ -12,6 +12,12 @@ public sealed partial class MetricOptionViewModel : ObservableObject
 
     [ObservableProperty] private bool isSelected;
 
+    /// <summary>Vrai quand ce PC ne fournit pas la valeur : l'option reste cochable mais est signalée, pour qu'on
+    /// sache avant de l'afficher qu'elle vaudra "N/D".</summary>
+    [ObservableProperty] private bool isUnavailable;
+
+    public string UnavailableHint => Definition.UnavailableHint;
+
     public MetricOptionViewModel(MetricDefinition definition, bool selected, Action onChanged)
     {
         Definition = definition;
@@ -83,6 +89,15 @@ public sealed partial class MetricSelectionViewModel : ObservableObject
             .ToList();
         Selected = CollectSelected();
         if (selectionGrew) SelectionChanged?.Invoke();
+    }
+
+    /// <summary>Signale les métriques que ce PC ne fournit pas, d'après le dernier relevé.</summary>
+    public void UpdateAvailability(MetricSample sample)
+    {
+        foreach (MetricOptionViewModel option in _options)
+        {
+            option.IsUnavailable = option.Definition.Read(sample).IsUnavailable;
+        }
     }
 
     private void OnOptionChanged()

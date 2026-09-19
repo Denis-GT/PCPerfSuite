@@ -16,7 +16,21 @@
                     <ItemsControl ItemsSource="{Binding Items}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" Margin="0,3"/>
+                                <!-- Métrique que ce PC ne fournit pas : toujours cochable, mais signalée (et expliquée
+                                     au survol) pour qu'on sache d'avance qu'elle affichera "N/D". -->
+                                <CheckBox x:Name="Option" IsChecked="{Binding IsSelected}" Margin="0,3">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Non disponible sur ce PC" Style="{StaticResource Caption}" FontSize="11"
+                                                   Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}"/>
+                                    </StackPanel>
+                                </CheckBox>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
+                                        <Setter TargetName="Option" Property="Opacity" Value="0.55"/>
+                                        <Setter TargetName="Option" Property="ToolTip" Value="{Binding UnavailableHint}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

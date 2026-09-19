@@ -172,13 +172,23 @@
                                 </Grid>
                                 <!-- Clic gauche : épingle la valeur exacte du relevé visé (glisser pour la déplacer,
                                      clic droit ou Échap pour l'enlever). -->
-                                <controls:Sparkline Series="{Binding History}" Height="64" Margin="0,10,0,0"
+                                <controls:Sparkline x:Name="Graph" Series="{Binding History}" Height="64" Margin="0,10,0,0"
                                                     LineBrush="{Binding LineBrush}" FillBrush="{Binding FillBrush}"
                                                     AutoScale="{Binding AutoScale}" Maximum="{Binding GraphMaximum}"
                                                     MinimumScale="{Binding MinimumScale}"
                                                     ValueFormatter="{Binding FormatSample}"/>
+                                <!-- "N/D" : à la place d'une courbe vide, pourquoi ce PC ne fournit pas la valeur. -->
+                                <TextBlock x:Name="UnavailableHint" Text="{Binding UnavailableHint}" Style="{StaticResource Caption}"
+                                           TextWrapping="Wrap" Height="64" Margin="0,10,0,0" Visibility="Collapsed"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding UnavailableHint}"/>
                             </StackPanel>
                         </Border>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
+                                <Setter TargetName="Graph" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="UnavailableHint" Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

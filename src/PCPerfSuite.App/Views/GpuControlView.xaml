@@ -11,7 +11,7 @@
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
                 <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                           Text="Aucun GPU NVIDIA piloté par NVAPI détecté (pas de GPU NVIDIA, pilote absent, ou app pas lancée en administrateur)."/>
+                           Text="{Binding UnavailableMessage, Mode=OneTime}" TextWrapping="Wrap"/>
             </Border>
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">

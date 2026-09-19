@@ -146,6 +146,10 @@ public sealed class HardwareSnapshot
     /// <summary>Groupes effectivement relus pendant ce relevé ; les valeurs des autres sont celles de leur dernière lecture.</summary>
     public IReadOnlyCollection<SensorGroup> GroupsRead { get; init; } = Array.Empty<SensorGroup>();
 
+    /// <summary>Groupes lus au moins une fois depuis le démarrage : une valeur nulle d'un de ces groupes n'est
+    /// pas en attente de lecture, ce PC ne la fournit pas.</summary>
+    public IReadOnlyCollection<SensorGroup> GroupsEverRead { get; init; } = Array.Empty<SensorGroup>();
+
     /// <summary>Statistiques RTSS de l'application au premier plan — null hors jeu ou sans RTSS.</summary>
     public RtssFrameStats? Game { get; init; }
 }

@@ -165,6 +165,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private void OnMetricsUpdated(MetricSample sample)
     {
         _lastSample = sample;
+        Metrics.UpdateAvailability(sample);
 
         // Un relevé sur N, N entier : un rendu tombe toujours sur un relevé, à intervalle régulier. Un seuil en
         // millisecondes, lui, retombait tantôt sur un relevé, tantôt sur le suivant selon la gigue.

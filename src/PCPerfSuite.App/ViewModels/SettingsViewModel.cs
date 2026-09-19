@@ -93,6 +93,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool isLoading;
 
+    /// <summary>Diagnostic "Compatibilité de ce PC", fourni par <see cref="MainViewModel"/> qui détient les services matériels.</summary>
+    [ObservableProperty] private CompatibilityViewModel? compatibility;
+
     /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
     [ObservableProperty] private bool minimizeToTrayOnClose;
 

@@ -49,6 +49,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _overlay = new OverlayViewModel(_monitoring);
+        Settings.Compatibility = new CompatibilityViewModel(_hardware, _monitoring, _fans, _gpu);
 
         NavItems = new ObservableCollection<NavEntry>
         {

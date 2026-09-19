@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
@@ -60,6 +61,26 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private bool isAvailable;
     public bool IsUnavailable => !IsAvailable;
+
+    /// <summary>Pourquoi le contrôle GPU est absent sur ce PC : sans administrateur, pilote NVIDIA muet, ou GPU
+    /// d'une autre marque (le contrôle ne passe que par NVAPI, le monitoring, lui, couvre toutes les marques).</summary>
+    public string UnavailableMessage
+    {
+        get
+        {
+            if (!ElevationHelper.IsAdministrator())
+                return "PCPerfSuite n'est pas lancé en administrateur : le pilote NVIDIA refuse alors tout réglage. Relance l'app en administrateur.";
+
+            MachineInfo machine = MachineInfo.Current;
+            if (machine.HasNvidiaGpu)
+                return "Un GPU NVIDIA est présent, mais son pilote ne répond pas (pilote absent, trop ancien ou GPU désactivé). " +
+                       "Installe le dernier pilote depuis nvidia.com.";
+
+            string gpus = machine.VideoControllers.Count > 0 ? string.Join(", ", machine.VideoControllers) : "aucun GPU identifié";
+            return "Le contrôle GPU (overclocking, limites de puissance et de température) n'est disponible que pour les GPU NVIDIA " +
+                   $"pour l'instant. GPU de ce PC : {gpus}. Leur monitoring (charge, températures, fréquences) fonctionne dans l'onglet Monitoring.";
+        }
+    }
 
     [ObservableProperty] private string gpuName = "…";
 
