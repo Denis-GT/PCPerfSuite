@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>false</UseWindowsForms>
+    <!-- Appels ADLX (AMD) par tables de fonctions natives et structures IGCL (Intel) à tableaux fixes -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

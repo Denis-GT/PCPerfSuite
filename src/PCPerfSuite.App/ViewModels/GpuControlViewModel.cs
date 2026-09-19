@@ -21,11 +21,14 @@ public sealed class GpuProfileViewModel
         var parts = new List<string>
         {
             $"cœur {Signed(model.CoreClockOffsetMhz)} MHz",
-            $"mém {Signed(model.MemoryClockOffsetMhz)} MHz",
+            $"mém {Signed(model.MemoryClockOffsetMhz)}",
         };
         if (model.PowerLimitPercent is { } power) parts.Add($"{power:0}% puissance");
         if (model.TemperatureLimitC is { } temp) parts.Add($"{temp} °C max");
-        if (model.VoltageBoostPercent is { } volts && volts > 0) parts.Add($"+{volts}% tension");
+        if (model.GetVoltage() is { } voltage && voltage.Value != 0)
+        {
+            parts.Add(voltage.Unit == GpuVoltageUnit.Percent ? $"+{voltage.Value}% tension" : $"{voltage.Value} mV");
+        }
 
         Summary = string.Join("  •  ", parts);
     }
@@ -34,9 +37,11 @@ public sealed class GpuProfileViewModel
 }
 
 /// <summary>
-/// Contrôle GPU (onglet "GPU") : overclocking complet via NVAPI — décalages d'horloge cœur/mémoire,
-/// limite de puissance, limite de température, surtension quand la carte l'accepte — avec profils
-/// enregistrés, relevés en direct et affichage de ce qui bride la carte à l'instant T.
+/// Contrôle GPU (onglet "GPU") : overclocking toutes marques — NVAPI (NVIDIA), ADLX (AMD Radeon) ou
+/// IGCL (Intel Arc) selon la carte — décalages d'horloge cœur/mémoire, limite de puissance, limite de
+/// température et tension quand la carte les accepte, avec profils enregistrés, relevés en direct et
+/// affichage de ce qui bride la carte à l'instant T. Ce que la carte ou le pilote n'expose pas est
+/// signalé avec la raison, plutôt que caché sans explication.
 ///
 /// Les ventilateurs (GPU compris) sont regroupés dans l'onglet "Ventilateurs" : un seul endroit pour
 /// toutes les courbes plutôt que deux interfaces qui se marchent dessus.
@@ -57,11 +62,16 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
     private double _powerLimitDefault = 100;
     private double _temperatureLimitDefault;
+    private double _voltageDefault;
+    private GpuVoltageUnit _voltageUnit = GpuVoltageUnit.Percent;
 
     [ObservableProperty] private bool isAvailable;
     public bool IsUnavailable => !IsAvailable;
 
     [ObservableProperty] private string gpuName = "…";
+
+    /// <summary>Marque et API utilisée, ex. "AMD · ADLX".</summary>
+    [ObservableProperty] private string vendorLabel = "";
 
     // Relevés en direct (lus par le monitoring partagé, pas par un second sondage du matériel).
     [ObservableProperty] private double? loadPercent;
@@ -74,26 +84,52 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double? fanRpm;
     [ObservableProperty] private double? fanPercent;
     [ObservableProperty] private string activeLimitText = "--";
+    [ObservableProperty] private string? activeLimitTooltip;
 
+    [ObservableProperty] private bool isPowerLimitSupported;
     [ObservableProperty] private double powerLimitPercent;
     [ObservableProperty] private double powerLimitMin = 50;
     [ObservableProperty] private double powerLimitMax = 100;
 
-    [ObservableProperty] private bool isClockOffsetSupported;
+    [ObservableProperty] private bool isCoreOffsetSupported;
     [ObservableProperty] private double coreOffsetMhz;
     [ObservableProperty] private double coreOffsetMin = -500;
     [ObservableProperty] private double coreOffsetMax = 1000;
+
+    [ObservableProperty] private bool isMemoryOffsetSupported;
     [ObservableProperty] private double memoryOffsetMhz;
     [ObservableProperty] private double memoryOffsetMin = -1000;
     [ObservableProperty] private double memoryOffsetMax = 2000;
+    [ObservableProperty] private string memoryOffsetUnit = "MHz";
+
+    public bool IsClockOffsetSupported => IsCoreOffsetSupported || IsMemoryOffsetSupported;
 
     [ObservableProperty] private bool isTemperatureLimitSupported;
     [ObservableProperty] private double temperatureLimitC;
     [ObservableProperty] private double temperatureLimitMin = 60;
     [ObservableProperty] private double temperatureLimitMax = 90;
 
-    [ObservableProperty] private bool isVoltageBoostSupported;
-    [ObservableProperty] private double voltageBoostPercent;
+    [ObservableProperty] private bool isVoltageSupported;
+    [ObservableProperty] private double voltageValue;
+    [ObservableProperty] private double voltageMin;
+    [ObservableProperty] private double voltageMax = 100;
+    [ObservableProperty] private string voltageLabel = "Surtension cœur";
+
+    /// <summary>Format d'affichage de la tension : "+10 %" (NVIDIA), "+25 mV" (décalage) ou "1 150 mV"
+    /// (tension absolue des Radeon RDNA 1 à 3).</summary>
+    [ObservableProperty] private string voltageFormat = "{0:0}%";
+
+    public string VoltageText => string.Format(CultureInfo.CurrentCulture, VoltageFormat, VoltageValue);
+
+    /// <summary>Ce que cette carte n'expose pas, et pourquoi — "N/D" expliqué plutôt qu'un curseur qui
+    /// disparaît sans raison. Null quand tout est disponible.</summary>
+    [ObservableProperty] private string? unsupportedNotes;
+
+    /// <summary>Intel impose un accord explicite de l'utilisateur avant tout overclock.</summary>
+    [ObservableProperty] private bool isWaiverRequired;
+
+    [ObservableProperty] private bool isWaiverAccepted;
+    public bool CanOverclock => !IsWaiverRequired || IsWaiverAccepted;
 
     [ObservableProperty] private bool applyOverclockAtStartup;
     [ObservableProperty] private string overclockStatus = "";
@@ -123,12 +159,33 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
         if (IsAvailable)
         {
+            VendorLabel = _gpuControl.Vendor switch
+            {
+                GpuVendor.Nvidia => "NVIDIA · NVAPI",
+                GpuVendor.Amd => "AMD · ADLX",
+                GpuVendor.Intel => "Intel · IGCL",
+                _ => "",
+            };
+
+            IsWaiverRequired = _gpuControl.RequiresOverclockWaiver;
+            isWaiverAccepted = IsWaiverRequired && _settings.Gpu.IntelOverclockWaiverAccepted
+                               && _gpuControl.TryAcceptOverclockWaiver();
+            OnPropertyChanged(nameof(IsWaiverAccepted));
+            OnPropertyChanged(nameof(CanOverclock));
+
             LoadPowerLimit();
             LoadOverclock();
+            UnsupportedNotes = DescribeUnsupported();
         }
 
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
     }
+
+    /// <summary>Vrai quand les réglages enregistrés ont été faits sur une carte de la même marque : après
+    /// un changement de carte, on ne réapplique pas un overclock pensé pour une autre.</summary>
+    private bool SettingsMatchCurrentGpu => (_settings.Gpu.OverclockVendor ?? GpuVendor.Nvidia) == _gpuControl.Vendor;
+
+    private bool ShouldReapplyAtStartup => ApplyOverclockAtStartup && SettingsMatchCurrentGpu && CanOverclock;
 
     private void LoadPowerLimit()
     {
@@ -136,6 +193,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         if (snap is null) return;
 
         GpuName = snap.Name;
+        IsPowerLimitSupported = snap.PowerLimitSupported;
         PowerLimitMin = snap.PowerLimitMinPercent;
         PowerLimitMax = snap.PowerLimitMaxPercent;
         _powerLimitDefault = snap.PowerLimitDefaultPercent;
@@ -143,13 +201,12 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         // Passe par le champ, pas la propriété : évite de déclencher OnPowerLimitPercentChanged
         // (qui appliquerait/persisterait) juste pour peupler l'affichage initial. On ne réapplique
         // explicitement que si l'utilisateur avait déjà choisi une valeur lors d'une session précédente.
-        powerLimitPercent = _settings.Gpu.PowerLimitPercent ?? snap.PowerLimitPercent;
+        bool reapply = IsPowerLimitSupported && SettingsMatchCurrentGpu && CanOverclock
+                       && _settings.Gpu.PowerLimitPercent is not null;
+        powerLimitPercent = reapply ? _settings.Gpu.PowerLimitPercent!.Value : snap.PowerLimitPercent;
         OnPropertyChanged(nameof(PowerLimitPercent));
 
-        if (_settings.Gpu.PowerLimitPercent is { } persisted)
-        {
-            _gpuControl.TrySetPowerLimitPercent((float)persisted);
-        }
+        if (reapply) _gpuControl.TrySetPowerLimitPercent((float)PowerLimitPercent);
     }
 
     /// <summary>Lit l'état d'overclocking de la carte, puis — uniquement si l'utilisateur l'a demandé —
@@ -159,31 +216,46 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         GpuOverclockSnapshot? snap = _gpuControl.GetOverclock();
         if (snap is null) return;
 
-        IsClockOffsetSupported = snap.ClockOffsetsSupported;
+        IsCoreOffsetSupported = snap.CoreOffsetSupported;
         CoreOffsetMin = snap.CoreOffsetMinMhz;
         CoreOffsetMax = snap.CoreOffsetMaxMhz;
+        IsMemoryOffsetSupported = snap.MemoryOffsetSupported;
         MemoryOffsetMin = snap.MemoryOffsetMinMhz;
         MemoryOffsetMax = snap.MemoryOffsetMaxMhz;
+        MemoryOffsetUnit = snap.MemoryOffsetUnit;
+        OnPropertyChanged(nameof(IsClockOffsetSupported));
 
         IsTemperatureLimitSupported = snap.TemperatureLimitSupported;
         TemperatureLimitMin = snap.TemperatureLimitMinC;
         TemperatureLimitMax = snap.TemperatureLimitMaxC;
         _temperatureLimitDefault = snap.TemperatureLimitDefaultC;
 
-        IsVoltageBoostSupported = snap.VoltageBoostSupported;
+        IsVoltageSupported = snap.VoltageSupported;
+        VoltageMin = snap.VoltageMin;
+        VoltageMax = snap.VoltageMax;
+        _voltageDefault = snap.VoltageDefault;
+        _voltageUnit = snap.VoltageUnit;
+        (VoltageLabel, VoltageFormat) = (snap.VoltageUnit, snap.VoltageIsOffset) switch
+        {
+            (GpuVoltageUnit.Percent, _) => ("Surtension cœur", "{0:0}%"),
+            (GpuVoltageUnit.Millivolts, true) => ("Décalage de tension", "{0:+0;-0;0} mV"),
+            _ => ("Tension cœur", "{0:0} mV"),
+        };
+
+        bool reapply = ShouldReapplyAtStartup;
+        (int Value, GpuVoltageUnit Unit)? savedVoltage = _settings.Gpu.GetVoltage();
+        int? voltageToApply = savedVoltage is { } v && v.Unit == _voltageUnit ? v.Value : null;
 
         _suppressApply = true;
-        CoreOffsetMhz = ApplyOverclockAtStartup ? _settings.Gpu.CoreClockOffsetMhz : snap.CoreOffsetMhz;
-        MemoryOffsetMhz = ApplyOverclockAtStartup ? _settings.Gpu.MemoryClockOffsetMhz : snap.MemoryOffsetMhz;
-        TemperatureLimitC = ApplyOverclockAtStartup
+        CoreOffsetMhz = reapply ? _settings.Gpu.CoreClockOffsetMhz : snap.CoreOffsetMhz;
+        MemoryOffsetMhz = reapply ? _settings.Gpu.MemoryClockOffsetMhz : snap.MemoryOffsetMhz;
+        TemperatureLimitC = reapply
             ? _settings.Gpu.TemperatureLimitC ?? snap.TemperatureLimitC
             : snap.TemperatureLimitC;
-        VoltageBoostPercent = ApplyOverclockAtStartup
-            ? _settings.Gpu.VoltageBoostPercent ?? snap.VoltageBoostPercent
-            : snap.VoltageBoostPercent;
+        VoltageValue = reapply ? voltageToApply ?? snap.Voltage : snap.Voltage;
         _suppressApply = false;
 
-        if (!ApplyOverclockAtStartup)
+        if (!reapply)
         {
             ShowAppliedOffsets(snap);
             return;
@@ -191,18 +263,81 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
         if (IsClockOffsetSupported) _gpuControl.TrySetClockOffsets((int)CoreOffsetMhz, (int)MemoryOffsetMhz);
         if (IsTemperatureLimitSupported && _settings.Gpu.TemperatureLimitC is { } temp) _gpuControl.TrySetTemperatureLimit(temp);
-        if (IsVoltageBoostSupported && _settings.Gpu.VoltageBoostPercent is { } volts) _gpuControl.TrySetVoltageBoostPercent(volts);
+        if (IsVoltageSupported && voltageToApply is { } volts) _gpuControl.TrySetVoltage(volts);
 
         OverclockStatus = "Réglages enregistrés réappliqués au démarrage.";
         ShowAppliedOffsets(_gpuControl.GetOverclock());
     }
 
+    /// <summary>Liste ce que la carte n'expose pas, avec la raison propre à la marque.</summary>
+    private string? DescribeUnsupported()
+    {
+        string driver = _gpuControl.Vendor switch
+        {
+            GpuVendor.Amd => "le pilote AMD (ADLX)",
+            GpuVendor.Intel => "le pilote Intel (IGCL)",
+            _ => "le pilote NVIDIA (NVAPI)",
+        };
+
+        var missing = new List<string>();
+        if (!IsPowerLimitSupported)
+        {
+            missing.Add(_gpuControl.Vendor == GpuVendor.Nvidia
+                ? "limite de puissance (sur les GPU portables, c'est le constructeur du PC qui la fixe)"
+                : "limite de puissance");
+        }
+        if (!IsCoreOffsetSupported) missing.Add("fréquence du cœur");
+        if (!IsMemoryOffsetSupported) missing.Add("fréquence mémoire");
+        if (!IsTemperatureLimitSupported)
+        {
+            missing.Add(_gpuControl.Vendor == GpuVendor.Amd
+                ? "limite de température (AMD ne la propose pas au réglage)"
+                : "limite de température");
+        }
+        if (!IsVoltageSupported)
+        {
+            missing.Add(_gpuControl.Vendor == GpuVendor.Nvidia
+                ? "tension (NVIDIA ne l'ouvre qu'aux GPU Pascal, GTX 10xx)"
+                : "tension");
+        }
+
+        return missing.Count == 0
+            ? null
+            : $"N/D sur cette carte, non exposé par {driver} : {string.Join(", ", missing)}.";
+    }
+
     partial void OnIsAvailableChanged(bool value) => OnPropertyChanged(nameof(IsUnavailable));
+
+    partial void OnIsCoreOffsetSupportedChanged(bool value) => OnPropertyChanged(nameof(IsClockOffsetSupported));
+
+    partial void OnIsMemoryOffsetSupportedChanged(bool value) => OnPropertyChanged(nameof(IsClockOffsetSupported));
+
+    partial void OnIsWaiverRequiredChanged(bool value) => OnPropertyChanged(nameof(CanOverclock));
+
+    partial void OnIsWaiverAcceptedChanged(bool value)
+    {
+        if (value && !_gpuControl.TryAcceptOverclockWaiver())
+        {
+            OverclockStatus = "Le pilote Intel a refusé l'accord d'overclocking.";
+            IsWaiverAccepted = false; // repasse par ici avec false, qui enregistre le refus
+            return;
+        }
+
+        OnPropertyChanged(nameof(CanOverclock));
+
+        AppSettings settings = AppSettingsStore.Load();
+        settings.Gpu.IntelOverclockWaiverAccepted = IsWaiverAccepted;
+        AppSettingsStore.Save(settings);
+    }
 
     partial void OnPowerLimitPercentChanged(double value)
     {
-        if (!IsAvailable || _suppressApply) return;
-        _gpuControl.TrySetPowerLimitPercent((float)value);
+        if (!IsAvailable || _suppressApply || !IsPowerLimitSupported) return;
+
+        if (!_gpuControl.TrySetPowerLimitPercent((float)value))
+        {
+            OverclockStatus = "Le pilote a refusé la limite de puissance.";
+        }
         Persist();
     }
 
@@ -220,13 +355,16 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         Persist();
     }
 
-    partial void OnVoltageBoostPercentChanged(double value)
-    {
-        if (!IsAvailable || _suppressApply || !IsVoltageBoostSupported) return;
+    partial void OnVoltageFormatChanged(string value) => OnPropertyChanged(nameof(VoltageText));
 
-        OverclockStatus = _gpuControl.TrySetVoltageBoostPercent((int)Math.Round(value))
-            ? $"Surtension : +{value:0}%."
-            : "Le pilote a refusé la surtension.";
+    partial void OnVoltageValueChanged(double value)
+    {
+        OnPropertyChanged(nameof(VoltageText));
+        if (!IsAvailable || _suppressApply || !IsVoltageSupported) return;
+
+        OverclockStatus = _gpuControl.TrySetVoltage((int)Math.Round(value))
+            ? $"{VoltageLabel} : {VoltageText}."
+            : "Le pilote a refusé la tension.";
         Persist();
     }
 
@@ -244,7 +382,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         int memory = (int)Math.Round(MemoryOffsetMhz);
 
         OverclockStatus = _gpuControl.TrySetClockOffsets(core, memory)
-            ? $"Décalages appliqués : cœur {Signed(core)} MHz, mémoire {Signed(memory)} MHz."
+            ? $"Décalages appliqués : cœur {Signed(core)} MHz, mémoire {Signed(memory)} {MemoryOffsetUnit}."
             : "Le pilote a refusé les décalages d'horloge (carte verrouillée, ou app lancée sans les droits administrateur).";
 
         ShowAppliedOffsets(_gpuControl.GetOverclock());
@@ -261,8 +399,10 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
             return;
         }
 
-        AppliedOffsetsText = $"Retenu par le pilote : cœur {Signed(snapshot.CoreOffsetMhz)} MHz, "
-                             + $"mémoire {Signed(snapshot.MemoryOffsetMhz)} MHz.";
+        var parts = new List<string>();
+        if (snapshot.CoreOffsetSupported) parts.Add($"cœur {Signed(snapshot.CoreOffsetMhz)} MHz");
+        if (snapshot.MemoryOffsetSupported) parts.Add($"mémoire {Signed(snapshot.MemoryOffsetMhz)} {snapshot.MemoryOffsetUnit}");
+        AppliedOffsetsText = $"Retenu par le pilote : {string.Join(", ", parts)}.";
     }
 
     private static string Signed(int value)
@@ -275,7 +415,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         CoreOffsetMhz = 0;
         MemoryOffsetMhz = 0;
         if (IsTemperatureLimitSupported) TemperatureLimitC = _temperatureLimitDefault;
-        if (IsVoltageBoostSupported) VoltageBoostPercent = 0;
+        if (IsVoltageSupported) VoltageValue = _voltageDefault;
         PowerLimitPercent = _powerLimitDefault;
         _suppressApply = false;
 
@@ -296,9 +436,10 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
             Name = name,
             CoreClockOffsetMhz = (int)Math.Round(CoreOffsetMhz),
             MemoryClockOffsetMhz = (int)Math.Round(MemoryOffsetMhz),
-            PowerLimitPercent = (float)PowerLimitPercent,
+            PowerLimitPercent = IsPowerLimitSupported ? (float)PowerLimitPercent : null,
             TemperatureLimitC = IsTemperatureLimitSupported ? (int)Math.Round(TemperatureLimitC) : null,
-            VoltageBoostPercent = IsVoltageBoostSupported ? (int)Math.Round(VoltageBoostPercent) : null,
+            VoltageValue = IsVoltageSupported ? (int)Math.Round(VoltageValue) : null,
+            VoltageUnit = IsVoltageSupported ? _voltageUnit : null,
         };
 
         // Même nom = on remplace, pour pouvoir mettre un profil à jour sans le supprimer d'abord.
@@ -317,26 +458,31 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     {
         if (profile is null || !IsAvailable) return;
 
+        if (!CanOverclock)
+        {
+            OverclockStatus = "Accepte d'abord l'avertissement Intel ci-dessus pour appliquer un profil.";
+            return;
+        }
+
         GpuOverclockProfile model = profile.Model;
+        int? voltage = model.GetVoltage() is { } v && v.Unit == _voltageUnit ? v.Value : null;
 
         _suppressApply = true;
-        if (IsClockOffsetSupported)
-        {
-            CoreOffsetMhz = Math.Clamp(model.CoreClockOffsetMhz, CoreOffsetMin, CoreOffsetMax);
-            MemoryOffsetMhz = Math.Clamp(model.MemoryClockOffsetMhz, MemoryOffsetMin, MemoryOffsetMax);
-        }
-        if (model.PowerLimitPercent is { } power) PowerLimitPercent = Math.Clamp(power, PowerLimitMin, PowerLimitMax);
+        if (IsCoreOffsetSupported) CoreOffsetMhz = Math.Clamp(model.CoreClockOffsetMhz, CoreOffsetMin, CoreOffsetMax);
+        if (IsMemoryOffsetSupported) MemoryOffsetMhz = Math.Clamp(model.MemoryClockOffsetMhz, MemoryOffsetMin, MemoryOffsetMax);
+        if (IsPowerLimitSupported && model.PowerLimitPercent is { } power)
+            PowerLimitPercent = Math.Clamp(power, PowerLimitMin, PowerLimitMax);
         if (IsTemperatureLimitSupported && model.TemperatureLimitC is { } temp)
             TemperatureLimitC = Math.Clamp(temp, TemperatureLimitMin, TemperatureLimitMax);
-        if (IsVoltageBoostSupported && model.VoltageBoostPercent is { } volts)
-            VoltageBoostPercent = Math.Clamp(volts, 0, 100);
+        if (IsVoltageSupported && voltage is { } volts)
+            VoltageValue = Math.Clamp(volts, VoltageMin, VoltageMax);
         _suppressApply = false;
 
         bool ok = !IsClockOffsetSupported
                   || _gpuControl.TrySetClockOffsets((int)Math.Round(CoreOffsetMhz), (int)Math.Round(MemoryOffsetMhz));
-        _gpuControl.TrySetPowerLimitPercent((float)PowerLimitPercent);
+        if (IsPowerLimitSupported) _gpuControl.TrySetPowerLimitPercent((float)PowerLimitPercent);
         if (IsTemperatureLimitSupported) _gpuControl.TrySetTemperatureLimit((int)Math.Round(TemperatureLimitC));
-        if (IsVoltageBoostSupported) _gpuControl.TrySetVoltageBoostPercent((int)Math.Round(VoltageBoostPercent));
+        if (IsVoltageSupported && voltage is not null) _gpuControl.TrySetVoltage((int)Math.Round(VoltageValue));
 
         OverclockStatus = ok
             ? $"Profil « {profile.Name} » appliqué."
@@ -369,12 +515,16 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         FanRpm = snapshot.Gpu?.FanRpm;
         FanPercent = snapshot.Gpu?.FanPercent;
 
-        ActiveLimitText = DescribeLimit(_gpuControl.GetActiveLimit());
+        GpuPerformanceLimit? limit = _gpuControl.GetActiveLimit();
+        ActiveLimitText = DescribeLimit(limit);
+        ActiveLimitTooltip = limit is null
+            ? "N/D : le pilote de cette carte n'indique pas ce qui limite sa fréquence."
+            : null;
     }
 
     private static string DescribeLimit(GpuPerformanceLimit? limit)
     {
-        if (limit is not { } value) return "--";
+        if (limit is not { } value) return "N/D";
         if (value == GpuPerformanceLimit.None) return "aucun";
 
         var reasons = new List<string>();
@@ -396,13 +546,25 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         AppSettings settings = AppSettingsStore.Load();
         GpuControlSettings gpu = settings.Gpu;
 
-        gpu.PowerLimitPercent = (float)PowerLimitPercent;
+        gpu.ApplyOverclockAtStartup = ApplyOverclockAtStartup;
+        gpu.OverclockProfiles = Profiles.Select(p => p.Model).ToList();
+
+        // Sans carte pilotable, on ne touche pas aux réglages d'overclock enregistrés : ils restent
+        // valables pour la carte sur laquelle ils ont été faits.
+        if (!IsAvailable)
+        {
+            AppSettingsStore.Save(settings);
+            return;
+        }
+
+        gpu.PowerLimitPercent = IsPowerLimitSupported ? (float)PowerLimitPercent : null;
         gpu.CoreClockOffsetMhz = (int)Math.Round(CoreOffsetMhz);
         gpu.MemoryClockOffsetMhz = (int)Math.Round(MemoryOffsetMhz);
         gpu.TemperatureLimitC = IsTemperatureLimitSupported ? (int)Math.Round(TemperatureLimitC) : null;
-        gpu.VoltageBoostPercent = IsVoltageBoostSupported ? (int)Math.Round(VoltageBoostPercent) : null;
-        gpu.ApplyOverclockAtStartup = ApplyOverclockAtStartup;
-        gpu.OverclockProfiles = Profiles.Select(p => p.Model).ToList();
+        gpu.VoltageValue = IsVoltageSupported ? (int)Math.Round(VoltageValue) : null;
+        gpu.VoltageUnit = IsVoltageSupported ? _voltageUnit : null;
+        gpu.VoltageBoostPercent = null;
+        gpu.OverclockVendor = _gpuControl.Vendor;
 
         AppSettingsStore.Save(settings);
     }

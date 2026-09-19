@@ -41,12 +41,12 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   un indicateur pour l'isolation du noyau (HVCI).
 - **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
-  celui du GPU** (NVAPI). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
+  celui du GPU** (NVAPI, ADLX ou IGCL selon la marque). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
   température (CPU, GPU, la plus chaude des deux, carte mère), hystérésis, vitesses mini/maxi et
   arrêt complet à froid. Détail plus bas.
-- **GPU** — overclocking NVAPI complet : décalage d'horloge cœur et mémoire, limite de
-  puissance, limite de température, surtension cœur quand la carte l'accepte, profils
-  enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
+- **GPU** — overclocking NVIDIA, AMD Radeon et Intel Arc : décalage d'horloge cœur et
+  mémoire, limite de puissance, limite de température, tension quand la carte l'accepte,
+  profils enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
   transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
   Détail plus bas.
@@ -89,20 +89,42 @@ reste à `--` plutôt que d'annoncer un chiffre inventé.
 
 ## Overclocking GPU
 
-Tout passe par NVAPI (NvAPIWrapper.Net), sans pilote ni service supplémentaire :
+Chaque marque passe par l'API officielle livrée avec son pilote, sans pilote ni service
+supplémentaire. L'app essaie NVIDIA, puis AMD, puis Intel et garde la première carte
+pilotable : dans un PC avec un GPU intégré et une carte dédiée, c'est la carte dédiée qui
+est réglée (et c'est aussi elle que suivent les relevés).
 
-- **Horloges cœur et mémoire** : décalage (offset) en MHz appliqué à l'état P0 via
-  l'API P-States 2.0 (`NvAPI_GPU_Get/SetPstates20`) — exactement le mécanisme des curseurs
-  « Core Clock / Memory Clock » de MSI Afterburner, valable de Kepler aux cartes actuelles.
-  Les bornes des curseurs sont celles que le pilote annonce pour ta carte.
-- **Limite de puissance** en % (power limit).
-- **Limite de température** en °C (thermal policies).
-- **Surtension cœur** en % : l'API correspondante est réservée aux GPU Pascal (GTX 10xx),
-  donc le curseur n'apparaît que si la carte répond réellement à cet appel.
+| Marque | API | Cartes couvertes |
+|---|---|---|
+| NVIDIA | NVAPI (NvAPIWrapper.Net) | Kepler → cartes actuelles |
+| AMD Radeon | ADLX (`amdadlx64.dll`, pilote Adrenalin) | RDNA 1 → 4 (RX 5000 → RX 9000) |
+| Intel Arc | IGCL (`ControlLib.dll`, pilote Arc) | Arc A (Alchemist), Arc B (Battlemage) |
+
+Les GPU intégrés (Intel UHD/Iris, Radeon des processeurs AMD), les Radeon GCN/Vega et les
+autres marques (Moore Threads, Qualcomm Adreno…) n'exposent pas de réglages d'overclocking :
+l'onglet l'explique au lieu d'afficher des curseurs sans effet.
+
+- **Horloges cœur et mémoire** : un décalage par rapport à la valeur d'usine, borné par ce
+  que le pilote annonce. Chez NVIDIA, offset sur l'état P0 via P-States 2.0
+  (`NvAPI_GPU_Get/SetPstates20`), exactement comme les curseurs de MSI Afterburner. Chez AMD,
+  fréquence max d'Adrenalin (absolue jusqu'à RDNA 3, en décalage depuis RDNA 4) ramenée à un
+  décalage. Chez Intel, décalage de fréquence et vitesse mémoire (en MT/s ou Mbps selon la
+  génération d'Arc).
+- **Limite de puissance** en % de la valeur d'usine, quelle que soit l'unité du pilote.
+- **Limite de température** en °C (NVIDIA et Intel ; AMD ne la propose pas au réglage).
+- **Tension** : surtension en % sur les GPU Pascal (GTX 10xx), tension ou décalage en mV
+  chez AMD et Intel. Le curseur n'apparaît que si la carte répond réellement.
+- **Intel** : le pilote exige une renonciation de garantie avant tout overclock. L'onglet la
+  présente une fois et mémorise ton accord ; sans lui, les curseurs restent grisés.
 - **Profils** : les réglages courants s'enregistrent sous un nom et se rappellent en un clic
-  (un profil du même nom est remplacé).
+  (un profil du même nom est remplacé). Une tension enregistrée n'est appliquée qu'à une carte
+  qui raisonne dans la même unité, et l'overclock n'est pas réappliqué au démarrage après un
+  changement de marque de carte.
 - **Ce qui bride la carte** en direct (puissance, température, tension, pas de charge), comme la
-  ligne « perf cap » de GPU-Z, plus les relevés charge / températures / horloges / VRAM.
+  ligne « perf cap » de GPU-Z — fourni par NVIDIA seulement, « N/D » ailleurs.
+- Ce que la carte n'expose pas est listé sous les curseurs avec la raison (« N/D sur cette
+  carte, non exposé par le pilote… »), par exemple la limite de puissance des GPU portables,
+  fixée par le constructeur du PC.
 - Après chaque application, l'onglet affiche **ce que le pilote a réellement retenu** : il rabote
   une demande hors plage sans prévenir, ce qui explique un overclock « qui ne monte pas ».
 
@@ -168,6 +190,6 @@ Exécuter en tant qu'administrateur si l'invite UAC ne se déclenche pas automat
 ouvre `PCPerfSuite.sln` dans Visual Studio et F5.
 
 La solution compile sans erreur (C# et XAML), mais elle n'a pas pu être *exécutée* sur une
-vraie machine Windows depuis cette session : le comportement des appels NVAPI dépend de ta
-carte et de ton pilote. Si un réglage ne prend pas, l'onglet GPU affiche le refus — copie
+vraie machine Windows depuis cette session : le comportement des appels NVAPI, ADLX et IGCL
+dépend de ta carte et de ton pilote. Si un réglage ne prend pas, l'onglet GPU affiche le refus — copie
 le message, on ajuste.

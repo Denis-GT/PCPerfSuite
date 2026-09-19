@@ -35,6 +35,11 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private float? _lastCpuLoad;
     private RtssFrameStats? _lastGame;
 
+    /// <summary>Marque du GPU piloté par l'onglet GPU. Dans un PC à deux GPU (iGPU + carte dédiée), le
+    /// relevé "GPU" porte alors sur cette carte-là, pour que températures et fréquences affichées
+    /// correspondent à celle qu'on overclocke. Null : le dernier GPU rencontré, comme avant.</summary>
+    public GpuVendor? PreferredGpuVendor { get; set; }
+
     public HardwareMonitorService()
     {
         _computer = new Computer
@@ -104,6 +109,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         var cpu = new CpuSnapshot();
         GpuSnapshot? gpu = null;
+        bool gpuIsPreferred = false;
         var memory = new MemorySnapshot();
         var motherboard = new MotherboardSnapshot();
         var fans = new List<FanReading>();
@@ -122,7 +128,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 case HardwareType.GpuNvidia:
                 case HardwareType.GpuAmd:
                 case HardwareType.GpuIntel:
-                    gpu = ReadGpu(hardware);
+                    bool preferred = IsPreferredGpu(hardware.HardwareType);
+                    if (PreferredGpuVendor is null || gpu is null || (preferred && !gpuIsPreferred))
+                    {
+                        gpu = ReadGpu(hardware);
+                        gpuIsPreferred = preferred;
+                    }
                     CollectFans(hardware, SensorGroup.Gpu, fans);
                     break;
 
@@ -260,6 +271,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             CoreVoltage = coreVoltage,
         };
     }
+
+    private bool IsPreferredGpu(HardwareType type) => (PreferredGpuVendor, type) switch
+    {
+        (GpuVendor.Nvidia, HardwareType.GpuNvidia) => true,
+        (GpuVendor.Amd, HardwareType.GpuAmd) => true,
+        (GpuVendor.Intel, HardwareType.GpuIntel) => true,
+        _ => false,
+    };
 
     private static GpuSnapshot ReadGpu(IHardware hardware)
     {

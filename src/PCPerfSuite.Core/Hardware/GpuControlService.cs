@@ -1,40 +1,24 @@
 using System.Globalization;
-using NvAPIWrapper;
-using NvAPIWrapper.GPU;
-using NvAPIWrapper.Native.GPU;
-using NvAPIWrapper.Native.GPU.Structures;
-using NvAPIWrapper.Native.Interfaces.GPU;
+using PCPerfSuite.Core.Hardware.Gpu;
 
 namespace PCPerfSuite.Core.Hardware;
 
 /// <summary>
-/// Contrôle GPU via NVAPI (NvAPIWrapper.Net) : limite de puissance, overclocking (décalages
-/// d'horloge cœur/mémoire, limite de température, surtension) et ventilateurs.
+/// Contrôle GPU toutes marques : limite de puissance, overclocking (décalages d'horloge cœur/mémoire,
+/// limite de température, tension) et ventilateurs, via l'API officielle du constructeur — NVAPI pour
+/// NVIDIA, ADLX pour AMD Radeon, IGCL pour Intel Arc (voir les backends dans Hardware/Gpu).
 ///
-/// L'overclocking passe par l'API P-States 2.0 (NvAPI_GPU_GetPstates20/SetPstates20) : on écrit un
-/// *décalage* (delta) sur les horloges de l'état P0 plutôt qu'une fréquence absolue, exactement comme
-/// le font les curseurs "Core Clock / Memory Clock" de MSI Afterburner. C'est l'API générique
-/// supportée de Kepler aux générations actuelles — contrairement à ClockBoostTable/CoreVoltageBoost
-/// (courbe tension/fréquence), documentées "Pascal only" dans cette librairie et donc seulement
-/// proposées ici si la carte les accepte réellement (testé à l'exécution, pas supposé).
+/// Au démarrage, on essaie les backends dans cet ordre et on garde le premier qui trouve une carte
+/// pilotable : dans un PC hybride (iGPU + carte dédiée), c'est la carte dédiée qui est retenue, les
+/// iGPU n'exposant pas ces réglages. Les autres GPU du marché (Moore Threads, Qualcomm Adreno…)
+/// n'ont pas d'API publique d'overclocking et restent donc non disponibles.
 ///
-/// Toutes les méthodes sont "best-effort" : elles retournent false plutôt que de lever si le pilote
-/// refuse ou si la fonction n'existe pas sur cette carte (NVIDIANotSupportedException n'hérite PAS de
-/// NVIDIAApiException, d'où les catch larges).
+/// Toutes les méthodes sont "best-effort" : elles retournent false/null plutôt que de lever si le
+/// pilote refuse ou si la fonction n'existe pas sur cette carte.
 /// </summary>
 public sealed class GpuControlService : IFanController, IDisposable
 {
-    /// <summary>État P0 : l'état "3D performance", le seul que l'on overclocke (comme Afterburner).</summary>
-    private const PerformanceStateId OverclockState = PerformanceStateId.P0_3DPerformance;
-
-    /// <summary>Plages de repli quand le pilote ne renvoie pas de plage exploitable (min = max = 0) :
-    /// valeurs prudentes, proches de ce qu'autorisent les cartes récentes.</summary>
-    private const int FallbackCoreOffsetMinMhz = -500;
-    private const int FallbackCoreOffsetMaxMhz = 1000;
-    private const int FallbackMemoryOffsetMinMhz = -1000;
-    private const int FallbackMemoryOffsetMaxMhz = 2000;
-
-    private PhysicalGPU? _gpu;
+    private IGpuTuningBackend? _backend;
     private bool _initialized;
 
     /// <summary>Vrai dès qu'un réglage d'overclock a été appliqué : sert à ne rendre la carte à ses
@@ -47,359 +31,96 @@ public sealed class GpuControlService : IFanController, IDisposable
     /// automatique pour ne pas laisser une consigne figée sur une app fermée.</summary>
     public bool KeepOverclockOnExit { get; set; }
 
-    /// <summary>Initialise NVAPI et repère le premier GPU NVIDIA. Ne lève jamais — retourne false si
-    /// NVAPI est indisponible (pas de GPU NVIDIA, pilote absent, etc.).</summary>
+    /// <summary>Marque de la carte pilotée, null tant qu'aucune n'a été trouvée.</summary>
+    public GpuVendor? Vendor => _backend?.Vendor;
+
+    /// <summary>Vrai quand le constructeur exige que l'utilisateur accepte une renonciation de garantie
+    /// avant tout overclock (Intel).</summary>
+    public bool RequiresOverclockWaiver => _backend?.RequiresOverclockWaiver ?? false;
+
+    /// <summary>Initialise l'API du constructeur et repère la carte à piloter. Ne lève jamais —
+    /// retourne false si aucune carte NVIDIA, AMD ou Intel pilotable n'est trouvée.</summary>
     public bool TryInitialize()
     {
-        if (_initialized) return _gpu is not null;
+        if (_initialized) return _backend is not null;
         _initialized = true;
 
-        try
+        foreach (Func<IGpuTuningBackend> create in new Func<IGpuTuningBackend>[]
+                 {
+                     () => new NvApiGpuBackend(),
+                     () => new AdlxGpuBackend(),
+                     () => new IgclGpuBackend(),
+                 })
         {
-            NVIDIA.Initialize();
-            _gpu = PhysicalGPU.GetPhysicalGPUs().FirstOrDefault();
-        }
-        catch
-        {
-            _gpu = null;
-        }
-
-        return _gpu is not null;
-    }
-
-    public GpuControlSnapshot? GetSnapshot()
-    {
-        if (_gpu is not { } gpu) return null;
-
-        try
-        {
-            GPUPowerLimitInfo? info = gpu.PerformanceControl.PowerLimitInformation.FirstOrDefault();
-            GPUPowerLimitPolicy? policy = gpu.PerformanceControl.PowerLimitPolicies.FirstOrDefault();
-
-            List<GpuFanInfo> fans = gpu.CoolerInformation.Coolers.Select(c => new GpuFanInfo
+            IGpuTuningBackend backend = create();
+            bool ok;
+            try
             {
-                CoolerId = c.CoolerId,
-                CurrentLevelPercent = c.CurrentLevel,
-                CurrentRpm = c.CurrentFanSpeedInRPM,
-                MinLevelPercent = c.CurrentMinimumLevel,
-                MaxLevelPercent = c.CurrentMaximumLevel,
-            }).ToList();
-
-            return new GpuControlSnapshot
+                ok = backend.TryInitialize();
+            }
+            catch
             {
-                Name = gpu.FullName,
-                PowerLimitPercent = policy?.PowerTargetInPercent ?? 100,
-                PowerLimitMinPercent = info?.MinimumPowerInPercent ?? 50,
-                PowerLimitMaxPercent = info?.MaximumPowerInPercent ?? 100,
-                PowerLimitDefaultPercent = info?.DefaultPowerInPercent ?? 100,
-                Fans = fans,
-            };
+                // DllNotFoundException & co : pilote de cette marque absent.
+                ok = false;
+            }
+
+            if (ok)
+            {
+                _backend = backend;
+                return true;
+            }
+
+            try { backend.Dispose(); } catch { /* best-effort */ }
         }
-        catch
-        {
-            return null;
-        }
+
+        return false;
     }
 
-    public bool TrySetPowerLimitPercent(float percent)
-    {
-        if (_gpu is not { } gpu) return false;
+    /// <summary>Transmet l'accord de l'utilisateur au pilote (Intel) ; sans effet ailleurs.</summary>
+    public bool TryAcceptOverclockWaiver() => _backend?.TryAcceptOverclockWaiver() ?? false;
 
-        try
-        {
-            GPUPowerLimitInfo? info = gpu.PerformanceControl.PowerLimitInformation.FirstOrDefault();
-            float min = info?.MinimumPowerInPercent ?? 50;
-            float max = info?.MaximumPowerInPercent ?? 100;
-            float clamped = Math.Clamp(percent, min, max);
+    public GpuControlSnapshot? GetSnapshot() => _backend?.GetSnapshot();
 
-            PrivatePowerPoliciesStatusV1 status = NvAPIWrapper.Native.GPUApi.ClientPowerPoliciesGetStatus(gpu.Handle);
-            PrivatePowerPoliciesStatusV1.PowerPolicyStatusEntry[] entries = status.PowerPolicyStatusEntries
-                .Select(_ => new PrivatePowerPoliciesStatusV1.PowerPolicyStatusEntry((uint)(clamped * 1000)))
-                .ToArray();
+    public bool TrySetPowerLimitPercent(float percent) => _backend?.TrySetPowerLimitPercent(percent) ?? false;
 
-            NvAPIWrapper.Native.GPUApi.ClientPowerPoliciesSetStatus(gpu.Handle, new PrivatePowerPoliciesStatusV1(entries));
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public bool TryRestorePowerLimitDefault()
-    {
-        if (_gpu is not { } gpu) return false;
-
-        try
-        {
-            GPUPowerLimitInfo? info = gpu.PerformanceControl.PowerLimitInformation.FirstOrDefault();
-            return info is not null && TrySetPowerLimitPercent(info.DefaultPowerInPercent);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public bool TryRestorePowerLimitDefault() => _backend?.TryRestorePowerLimitDefault() ?? false;
 
     // ------------------------------------------------------------------
     // Overclocking
     // ------------------------------------------------------------------
 
     /// <summary>Relit l'état d'overclocking courant (décalages appliqués + plages autorisées par le
-    /// pilote). Retourne null si NVAPI n'est pas disponible du tout.</summary>
-    public GpuOverclockSnapshot? GetOverclock()
-    {
-        if (_gpu is not { } gpu) return null;
-
-        var clocks = ReadClockOffsets(gpu);
-        var thermal = ReadTemperatureLimit(gpu);
-        var voltage = ReadVoltageBoost(gpu);
-
-        return new GpuOverclockSnapshot
-        {
-            ClockOffsetsSupported = clocks.Ok,
-            CoreOffsetMhz = clocks.Core,
-            CoreOffsetMinMhz = clocks.CoreMin,
-            CoreOffsetMaxMhz = clocks.CoreMax,
-            MemoryOffsetMhz = clocks.Mem,
-            MemoryOffsetMinMhz = clocks.MemMin,
-            MemoryOffsetMaxMhz = clocks.MemMax,
-
-            TemperatureLimitSupported = thermal.Ok,
-            TemperatureLimitC = thermal.Current,
-            TemperatureLimitMinC = thermal.Min,
-            TemperatureLimitMaxC = thermal.Max,
-            TemperatureLimitDefaultC = thermal.Default,
-
-            VoltageBoostSupported = voltage.Ok,
-            VoltageBoostPercent = voltage.Percent,
-        };
-    }
+    /// pilote). Retourne null si aucune carte n'est pilotable.</summary>
+    public GpuOverclockSnapshot? GetOverclock() => _backend?.GetOverclock();
 
     /// <summary>Ce qui bride la carte à l'instant T (puissance, température, tension...). Null si
-    /// l'information n'est pas exposée par le pilote.</summary>
-    public GpuPerformanceLimit? GetActiveLimit()
+    /// l'information n'est pas exposée par le pilote (c'est le cas chez AMD et Intel).</summary>
+    public GpuPerformanceLimit? GetActiveLimit() => _backend?.GetActiveLimit();
+
+    /// <summary>Applique les décalages d'horloge cœur et mémoire (en MHz, ou dans l'unité mémoire
+    /// annoncée par <see cref="GpuOverclockSnapshot.MemoryOffsetUnit"/>).</summary>
+    public bool TrySetClockOffsets(int coreMhz, int memoryMhz) => Touch(_backend?.TrySetClockOffsets(coreMhz, memoryMhz));
+
+    /// <summary>Applique la limite de température (°C).</summary>
+    public bool TrySetTemperatureLimit(int celsius) => Touch(_backend?.TrySetTemperatureLimit(celsius));
+
+    /// <summary>Applique la tension, dans l'unité annoncée par <see cref="GpuOverclockSnapshot.VoltageUnit"/>.</summary>
+    public bool TrySetVoltage(int value) => Touch(_backend?.TrySetVoltage(value));
+
+    private bool Touch(bool? applied)
     {
-        if (_gpu is not { } gpu) return null;
-
-        try
-        {
-            PerformanceLimit limit = gpu.PerformanceControl.CurrentActiveLimit;
-
-            GpuPerformanceLimit result = GpuPerformanceLimit.None;
-            if (limit.HasFlag(PerformanceLimit.PowerLimit)) result |= GpuPerformanceLimit.Power;
-            if (limit.HasFlag(PerformanceLimit.TemperatureLimit)) result |= GpuPerformanceLimit.Temperature;
-            if (limit.HasFlag(PerformanceLimit.VoltageLimit)) result |= GpuPerformanceLimit.Voltage;
-            if (limit.HasFlag(PerformanceLimit.NoLoadLimit)) result |= GpuPerformanceLimit.NoLoad;
-            if (limit.HasFlag(PerformanceLimit.Unknown8)) result |= GpuPerformanceLimit.Other;
-
-            return result;
-        }
-        catch
-        {
-            return null;
-        }
+        if (applied != true) return false;
+        _overclockTouched = true;
+        return true;
     }
 
-    /// <summary>Applique les décalages d'horloge cœur et mémoire (en MHz) sur l'état P0. Les deux sont
-    /// écrits dans le même appel, comme le fait le pilote NVIDIA lui-même.</summary>
-    public bool TrySetClockOffsets(int coreMhz, int memoryMhz)
-    {
-        if (_gpu is not { } gpu) return false;
-
-        var clocks = new[]
-        {
-            new PerformanceStates20ClockEntryV1(PublicClockDomain.Graphics,
-                new PerformanceStates20ParameterDelta(coreMhz * 1000)),
-            new PerformanceStates20ClockEntryV1(PublicClockDomain.Memory,
-                new PerformanceStates20ParameterDelta(memoryMhz * 1000)),
-        };
-
-        var states = new[]
-        {
-            new PerformanceStates20InfoV1.PerformanceState20(
-                OverclockState, clocks, Array.Empty<PerformanceStates20BaseVoltageEntryV1>()),
-        };
-
-        // La structure existe en 3 versions ; le pilote n'en accepte qu'un sous-ensemble et répond
-        // "IncompatibleStructureVersion" pour les autres. On part de la plus récente et on redescend,
-        // comme le fait la lecture dans NvAPIWrapper.
-        for (int version = 3; version >= 1; version--)
-        {
-            try
-            {
-                IPerformanceStates20Info info = version switch
-                {
-                    3 => new PerformanceStates20InfoV3(states, (uint)clocks.Length, 0),
-                    2 => new PerformanceStates20InfoV2(states, (uint)clocks.Length, 0),
-                    _ => new PerformanceStates20InfoV1(states, (uint)clocks.Length, 0),
-                };
-
-                NvAPIWrapper.Native.GPUApi.SetPerformanceStates20(gpu.Handle, info);
-                _overclockTouched = true;
-                return true;
-            }
-            catch
-            {
-                // Version refusée : on tente la précédente.
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>Applique la limite de température (°C) à toutes les politiques thermiques actives.</summary>
-    public bool TrySetTemperatureLimit(int celsius)
-    {
-        if (_gpu is not { } gpu) return false;
-
-        try
-        {
-            List<GPUThermalLimitInfo> infos = gpu.PerformanceControl.ThermalLimitInformation.ToList();
-            if (infos.Count == 0) return false;
-
-            int min = infos.Min(i => i.MinimumTemperature);
-            int max = infos.Max(i => i.MaximumTemperature);
-            int clamped = max > min ? Math.Clamp(celsius, min, max) : celsius;
-
-            List<GPUThermalLimitPolicy> policies = gpu.PerformanceControl.ThermalLimitPolicies.ToList();
-
-            // On repart des politiques actives quand il y en a (pour conserver leur état P et leur
-            // contrôleur) ; sinon on en crée une par contrôleur annoncé par la carte.
-            PrivateThermalPoliciesStatusV2.ThermalPoliciesStatusEntry[] entries = policies.Count > 0
-                ? policies
-                    .Select(p => new PrivateThermalPoliciesStatusV2.ThermalPoliciesStatusEntry(
-                        p.PerformanceStateId, p.Controller, clamped))
-                    .ToArray()
-                : infos
-                    .Select(i => new PrivateThermalPoliciesStatusV2.ThermalPoliciesStatusEntry(i.Controller, clamped))
-                    .ToArray();
-
-            NvAPIWrapper.Native.GPUApi.SetThermalPoliciesStatus(
-                gpu.Handle, new PrivateThermalPoliciesStatusV2(entries));
-            _overclockTouched = true;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>Applique la surtension cœur (%) — uniquement disponible sur GPU Pascal.</summary>
-    public bool TrySetVoltageBoostPercent(int percent)
-    {
-        if (_gpu is not { } gpu) return false;
-
-        try
-        {
-            NvAPIWrapper.Native.GPUApi.SetCoreVoltageBoostPercent(
-                gpu.Handle, new PrivateVoltageBoostPercentV1((uint)Math.Clamp(percent, 0, 100)));
-            _overclockTouched = true;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>Rend la carte à ses réglages d'origine : décalages à zéro, limite de température par
-    /// défaut, surtension à zéro et limite de puissance par défaut.</summary>
-    public void RestoreOverclockDefaults()
-    {
-        if (_gpu is not { } gpu) return;
-
-        TrySetClockOffsets(0, 0);
-
-        var thermal = ReadTemperatureLimit(gpu);
-        if (thermal.Ok) TrySetTemperatureLimit(thermal.Default);
-
-        var voltage = ReadVoltageBoost(gpu);
-        if (voltage.Ok && voltage.Percent != 0) TrySetVoltageBoostPercent(0);
-
-        TryRestorePowerLimitDefault();
-    }
-
-    private static (bool Ok, int Core, int CoreMin, int CoreMax, int Mem, int MemMin, int MemMax)
-        ReadClockOffsets(PhysicalGPU gpu)
-    {
-        try
-        {
-            IPerformanceStates20Info info = NvAPIWrapper.Native.GPUApi.GetPerformanceStates20(gpu.Handle);
-            if (!info.Clocks.TryGetValue(OverclockState, out IPerformanceStates20ClockEntry[]? clocks))
-            {
-                return (false, 0, 0, 0, 0, 0, 0);
-            }
-
-            IPerformanceStates20ClockEntry? core = clocks.FirstOrDefault(c => c.DomainId == PublicClockDomain.Graphics);
-            IPerformanceStates20ClockEntry? memory = clocks.FirstOrDefault(c => c.DomainId == PublicClockDomain.Memory);
-            if (core is null && memory is null) return (false, 0, 0, 0, 0, 0, 0);
-
-            (int coreValue, int coreMin, int coreMax) = ReadDelta(core, FallbackCoreOffsetMinMhz, FallbackCoreOffsetMaxMhz);
-            (int memValue, int memMin, int memMax) = ReadDelta(memory, FallbackMemoryOffsetMinMhz, FallbackMemoryOffsetMaxMhz);
-
-            return (true, coreValue, coreMin, coreMax, memValue, memMin, memMax);
-        }
-        catch
-        {
-            return (false, 0, 0, 0, 0, 0, 0);
-        }
-    }
-
-    /// <summary>Convertit un delta NVAPI (kHz) en MHz, avec repli sur une plage prudente quand le
-    /// pilote ne renvoie pas de plage exploitable.</summary>
-    private static (int Value, int Min, int Max) ReadDelta(
-        IPerformanceStates20ClockEntry? entry, int fallbackMin, int fallbackMax)
-    {
-        if (entry is null) return (0, fallbackMin, fallbackMax);
-
-        PerformanceStates20ParameterDelta delta = entry.FrequencyDeltaInkHz;
-        int min = delta.DeltaRange.Minimum / 1000;
-        int max = delta.DeltaRange.Maximum / 1000;
-        if (max <= min)
-        {
-            min = fallbackMin;
-            max = fallbackMax;
-        }
-
-        return (delta.DeltaValue / 1000, min, max);
-    }
-
-    private static (bool Ok, int Current, int Min, int Max, int Default) ReadTemperatureLimit(PhysicalGPU gpu)
-    {
-        try
-        {
-            GPUThermalLimitInfo? info = gpu.PerformanceControl.ThermalLimitInformation.FirstOrDefault();
-            if (info is null) return (false, 0, 0, 0, 0);
-
-            GPUThermalLimitPolicy? policy = gpu.PerformanceControl.ThermalLimitPolicies.FirstOrDefault();
-            int current = policy?.TargetTemperature ?? info.DefaultTemperature;
-
-            if (info.MaximumTemperature <= info.MinimumTemperature) return (false, 0, 0, 0, 0);
-
-            return (true, current, info.MinimumTemperature, info.MaximumTemperature, info.DefaultTemperature);
-        }
-        catch
-        {
-            return (false, 0, 0, 0, 0);
-        }
-    }
-
-    private static (bool Ok, int Percent) ReadVoltageBoost(PhysicalGPU gpu)
-    {
-        try
-        {
-            return (true, (int)NvAPIWrapper.Native.GPUApi.GetCoreVoltageBoostPercent(gpu.Handle).Percent);
-        }
-        catch
-        {
-            return (false, 0);
-        }
-    }
+    /// <summary>Rend la carte à ses réglages d'origine : horloges, tension, limites de température et
+    /// de puissance.</summary>
+    public void RestoreOverclockDefaults() => _backend?.RestoreOverclockDefaults();
 
     /// <summary>Préfixe des identifiants de ventilateur GPU côté onglet Ventilateurs : distingue un
-    /// cooler NVAPI d'un capteur de contrôle de carte mère dans le même fichier de réglages.</summary>
+    /// ventilateur de carte graphique d'un capteur de contrôle de carte mère dans le même fichier de
+    /// réglages.</summary>
     public const string FanIdPrefix = "gpu:";
 
     public static string FanId(int coolerId) => FanIdPrefix + coolerId.ToString(CultureInfo.InvariantCulture);
@@ -416,54 +137,26 @@ public sealed class GpuControlService : IFanController, IDisposable
                && int.TryParse(fanId.AsSpan(FanIdPrefix.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out coolerId);
     }
 
-    public bool TrySetFanPercent(int coolerId, int percent)
-    {
-        if (_gpu is not { } gpu) return false;
+    public bool TrySetFanPercent(int coolerId, int percent) => _backend?.TrySetFanPercent(coolerId, percent) ?? false;
 
-        try
-        {
-            gpu.CoolerInformation.SetCoolerSettings(coolerId, Math.Clamp(percent, 0, 100));
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public bool TryRestoreFanAuto()
-    {
-        if (_gpu is not { } gpu) return false;
-
-        try
-        {
-            gpu.CoolerInformation.RestoreCoolerSettingsToDefault();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public bool TryRestoreFanAuto() => _backend?.TryRestoreFanAuto() ?? false;
 
     public void Dispose()
     {
-        if (!_initialized) return;
+        if (_backend is not { } backend) return;
 
-        if (_gpu is not null)
+        if (KeepOverclockOnExit)
         {
-            if (KeepOverclockOnExit)
-            {
-                TryRestoreFanAuto();
-            }
-            else
-            {
-                if (_overclockTouched) RestoreOverclockDefaults();
-                else TryRestorePowerLimitDefault();
-                TryRestoreFanAuto();
-            }
+            TryRestoreFanAuto();
+        }
+        else
+        {
+            if (_overclockTouched) RestoreOverclockDefaults();
+            else TryRestorePowerLimitDefault();
+            TryRestoreFanAuto();
         }
 
-        try { NVIDIA.Unload(); } catch { /* best-effort */ }
+        try { backend.Dispose(); } catch { /* best-effort */ }
+        _backend = null;
     }
 }
