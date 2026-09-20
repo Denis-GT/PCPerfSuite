@@ -4,7 +4,7 @@
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
 
     <UserControl.Resources>
-        <!-- Case de la grille de position de l'overlay : contenu centré, pilule carrée. -->
+        <!-- Case de la grille de position de l'overlay : contenu centré, coins arrondis comme le reste. -->
         <Style x:Key="AnchorButton" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
             <Setter Property="FontSize" Value="15"/>
@@ -12,7 +12,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Background="{StaticResource HoverBrush}" CornerRadius="8" Margin="2" Height="34">
+                        <Border x:Name="Bd" Background="{StaticResource HoverBrush}" CornerRadius="{StaticResource ControlRadius}" Margin="2" Height="34">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -83,7 +83,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Canal RTSS" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit, guru3d.com)." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBox Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit, guru3d.com)." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding UseRtss}" VerticalAlignment="Center"/>
                         </Grid>
@@ -95,7 +95,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Canal fenêtre PCPerfSuite" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Fenêtre transparente toujours au-dessus, traversante pour la souris. Aucune installation, mais invisible en plein écran exclusif." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBox Text="Fenêtre transparente toujours au-dessus, traversante pour la souris. Aucune installation, mais invisible en plein écran exclusif." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding UseWindow}" VerticalAlignment="Center"/>
                         </Grid>
@@ -115,10 +115,10 @@
                                 <TextBlock Text="{Binding CadenceText}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
                                          controls:TextBoxBehaviors.CommitOnEnter="True"
+                                         ToolTip="{Binding RefreshHint}"
                                          Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
-                                <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                             </StackPanel>
                         </Grid>
 
@@ -156,16 +156,24 @@
                             <ColumnDefinition Width="50"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Police" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <ComboBox Grid.Column="1" Style="{StaticResource GlassComboBox}" DisplayMemberPath="Source"
-                                  ItemsSource="{Binding Appearance.FontFamilies}" SelectedItem="{Binding Appearance.SelectedFont}"/>
+                        <!-- ItemTemplate et non DisplayMemberPath : ce dernier ne s'applique qu'aux options
+                             de la liste déroulée, pas à la case fermée (cf. LabelOptionTemplate). -->
+                        <ComboBox Grid.Column="1" Style="{StaticResource GlassComboBox}"
+                                  ItemsSource="{Binding Appearance.FontFamilies}" SelectedItem="{Binding Appearance.SelectedFont}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Source}" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                         <TextBlock Grid.Column="2" Text="Taille" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="20,0,10,0"/>
                         <Slider Grid.Column="3" Minimum="10" Maximum="48" IsSnapToTickEnabled="True" TickFrequency="1"
                                 Value="{Binding Appearance.FontSize, Delay=150}" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="4" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
                                    Text="{Binding Appearance.FontSize, StringFormat={}{0:0} px}"/>
                     </Grid>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
-                               Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
+                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                             Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
 
                     <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
                         <StackPanel>
@@ -176,7 +184,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Couleurs par catégorie" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                    <TextBox Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Appearance.UseCategoryColors}" VerticalAlignment="Center"/>
                             </Grid>
@@ -203,7 +211,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Envoyer les couleurs à RTSS" Style="{StaticResource Body}"/>
-                                    <TextBlock Text="Utilise les balises de mise en forme de RTSS. À décocher si les balises s'affichent en clair en jeu (RTSS trop ancien, ou rendu vectoriel au lieu de raster)." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                    <TextBox Text="Utilise les balises de mise en forme de RTSS. À décocher si les balises s'affichent en clair en jeu (RTSS trop ancien, ou rendu vectoriel au lieu de raster)." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Appearance.SendColorsToRtss}" VerticalAlignment="Center"/>
                             </Grid>
@@ -228,60 +236,73 @@
                         <StackPanel>
                             <TextBlock Text="Canal fenêtre" Style="{StaticResource Body}" FontWeight="SemiBold"/>
 
-                            <TextBlock Text="Position sur l'écran principal" Style="{StaticResource Caption}" Margin="0,10,0,6"/>
-                            <UniformGrid Rows="3" Columns="3" Width="150" HorizontalAlignment="Left">
-                                <RadioButton Content="↖" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopLeft}"/>
-                                <RadioButton Content="↑" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopCenter}"/>
-                                <RadioButton Content="↗" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopRight}"/>
-                                <RadioButton Content="←" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleLeft}"/>
-                                <RadioButton Content="•" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleCenter}"/>
-                                <RadioButton Content="→" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleRight}"/>
-                                <RadioButton Content="↙" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomLeft}"/>
-                                <RadioButton Content="↓" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomCenter}"/>
-                                <RadioButton Content="↘" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
-                                             IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomRight}"/>
-                            </UniformGrid>
-
-                            <Grid Margin="0,12,0,0">
+                            <!-- Ancrage à gauche, curseurs à droite : la grille ne fait que 150 px et laissait
+                                 tout le reste de la ligne vide, pendant que le curseur « Fond » juste en dessous
+                                 s'étirait sur plus de mille pixels pour une plage de 0 à 1. -->
+                            <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="50"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="50"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Marge X" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <Slider Grid.Column="1" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
-                                        Value="{Binding Appearance.MarginX, Delay=150}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding Appearance.MarginX, StringFormat={}{0:0} px}"/>
-                                <TextBlock Grid.Column="3" Text="Marge Y" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="20,0,10,0"/>
-                                <Slider Grid.Column="4" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
-                                        Value="{Binding Appearance.MarginY, Delay=150}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="5" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding Appearance.MarginY, StringFormat={}{0:0} px}"/>
-                            </Grid>
 
-                            <Grid Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="50"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Fond" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                                        Value="{Binding Appearance.BackgroundOpacity, Delay=150}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding Appearance.BackgroundOpacity, StringFormat={}{0:P0}}"/>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Position sur l'écran principal" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                    <UniformGrid Rows="3" Columns="3" Width="150" HorizontalAlignment="Left">
+                                        <RadioButton Content="↖" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopLeft}"/>
+                                        <RadioButton Content="↑" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopCenter}"/>
+                                        <RadioButton Content="↗" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopRight}"/>
+                                        <RadioButton Content="←" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleLeft}"/>
+                                        <RadioButton Content="•" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleCenter}"/>
+                                        <RadioButton Content="→" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=MiddleRight}"/>
+                                        <RadioButton Content="↙" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomLeft}"/>
+                                        <RadioButton Content="↓" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomCenter}"/>
+                                        <RadioButton Content="↘" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
+                                                     IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=BottomRight}"/>
+                                    </UniformGrid>
+                                </StackPanel>
+
+                                <!-- Les trois curseurs, un par ligne, centrés en face de la grille d'ancrage. -->
+                                <Grid Grid.Column="1" Margin="28,0,0,0" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Marge X" Style="{StaticResource Body}"
+                                               VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
+                                            Value="{Binding Appearance.MarginX, Delay=150}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                               Text="{Binding Appearance.MarginX, StringFormat={}{0:0} px}"/>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Marge Y" Style="{StaticResource Body}"
+                                               VerticalAlignment="Center" Margin="0,10,10,0"/>
+                                    <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
+                                            Value="{Binding Appearance.MarginY, Delay=150}" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                               Margin="0,10,0,0" Text="{Binding Appearance.MarginY, StringFormat={}{0:0} px}"/>
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Fond" Style="{StaticResource Body}"
+                                               VerticalAlignment="Center" Margin="0,10,10,0"/>
+                                    <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                            Value="{Binding Appearance.BackgroundOpacity, Delay=150}" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
+                                               Margin="0,10,0,0" Text="{Binding Appearance.BackgroundOpacity, StringFormat={}{0:P0}}"/>
+                                </Grid>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -292,8 +313,8 @@
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="Aperçu" Style="{StaticResource H2}"/>
-                    <TextBlock Text="Exactement ce qui s'affiche en jeu (la fenêtre PCPerfSuite rend à l'identique ; RTSS applique en plus sa propre police)."
-                               Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                    <TextBox Text="Exactement ce qui s'affiche en jeu (la fenêtre PCPerfSuite rend à l'identique ; RTSS applique en plus sa propre police)."
+                             Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"/>
                     <Border Background="{StaticResource PreviewBackdropBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                             CornerRadius="12" Padding="16" Margin="0,12,0,0"
                             TextElement.FontFamily="{Binding Appearance.SelectedFont}"

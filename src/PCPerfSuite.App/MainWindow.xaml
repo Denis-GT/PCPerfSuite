@@ -37,17 +37,22 @@
         <Border Grid.Column="0" Background="{StaticResource SidebarBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <!-- Marque : pastille dégradée + nom. -->
+                <!-- Marque : l'icône de l'app + son nom. L'icône elle-même, et non un glyphe dans une
+                     pastille dégradée : c'est la même image que la barre de titre, la barre des tâches et
+                     la zone de notification, donc on reconnaît l'app partout pareil.
+                     DecodePixelWidth pousse le décodeur ICO vers une trame bien plus grande que 36 px, pour
+                     que le logo reste net à 150 % et 200 % d'échelle d'affichage. -->
                 <Grid DockPanel.Dock="Top" Margin="20,24,16,22">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Width="36" Height="36" CornerRadius="10" Background="{StaticResource BrandBrush}"
-                            VerticalAlignment="Center">
-                        <TextBlock Text="&#xE945;" Style="{StaticResource Icon}" FontSize="18" Foreground="White"
-                                   HorizontalAlignment="Center"/>
-                    </Border>
+                    <Image Grid.Column="0" Width="36" Height="36" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Source>
+                            <BitmapImage UriSource="/PCPerfSuite.ico" DecodePixelWidth="72"/>
+                        </Image.Source>
+                    </Image>
                     <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="PCPerfSuite" Style="{StaticResource H2}" FontSize="16"/>
                         <TextBlock Text="Monitoring &amp; tuning" Style="{StaticResource Caption}" FontSize="11.5"/>

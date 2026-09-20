@@ -52,7 +52,10 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <controls:MeterBar x:Name="Meter" Value="{Binding UsedPercent}" Height="6" Margin="0,14,0,0"/>
+                                    <!-- UseValueColor : la barre passe d'elle-même à l'orange puis au rouge (rouge à 90 %, le même
+                                         seuil que l'Explorateur), inutile de la recolorer par trigger. -->
+                                    <controls:MeterBar Value="{Binding UsedPercent}" Height="6" Margin="0,14,0,0"
+                                                       UseValueColor="True"/>
                                     <Grid Margin="0,6,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -69,9 +72,6 @@
                                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                     <Setter TargetName="IconPlate" Property="Background" Value="{StaticResource AccentBrush}"/>
                                     <Setter TargetName="Glyph" Property="Foreground" Value="White"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsAlmostFull}" Value="True">
-                                    <Setter TargetName="Meter" Property="IndicatorBrush" Value="{StaticResource DangerBrush}"/>
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>

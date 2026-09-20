@@ -2,7 +2,33 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- DataContext : MetricSelectionViewModel. CheckBox volontairement sans style local (style global du thème). -->
+    <!-- DataContext : MetricSelectionViewModel. Une boîte par catégorie : sur une machine bien équipée,
+         la liste dépasse la cinquantaine de cases, et un mur de cases ne se lit plus. Chaque boîte dit
+         combien de ses métriques sont retenues, sait tout cocher d'un geste et se replie.
+         Les CheckBox sont volontairement sans style local (style global du thème). -->
+    <UserControl.Resources>
+        <!-- En-tête de boîte : toute la ligne est cliquable pour replier la catégorie. -->
+        <Style x:Key="GroupHeader" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,10"
+                                RenderOptions.ClearTypeHint="Enabled">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
     <ItemsControl ItemsSource="{Binding Groups}">
         <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
@@ -11,32 +37,75 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
             <DataTemplate>
-                <StackPanel Width="240" Margin="0,0,16,14">
-                    <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,0,0,6"/>
-                    <ItemsControl ItemsSource="{Binding Items}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <!-- Métrique que ce PC ne fournit pas : toujours cochable, mais signalée pour qu'on
-                                     sache d'avance qu'elle affichera "N/D". Au survol, la description de la métrique,
-                                     remplacée dans ce cas par la raison de son absence. -->
-                                <CheckBox x:Name="Option" IsChecked="{Binding IsSelected}" Margin="0,3"
-                                          ToolTip="{Binding Definition.Description}">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
-                                        <TextBlock Text="Non disponible sur ce PC" Style="{StaticResource Caption}" FontSize="11"
-                                                   Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}"/>
-                                    </StackPanel>
-                                </CheckBox>
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
-                                        <Setter TargetName="Option" Property="Opacity" Value="0.55"/>
-                                        <Setter TargetName="Option" Property="ToolTip" Value="{Binding UnavailableHint}"/>
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
+                <!-- VerticalAlignment=Top : les boîtes d'une même ligne n'ont pas à s'étirer sur la
+                     hauteur de la plus fournie. -->
+                <Border Style="{StaticResource InsetTile}" Width="264" Padding="0" Margin="0,0,14,14"
+                        VerticalAlignment="Top">
+                    <StackPanel>
+                        <ToggleButton Style="{StaticResource GroupHeader}" IsChecked="{Binding IsExpanded}"
+                                      ToolTip="Replier ou déplier cette catégorie">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="8" Height="8" Fill="{Binding Accent}"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="12"
+                                           Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="2" Text="{Binding CountDisplay}" Style="{StaticResource Caption}"
+                                           FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <Path x:Name="Chevron" Grid.Column="3" Data="M 0,0 L 4,4 L 8,0" Stroke="{StaticResource TextTertiaryBrush}"
+                                      StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round" VerticalAlignment="Center" Margin="10,0,0,0"
+                                      RenderTransformOrigin="0.5,0.5"/>
+                            </Grid>
+                        </ToggleButton>
+
+                        <StackPanel x:Name="Body" Margin="14,0,12,12"
+                                    Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
+                            <Button Content="{Binding ToggleAllLabel}" Command="{Binding ToggleAllCommand}"
+                                    Style="{StaticResource ColumnHeaderButton}" HorizontalAlignment="Left"
+                                    Margin="-6,0,0,4"/>
+                            <ItemsControl ItemsSource="{Binding Items}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- Métrique que ce PC ne fournit pas : toujours cochable, mais signalée pour qu'on
+                                             sache d'avance qu'elle affichera "N/D". Au survol, la description de la métrique,
+                                             remplacée dans ce cas par la raison de son absence. -->
+                                        <CheckBox x:Name="Option" IsChecked="{Binding IsSelected}" Margin="0,3"
+                                                  ToolTip="{Binding Definition.Description}">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+                                                <TextBlock Text="Non disponible sur ce PC" Style="{StaticResource Caption}" FontSize="11"
+                                                           Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}"/>
+                                            </StackPanel>
+                                        </CheckBox>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
+                                                <Setter TargetName="Option" Property="Opacity" Value="0.55"/>
+                                                <Setter TargetName="Option" Property="ToolTip" Value="{Binding UnavailableHint}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding IsExpanded}" Value="False">
+                        <Setter TargetName="Chevron" Property="RenderTransform">
+                            <Setter.Value>
+                                <RotateTransform Angle="-90"/>
+                            </Setter.Value>
+                        </Setter>
+                    </DataTrigger>
+                </DataTemplate.Triggers>
             </DataTemplate>
         </ItemsControl.ItemTemplate>
     </ItemsControl>

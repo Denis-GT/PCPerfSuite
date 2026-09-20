@@ -183,6 +183,10 @@ public sealed partial class MetricTileViewModel : ObservableObject
     [ObservableProperty] private string averageDisplay = "--";
     [ObservableProperty] private string maximumDisplay = "--";
 
+    /// <summary>Change à chaque remise à zéro des statistiques. Sert de clé de relâchement aux largeurs
+    /// figées des colonnes de chiffres (voir StickyWidth.ResetKey).</summary>
+    [ObservableProperty] private int statsEpoch;
+
     /// <summary>Met en forme un point de la courbe comme la valeur courante de la tuile — même format, même
     /// unité. C'est ce que le repère du graphique affiche au clic, d'où l'impossibilité qu'il contredise le
     /// chiffre affiché juste au-dessus.</summary>
@@ -227,6 +231,16 @@ public sealed partial class MetricTileViewModel : ObservableObject
         MaximumDisplay = FormatStat(stats.HasValue, stats.Maximum);
     }
 
+    /// <summary>Remise à zéro demandée par l'utilisateur : réaffiche les chiffres, et rend leur largeur.</summary>
+    public void ResetStats()
+    {
+        RefreshStats();
+
+        // Les colonnes de chiffres ne rétrécissent jamais d'elles-mêmes (StickyWidth) : la place prise une
+        // fois par un pic resterait réservée pour toute la session, même après cette remise à zéro.
+        StatsEpoch++;
+    }
+
     /// <summary>Bare pour une unité fixe (déjà celle de la valeur en direct juste à côté) ; sinon avec son
     /// unité, car un débit change d'échelle (o/s, Ko/s, Mo/s...) et taire l'unité tromperait sur la grandeur.</summary>
     private string FormatStat(bool hasValue, double value)
@@ -265,6 +279,9 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
 
     private int _manualMs;
     private int _lastRefreshMs = 1000;
+
+    /// <summary>Bornes admises, affichées en infobulle du champ.</summary>
+    public string RefreshHint => RefreshRates.Hint;
 
     /// <summary>Cadence imposée hors automatique, bornée comme l'actualisation (et ramenée dans ces bornes à l'affichage).</summary>
     public int ManualMs
@@ -690,7 +707,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         // qui peut être à une seconde ou plus selon l'actualisation.
         foreach (MetricTileViewModel tile in MyMetricTiles)
         {
-            tile.RefreshStats();
+            tile.ResetStats();
         }
     }
 

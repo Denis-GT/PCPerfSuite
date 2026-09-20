@@ -11,8 +11,8 @@
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
                 <!-- Message adapté au PC : droits manquants, pilote muet, ou carte non pilotable (voir UnavailableMessage). -->
-                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                           Text="{Binding UnavailableMessage, Mode=OneTime}" TextWrapping="Wrap"/>
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                         Text="{Binding UnavailableMessage, Mode=OneTime}" TextWrapping="Wrap"/>
             </Border>
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">
@@ -118,8 +118,8 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="Overclocking" Style="{StaticResource H2}"/>
-                        <TextBlock Text="Plages annoncées par le pilote. Chaque curseur s'applique quelques instants après avoir été relâché."
-                                   Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                        <TextBox Text="Plages annoncées par le pilote. Chaque curseur s'applique quelques instants après avoir été relâché."
+                                 Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"/>
 
                         <!-- Accord Intel : IGCL refuse tout overclock tant que l'utilisateur n'a pas accepté -->
                         <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
@@ -129,8 +129,8 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
-                                           Text="Intel demande ton accord avant tout overclocking : pousser fréquences, tension ou limites augmente les contraintes électriques et thermiques et peut réduire la durée de vie de la carte (renonciation de garantie Intel). Coche pour accepter ; ton choix est mémorisé."/>
+                                <TextBox Grid.Column="0" Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                                         Text="Intel demande ton accord avant tout overclocking : pousser fréquences, tension ou limites augmente les contraintes électriques et thermiques et peut réduire la durée de vie de la carte (renonciation de garantie Intel). Coche pour accepter ; ton choix est mémorisé."/>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsWaiverAccepted}"
                                           VerticalAlignment="Center" Margin="14,0,0,0"/>
                             </Grid>
@@ -231,20 +231,20 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Appliquer au démarrage" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Réapplique ces réglages au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, la carte repart toujours de ses réglages d'origine." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBox Text="Réapplique ces réglages au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, la carte repart toujours de ses réglages d'origine." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ApplyOverclockAtStartup}" VerticalAlignment="Center"/>
                         </Grid>
 
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                             <Button Content="Tout réinitialiser" Style="{StaticResource GhostButton}" Command="{Binding ResetOverclockCommand}"/>
-                            <TextBlock Text="{Binding OverclockStatus}" Style="{StaticResource Caption}" VerticalAlignment="Center"
-                                       Margin="14,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
+                            <TextBox Text="{Binding OverclockStatus}" Style="{StaticResource SelectableCaption}" VerticalAlignment="Center"
+                                     Margin="14,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
                         </StackPanel>
 
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextTertiaryBrush}"
-                                   Text="Un décalage d'horloge trop élevé fige l'écran ou fait planter le pilote (sans rien casser : un redémarrage remet tout d'origine, et l'overclock n'est pas réappliqué si la case ci-dessus est décochée). Monte par paliers de 15 à 25 MHz et teste entre chaque."/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,14,0,0" TextWrapping="Wrap"
+                                 Foreground="{StaticResource TextTertiaryBrush}"
+                                 Text="Un décalage d'horloge trop élevé fige l'écran ou fait planter le pilote (sans rien casser : un redémarrage remet tout d'origine, et l'overclock n'est pas réappliqué si la case ci-dessus est décochée). Monte par paliers de 15 à 25 MHz et teste entre chaque."/>
                     </StackPanel>
                 </Border>
 
@@ -252,8 +252,8 @@
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Text="Profils" Style="{StaticResource H2}"/>
-                        <TextBlock Text="Enregistre les réglages actuels sous un nom pour y revenir en un clic (un profil du même nom est remplacé)."
-                                   Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+                        <TextBox Text="Enregistre les réglages actuels sous un nom pour y revenir en un clic (un profil du même nom est remplacé)."
+                                 Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <TextBox Style="{StaticResource GlassTextBox}" Width="220"

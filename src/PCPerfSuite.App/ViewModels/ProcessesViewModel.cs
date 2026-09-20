@@ -7,9 +7,11 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Interop;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
@@ -164,6 +166,11 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     [ObservableProperty] private string displayName = "";
     [ObservableProperty] private string? executablePath;
+
+    /// <summary>Icône du fichier, chargée en arrière-plan. Null tant qu'elle n'est pas arrivée, et null
+    /// définitivement pour un processus protégé ou sans chemin lisible : la vue affiche alors un glyphe
+    /// neutre à la place.</summary>
+    [ObservableProperty] private ImageSource? icon;
     [ObservableProperty] private string? publisher;
     [ObservableProperty] private string? userName;
     [ObservableProperty] private string? windowTitle;
@@ -199,6 +206,26 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         ProcessKind.Application => "Application",
         ProcessKind.Windows => "Windows",
         _ => "Arrière-plan",
+    };
+
+    /// <summary>En-tête du groupe où la ligne se range quand la liste est triée par nom. Au pluriel et plus
+    /// explicite que <see cref="KindLabel"/>, qui tient dans une colonne étroite.</summary>
+    public string GroupLabel => Kind switch
+    {
+        ProcessKind.Application => "Applications",
+        ProcessKind.Windows => "Processus Windows",
+        _ => "Processus en arrière-plan",
+    };
+
+    /// <summary>Rang de la famille, utilisé comme critère de tri principal au tri par nom. L'ordre des
+    /// en-têtes, lui, est fixé ailleurs (ApplyGrouping) ; ce rang sert à ranger la SOURCE par famille, ce
+    /// qui fait qu'un processus changeant de famille devient mal placé, se fait déplacer, et rejoint du
+    /// même coup le bon groupe.</summary>
+    public int GroupRank => Kind switch
+    {
+        ProcessKind.Application => 0,
+        ProcessKind.Windows => 2,
+        _ => 1,
     };
 
     public string CpuDisplay => CpuPercent is not { } value
@@ -300,7 +327,13 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         IsAccessible = IsAccessible,
     };
 
-    partial void OnKindChanged(ProcessKind value) => OnPropertyChanged(nameof(KindLabel));
+    partial void OnKindChanged(ProcessKind value)
+    {
+        OnPropertyChanged(nameof(KindLabel));
+        OnPropertyChanged(nameof(GroupLabel));
+        OnPropertyChanged(nameof(GroupRank));
+    }
+
     partial void OnCpuPercentChanged(double? value) => OnPropertyChanged(nameof(CpuDisplay));
     partial void OnMemoryBytesChanged(long? value) => OnPropertyChanged(nameof(MemoryDisplay));
     partial void OnIoBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(IoDisplay));
@@ -314,6 +347,27 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         TerminateCommand.NotifyCanExecuteChanged();
         OpenLocationCommand.NotifyCanExecuteChanged();
         ShowPropertiesCommand.NotifyCanExecuteChanged();
+        LoadIcon(value);
+    }
+
+    /// <summary>Va chercher l'icône du fichier. Le chemin n'est résolu qu'une fois par processus, donc
+    /// cette méthode n'est appelée qu'une fois par ligne ; ShellIcons met de plus en cache par chemin, et
+    /// les dizaines de processus qui partagent un même exécutable n'en coûtent qu'une lecture.
+    /// « async void » assumé : c'est une réaction à un changement de propriété, il n'y a personne pour
+    /// attendre le résultat, et ShellIcons ne lève pas.</summary>
+    private async void LoadIcon(string? path)
+    {
+        if (path is not { Length: > 0 })
+        {
+            Icon = null;
+            return;
+        }
+
+        ImageSource? loaded = await ShellIcons.GetAsync(path);
+
+        // La ligne a pu être réaffectée à un autre processus pendant l'attente (les lignes sont réutilisées
+        // en place) : on ne pose l'icône que si le chemin est toujours celui qu'on a demandé.
+        if (ExecutablePath == path) Icon = loaded;
     }
 
     [RelayCommand]
@@ -411,8 +465,12 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     public ICollectionView RowsView => _rowsView;
     public ProcessColumnsViewModel Columns { get; } = new();
 
+    /// <summary>Cadences proposées. 0,5 s sert à attraper une pointe courte : un relevé complet coûte
+    /// déjà plusieurs dizaines de millisecondes (voir <see cref="ReadDurationHint"/>), ce n'est pas une
+    /// cadence à laisser tourner en fond.</summary>
     public IReadOnlyList<ProcessRefreshOption> RefreshOptions { get; } = new[]
     {
+        new ProcessRefreshOption(500, "0,5 s"),
         new ProcessRefreshOption(1000, "1 s"),
         new ProcessRefreshOption(2000, "2 s"),
         new ProcessRefreshOption(5000, "5 s"),
@@ -532,7 +590,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
-        SelectedRefresh = RefreshOptions.FirstOrDefault(r => r.Ms == saved.RefreshMs) ?? RefreshOptions[1];
+        // Repli cherché par sa valeur et non par son indice : insérer une cadence dans la liste
+        // décalerait un indice et changerait le défaut sans qu'on s'en aperçoive.
+        SelectedRefresh = RefreshOptions.FirstOrDefault(r => r.Ms == saved.RefreshMs)
+            ?? RefreshOptions.First(r => r.Ms == DefaultRefreshMs);
         UpdateSortGlyphs();
 
         _rowsView = (ListCollectionView)CollectionViewSource.GetDefaultView(Rows);
@@ -550,6 +611,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         // Reset, et le rattrapage d'un lot de changements accumulés est exact.
         _rowsView.LiveFilteringProperties.Add(nameof(ProcessRowViewModel.MatchesFilter));
         _rowsView.IsLiveFiltering = true;
+
+        ApplyGrouping();
 
         _initialized = true;
     }
@@ -692,6 +755,11 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         return (a, b) =>
         {
+            // Tri par nom : les groupes d'abord, façon Gestionnaire des tâches. Le rang de groupe est
+            // comparé hors du sens du tri — inverser le tri doit retourner les noms DANS chaque groupe,
+            // pas remonter les processus Windows au-dessus des applications.
+            if (column == "name" && a.GroupRank != b.GroupRank) return a.GroupRank.CompareTo(b.GroupRank);
+
             int result = column switch
             {
                 "name" => string.Compare(a.DisplayName, b.DisplayName, StringComparison.CurrentCultureIgnoreCase),
@@ -864,9 +932,53 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }
 
         UpdateSortGlyphs();
+        ApplyGrouping();
         QueueOrder(force: true);
         Persist();
     }
+
+    /// <summary>
+    /// Groupe la liste en Applications / Processus en arrière-plan / Processus Windows, mais seulement au
+    /// tri par nom : c'est le seul tri où le regroupement aide à retrouver quelque chose. Trier par CPU ou
+    /// par mémoire sert justement à voir les plus gros consommateurs toutes familles confondues, des
+    /// en-têtes y couperaient le classement.
+    ///
+    /// Pas de IsLiveGrouping : un Move rend déjà son groupe à la ligne déplacée, et le rang de groupe étant
+    /// le critère de tri principal, un processus qui change de famille devient « mal placé » et se fait
+    /// déplacer au réordonnancement suivant. Le regroupement dynamique, lui, ajouterait des notifications
+    /// pendant que des Move sont en vol — exactement ce qui provoquait les lignes affichées en double
+    /// (voir le commentaire de QueueOrder).
+    /// </summary>
+    private void ApplyGrouping()
+    {
+        bool grouped = SortColumnId == "name";
+        bool alreadyGrouped = _rowsView.GroupDescriptions.Count > 0;
+        if (grouped == alreadyGrouped) return;
+
+        // Changer les groupes provoque un Reset de la vue : on ne le fait qu'au changement de tri, jamais
+        // au fil des relevés.
+        _rowsView.GroupDescriptions.Clear();
+        if (!grouped) return;
+
+        var description = new PropertyGroupDescription(nameof(ProcessRowViewModel.GroupLabel));
+
+        // Les trois en-têtes sont déclarés d'avance, dans l'ordre voulu. Sans ça, une vue WPF crée ses
+        // groupes au fil des éléments qu'elle rencontre : l'ordre dépendrait de l'état de la liste au moment
+        // où le regroupement est posé, et « Processus en arrière-plan » pouvait passer devant
+        // « Applications ». Un groupe resté vide est masqué par le gabarit (voir ProcessesView.xaml).
+        foreach (string name in GroupNames) description.GroupNames.Add(name);
+
+        _rowsView.GroupDescriptions.Add(description);
+    }
+
+    /// <summary>Les en-têtes de groupe, dans leur ordre d'affichage. Doit rester accordé à
+    /// <see cref="ProcessRowViewModel.GroupLabel"/> et <see cref="ProcessRowViewModel.GroupRank"/>.</summary>
+    private static readonly string[] GroupNames =
+    [
+        "Applications",
+        "Processus en arrière-plan",
+        "Processus Windows",
+    ];
 
     private void UpdateSortGlyphs()
     {

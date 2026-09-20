@@ -30,13 +30,13 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="0" Width="260" Margin="0,0,14,0">
-                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="32,7,10,7"
+                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="28,7,8,7"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"/>
                 <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="12,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+                           Margin="9,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
                 <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un. -->
                 <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Margin="29,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
                            Visibility="{Binding SearchText.Length, Converter={StaticResource ZeroCountToVisibility}}"/>
             </Grid>
 
@@ -48,15 +48,38 @@
 
             <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Relevé" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Border Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center" Margin="0,0,14,0">
-                    <ListBox Style="{StaticResource PillSelector}"
-                             ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
-                             DisplayMemberPath="Label" ToolTip="{Binding ReadDurationHint}"/>
-                </Border>
+                <!-- Liste déroulante plutôt que pilules : cinq cadences alignées prenaient toute la barre
+                     d'outils pour un réglage qu'on touche deux fois par session. -->
+                <ComboBox Width="96" VerticalAlignment="Center" Margin="0,0,10,0"
+                          ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
+                          ItemTemplate="{StaticResource LabelOptionTemplate}">
+                    <ComboBox.ToolTip>
+                        <StackPanel MaxWidth="320">
+                            <TextBlock Text="{Binding ReadDurationHint}" TextWrapping="Wrap"/>
+                            <TextBlock Text="0,5 s sert à attraper une pointe courte : un relevé complet coûte déjà plusieurs dizaines de millisecondes, ce n'est pas une cadence à laisser tourner en fond."
+                                       TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </ComboBox.ToolTip>
+                </ComboBox>
 
-                <TextBlock Text="Figer" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsFrozen}" VerticalAlignment="Center"
-                          ToolTip="Arrête complètement les relevés, pour lire ou copier tranquillement"/>
+                <!-- Un bouton, pas un interrupteur : c'est une action qu'on déclenche puis qu'on annule.
+                     Les deux états se superposent dans une Grid, ce qui fige la largeur du bouton — sinon
+                     la barre d'outils se réorganiserait à chaque clic. -->
+                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding IsFrozen}" VerticalAlignment="Center"
+                              ToolTip="Arrête complètement les relevés, pour lire ou copier tranquillement. Cliquer à nouveau pour reprendre.">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsFrozen, Converter={StaticResource InverseBoolToVisibility}}">
+                            <TextBlock Text="&#xE769;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                            <TextBlock Text="Figer" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsFrozen, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="&#xE768;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                            <TextBlock Text="Figé" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </ToggleButton>
 
                 <Button Style="{StaticResource GhostButton}" Margin="14,0,0,0"
                         Command="{Binding ToggleColumnsCommand}">
@@ -158,12 +181,59 @@
                          VirtualizingPanel.IsVirtualizing="True"
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.ScrollUnit="Pixel"
+                         VirtualizingPanel.IsVirtualizingWhenGrouping="True"
                          SelectedItem="{Binding SelectedRow}"
                          MouseEnter="OnListMouseEnter" MouseLeave="OnListMouseLeave"
                          IsKeyboardFocusWithinChanged="OnListKeyboardFocusWithinChanged"
                          PreviewMouseRightButtonDown="OnListRightButtonDown"
                          ContextMenuOpening="OnListContextMenuOpening"
                          KeyDown="OnListKeyDown">
+                    <!-- Groupes Applications / Arrière-plan / Windows, posés par le ViewModel au seul tri par
+                         nom. IsVirtualizingWhenGrouping ci-dessus n'est pas décoratif : par défaut WPF coupe la
+                         virtualisation dès qu'une vue est groupée, et les quatre cents lignes seraient toutes
+                         réalisées. Le gabarit du GroupItem ne contient donc que son en-tête et un
+                         ItemsPresenter, et son panneau reste un VirtualizingStackPanel — tout emballage
+                         supplémentaire casserait la mesure et ramènerait le problème. -->
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.Panel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </GroupStyle.Panel>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="GroupItem">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="GroupItem">
+                                                <StackPanel x:Name="Root">
+                                                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+                                                            Margin="6,10,10,4" Padding="0,0,0,4">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="11.5"/>
+                                                            <TextBlock Text="{Binding ItemCount, StringFormat=({0})}" Style="{StaticResource Eyebrow}"
+                                                                       FontSize="11.5" Foreground="{StaticResource TextTertiaryBrush}"
+                                                                       Margin="6,0,0,0" Typography.NumeralAlignment="Tabular"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <ItemsPresenter/>
+                                                </StackPanel>
+                                                <ControlTemplate.Triggers>
+                                                    <!-- Les trois groupes sont déclarés d'avance par le ViewModel pour fixer leur
+                                                         ordre : celui qui n'a aucun processus (un PC sans rien en arrière-plan,
+                                                         une recherche qui ne laisse que des applications) ne doit pas afficher
+                                                         un en-tête « (0) » tout seul. -->
+                                                    <DataTrigger Binding="{Binding ItemCount}" Value="0">
+                                                        <Setter TargetName="Root" Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <!-- Hauteur fixe : le défilement au pixel reste fluide et la liste sait estimer sa
@@ -182,10 +252,25 @@
                                     <ColumnDefinition Width="{Binding Owner.Columns.Publisher.Width}"/>
                                 </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="0" Text="{Binding DisplayName}" Style="{StaticResource Body}" FontSize="12.5"
-                                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                           Margin="6,0,10,0" ToolTip="{Binding PathDisplay}"
-                                           Visibility="{Binding Owner.Columns.Name.CellVisibility}"/>
+                                <!-- Icône du fichier à gauche du nom : dans quatre cents lignes, une icône se
+                                     reconnaît bien plus vite qu'un nom. Elle arrive en arrière-plan ; tant
+                                     qu'elle manque — processus protégé, chemin illisible, ou icône pas encore
+                                     lue — un glyphe neutre tient la place pour que les noms restent alignés. -->
+                                <Grid Grid.Column="0" Margin="6,0,10,0"
+                                      Visibility="{Binding Owner.Columns.Name.CellVisibility}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Image Grid.Column="0" Source="{Binding Icon}" Width="16" Height="16"
+                                           VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock x:Name="FallbackGlyph" Grid.Column="0" Text="&#xE7C4;" Style="{StaticResource Icon}"
+                                               FontSize="12" Foreground="{StaticResource TextTertiaryBrush}"
+                                               HorizontalAlignment="Center" Visibility="Collapsed"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Style="{StaticResource Body}" FontSize="12.5"
+                                               VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               Margin="8,0,0,0" ToolTip="{Binding PathDisplay}"/>
+                                </Grid>
 
                                 <TextBlock Grid.Column="1" Text="{Binding Pid}" Style="{StaticResource Caption}" FontSize="12.5"
                                            TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
@@ -229,6 +314,11 @@
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.Publisher.CellVisibility}"/>
                             </Grid>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                                    <Setter TargetName="FallbackGlyph" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
 
@@ -276,8 +366,8 @@
 
                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                     <TextBlock Text="{Binding DisplayName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding PathDisplay}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             TextWrapping="Wrap"/>
                     <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap">
                         <Run Text="PID"/>
                         <Run Text="{Binding Pid, Mode=OneWay}"/>
@@ -288,8 +378,8 @@
                         <Run Text="· démarré le"/>
                         <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
                     </TextBlock>
-                    <TextBlock Text="{Binding Publisher}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
+                    <TextBox Text="{Binding Publisher}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
                     <TextBlock Text="{Binding WindowTitle}" Style="{StaticResource Caption}" Margin="0,4,0,0"
                                TextTrimming="CharacterEllipsis"
                                Visibility="{Binding WindowTitle, Converter={StaticResource NullToVisibility}}"/>
@@ -318,7 +408,7 @@
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource Caption}" Margin="0,10,0,0"
-                   TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>
+        <TextBox Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
+                 TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>
     </Grid>
 </UserControl>
