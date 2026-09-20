@@ -105,7 +105,9 @@ public sealed class CpuPowerTuningService
                 Label = "Fréquence maximale",
                 Description = "Plafond de fréquence en mégahertz, plus direct que le pourcentage ci-dessus. 0 laisse le processeur libre.",
                 Min = 0,
-                Max = 6000,
+                // Au-dessus des processeurs les plus rapides du moment (un i9-14900KS monte à 6,2 GHz) :
+                // un plafond trop bas empêcherait de régler la fréquence maximale sur ces machines-là.
+                Max = 7000,
                 Unit = " MHz",
                 ZeroLabel = "Illimitée",
             },

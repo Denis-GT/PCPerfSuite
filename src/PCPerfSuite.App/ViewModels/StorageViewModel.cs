@@ -35,7 +35,10 @@ public sealed partial class DriveOption : ObservableObject
 
     [ObservableProperty] private bool isSelected;
 
-    public static DriveOption FromDrive(DriveInfo drive, string? systemRoot)
+    /// <summary>Décrit un volume, ou renvoie null s'il devient illisible entre l'énumération et la lecture
+    /// (clé USB retirée, lecteur réseau déconnecté) : mieux vaut l'omettre de la liste que de faire tomber
+    /// tout le ViewModel — et avec lui la fenêtre principale, construite juste après.</summary>
+    public static DriveOption? TryFromDrive(DriveInfo drive, string? systemRoot)
     {
         (string kind, int glyph) = drive.DriveType switch
         {
@@ -46,30 +49,45 @@ public sealed partial class DriveOption : ObservableObject
             _ => ("Disque local", 0xEDA2),
         };
 
-        // Nom de volume illisible (lecteur réseau déconnecté entre-temps, droits) : on nomme le disque par son
-        // type, comme l'Explorateur le fait pour un volume sans nom.
-        string volumeLabel;
         try
         {
-            volumeLabel = drive.VolumeLabel;
+            if (!drive.IsReady) return null;
+
+            // TotalSize et AvailableFreeSpace lèvent si le volume disparaît entre l'énumération et ici
+            // (clé retirée, partage réseau coupé) : sans ce try, l'exception remonterait jusqu'au
+            // constructeur de la fenêtre principale, qui n'existe pas encore pour l'afficher.
+            long total = drive.TotalSize;
+            long free = drive.AvailableFreeSpace;
+
+            // Nom de volume illisible (droits) : on nomme le disque par son type, comme l'Explorateur
+            // le fait pour un volume sans nom.
+            string volumeLabel;
+            try
+            {
+                volumeLabel = drive.VolumeLabel;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                volumeLabel = "";
+            }
+
+            string letter = drive.Name.TrimEnd('\\');
+            string root = drive.RootDirectory.FullName;
+            return new DriveOption
+            {
+                RootPath = root,
+                Title = $"{(string.IsNullOrWhiteSpace(volumeLabel) ? kind : volumeLabel)} ({letter})",
+                Kind = kind,
+                Icon = char.ConvertFromUtf32(glyph),
+                IsSystem = string.Equals(root, systemRoot, StringComparison.OrdinalIgnoreCase),
+                UsedBytes = total - free,
+                TotalBytes = total,
+            };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            volumeLabel = "";
+            return null;
         }
-
-        string letter = drive.Name.TrimEnd('\\');
-        string root = drive.RootDirectory.FullName;
-        return new DriveOption
-        {
-            RootPath = root,
-            Title = $"{(string.IsNullOrWhiteSpace(volumeLabel) ? kind : volumeLabel)} ({letter})",
-            Kind = kind,
-            Icon = char.ConvertFromUtf32(glyph),
-            IsSystem = string.Equals(root, systemRoot, StringComparison.OrdinalIgnoreCase),
-            UsedBytes = drive.TotalSize - drive.AvailableFreeSpace,
-            TotalBytes = drive.TotalSize,
-        };
     }
 }
 
@@ -97,13 +115,36 @@ public sealed partial class StorageViewModel : ObservableObject
 
     public StorageViewModel()
     {
-        string? systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
-        foreach (DriveInfo drive in DriveInfo.GetDrives().Where(d => d.IsReady))
-        {
-            Drives.Add(DriveOption.FromDrive(drive, systemRoot));
-        }
+        // Le peuplement part hors du thread UI : DriveInfo.IsReady attend le délai d'expiration SMB sur un
+        // lecteur réseau dont le serveur est hors ligne (plusieurs secondes), et ce constructeur est appelé
+        // depuis celui de MainViewModel, donc avant que la fenêtre principale ne s'affiche.
+        _ = LoadDrivesAsync();
+    }
 
+    private async Task LoadDrivesAsync()
+    {
+        string? systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
+
+        List<DriveOption> options = await Task.Run(() =>
+        {
+            var list = new List<DriveOption>();
+            foreach (DriveInfo drive in SafeGetDrives())
+            {
+                if (DriveOption.TryFromDrive(drive, systemRoot) is { } option) list.Add(option);
+            }
+            return list;
+        });
+
+        Drives.ReplaceAll(options);
         if (Drives.Count > 0) Drives[0].IsSelected = true;
+    }
+
+    /// <summary>L'énumération elle-même peut lever sur une configuration inhabituelle (volume monté sans
+    /// lettre, pilote de stockage en erreur) : on rend alors une liste vide plutôt que de tout arrêter.</summary>
+    private static DriveInfo[] SafeGetDrives()
+    {
+        try { return DriveInfo.GetDrives(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Array.Empty<DriveInfo>(); }
     }
 
     partial void OnIsScanningChanged(bool value) => NotifyTreeCommandsChanged();
@@ -173,11 +214,21 @@ public sealed partial class StorageViewModel : ObservableObject
         finally
         {
             IsScanning = false;
+            ReleaseScanCts(cts);
         }
     }
 
     [RelayCommand]
     private void CancelScan() => _scanCts?.Cancel();
+
+    /// <summary>Libère la source d'annulation d'une analyse terminée. Chaque analyse libère la sienne, une
+    /// fois son await revenu : plus personne ne s'en sert à ce moment-là, alors qu'une libération au moment
+    /// de l'annulation la retirerait sous les pieds de l'analyse encore en cours.</summary>
+    private void ReleaseScanCts(CancellationTokenSource cts)
+    {
+        if (ReferenceEquals(_scanCts, cts)) _scanCts = null;
+        cts.Dispose();
+    }
 
     // ----- Menu contextuel de la treemap (le bloc visé arrive en CommandParameter) -----
 
@@ -286,6 +337,7 @@ public sealed partial class StorageViewModel : ObservableObject
         finally
         {
             IsScanning = false;
+            ReleaseScanCts(cts);
         }
     }
 

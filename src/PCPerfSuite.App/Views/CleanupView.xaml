@@ -12,6 +12,14 @@
                         Command="{Binding EmptyRecycleBinCommand}"/>
             </controls:PageHeader>
 
+            <!-- App lancée sous un autre compte que la session : les caches listés ne sont pas ceux
+                 de la personne devant l'écran, et il vaut mieux le dire que d'afficher "0 octet". -->
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                    Visibility="{Binding IsOtherProfile, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                           Text="{Binding OtherProfileMessage, Mode=OneTime}" TextWrapping="Wrap"/>
+            </Border>
+
             <!-- Synthèse -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,20" Padding="24,20">
                 <StackPanel>

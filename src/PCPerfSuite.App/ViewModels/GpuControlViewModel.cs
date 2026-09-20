@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
@@ -60,6 +61,18 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     /// <summary>Bloque l'application/l'enregistrement pendant qu'on repositionne plusieurs curseurs
     /// d'un coup (profil, réinitialisation), pour ne pas envoyer de consigne intermédiaire à la carte.</summary>
     private bool _suppressApply;
+
+    /// <summary>Chaque consigne envoyée à la carte est suivie d'une relecture du pilote et d'un
+    /// enregistrement du fichier de réglages : on attend que le curseur se pose plutôt que de le faire
+    /// à chaque pixel parcouru.</summary>
+    private readonly Debouncer _applyDebounce = new();
+
+    // Une clé par réglage : les quatre curseurs de l'onglet partagent le même minuteur, mais chacun garde
+    // sa consigne en attente.
+    private const string PowerLimitKey = "limite de puissance";
+    private const string TemperatureLimitKey = "limite de température";
+    private const string VoltageKey = "tension";
+    private const string ClockOffsetsKey = "décalages d'horloge";
 
     private double _powerLimitDefault = 100;
     private double _temperatureLimitDefault;
@@ -376,11 +389,14 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     {
         if (!IsAvailable || _suppressApply || !IsPowerLimitSupported) return;
 
-        if (!_gpuControl.TrySetPowerLimitPercent((float)value))
+        _applyDebounce.Schedule(PowerLimitKey, () =>
         {
-            OverclockStatus = "Le pilote a refusé la limite de puissance.";
-        }
-        Persist();
+            if (!_gpuControl.TrySetPowerLimitPercent((float)PowerLimitPercent))
+            {
+                OverclockStatus = "Le pilote a refusé la limite de puissance.";
+            }
+            Persist();
+        });
     }
 
     partial void OnCoreOffsetMhzChanged(double value) => ApplyClockOffsets();
@@ -391,10 +407,14 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     {
         if (!IsAvailable || _suppressApply || !IsTemperatureLimitSupported) return;
 
-        OverclockStatus = _gpuControl.TrySetTemperatureLimit((int)Math.Round(value))
-            ? $"Limite de température : {value:0} °C."
-            : "Le pilote a refusé la limite de température.";
-        Persist();
+        _applyDebounce.Schedule(TemperatureLimitKey, () =>
+        {
+            double limit = TemperatureLimitC;
+            OverclockStatus = _gpuControl.TrySetTemperatureLimit((int)Math.Round(limit))
+                ? $"Limite de température : {limit:0} °C."
+                : "Le pilote a refusé la limite de température.";
+            Persist();
+        });
     }
 
     partial void OnVoltageFormatChanged(string value) => OnPropertyChanged(nameof(VoltageText));
@@ -404,10 +424,13 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(VoltageText));
         if (!IsAvailable || _suppressApply || !IsVoltageSupported) return;
 
-        OverclockStatus = _gpuControl.TrySetVoltage((int)Math.Round(value))
-            ? $"{VoltageLabel} : {VoltageText}."
-            : "Le pilote a refusé la tension.";
-        Persist();
+        _applyDebounce.Schedule(VoltageKey, () =>
+        {
+            OverclockStatus = _gpuControl.TrySetVoltage((int)Math.Round(VoltageValue))
+                ? $"{VoltageLabel} : {VoltageText}."
+                : "Le pilote a refusé la tension.";
+            Persist();
+        });
     }
 
     partial void OnApplyOverclockAtStartupChanged(bool value)
@@ -417,6 +440,12 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     }
 
     private void ApplyClockOffsets()
+    {
+        if (!IsAvailable || _suppressApply || !IsClockOffsetSupported) return;
+        _applyDebounce.Schedule(ClockOffsetsKey, ApplyClockOffsetsNow);
+    }
+
+    private void ApplyClockOffsetsNow()
     {
         if (!IsAvailable || _suppressApply || !IsClockOffsetSupported) return;
 
@@ -557,6 +586,26 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         FanRpm = snapshot.Gpu?.FanRpm;
         FanPercent = snapshot.Gpu?.FanPercent;
 
+        RefreshActiveLimit();
+    }
+
+    /// <summary>Intervalle minimal entre deux interrogations du pilote sur ce qui bride la carte.</summary>
+    private static readonly TimeSpan ActiveLimitInterval = TimeSpan.FromSeconds(1);
+
+    private DateTime _lastActiveLimitRead = DateTime.MinValue;
+
+    /// <summary>
+    /// Ce qui bride la carte, au plus une fois par seconde. L'appel est synchrone et part sur le thread
+    /// UI (les abonnés au relevé y sont appelés) : le faire à chaque relevé, soit jusqu'à dix fois par
+    /// seconde, coûterait dix allers-retours pilote par seconde pour un simple indicateur textuel que
+    /// personne ne lit à cette cadence.
+    /// </summary>
+    private void RefreshActiveLimit()
+    {
+        DateTime now = DateTime.UtcNow;
+        if (now - _lastActiveLimitRead < ActiveLimitInterval) return;
+        _lastActiveLimitRead = now;
+
         GpuPerformanceLimit? limit = _gpuControl.GetActiveLimit();
         ActiveLimitText = DescribeLimit(limit);
         ActiveLimitTooltip = limit is null
@@ -611,5 +660,11 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         AppSettingsStore.Save(settings);
     }
 
-    public void Dispose() => _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
+    /// <summary>Le réglage encore en attente est appliqué avant de partir, pour ne pas le perdre si
+    /// l'utilisateur ferme l'app juste après avoir lâché un curseur.</summary>
+    public void Dispose()
+    {
+        _applyDebounce.Flush();
+        _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
+    }
 }

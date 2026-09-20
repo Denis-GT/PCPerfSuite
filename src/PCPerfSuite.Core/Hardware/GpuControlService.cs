@@ -25,10 +25,20 @@ public sealed class GpuControlService : IFanController, IDisposable
     /// réglages d'origine à la fermeture que si on y a effectivement touché.</summary>
     private bool _overclockTouched;
 
+    /// <summary>Vrai dès qu'une limite de puissance a été posée par l'app. Suivie à part de l'overclock :
+    /// la restaurer sans y avoir touché effacerait celle qu'un autre outil (Afterburner, utilitaire du
+    /// constructeur) avait posée avant nous.</summary>
+    private bool _powerLimitTouched;
+
+    /// <summary>Vrai dès qu'une consigne de ventilateur a été posée par l'app, pour la même raison :
+    /// fermer PCPerfSuite ne doit pas effacer la courbe de ventilation d'un autre outil.</summary>
+    private bool _fanTouched;
+
     /// <summary>À la fermeture, la carte est rendue au pilote : limite de puissance, ventilateurs et
-    /// overclock repartent de leurs valeurs d'origine — sauf si l'appelant demande de conserver
-    /// l'overclock (case "appliquer au démarrage"), auquel cas seuls les ventilateurs repassent en
-    /// automatique pour ne pas laisser une consigne figée sur une app fermée.</summary>
+    /// overclock repartent de leurs valeurs d'origine — mais uniquement ceux auxquels l'app a touché,
+    /// et sauf si l'appelant demande de conserver l'overclock (case "appliquer au démarrage"), auquel
+    /// cas seuls les ventilateurs repassent en automatique pour ne pas laisser une consigne figée sur
+    /// une app fermée.</summary>
     public bool KeepOverclockOnExit { get; set; }
 
     /// <summary>Marque de la carte pilotée, null tant qu'aucune n'a été trouvée.</summary>
@@ -81,9 +91,19 @@ public sealed class GpuControlService : IFanController, IDisposable
 
     public GpuControlSnapshot? GetSnapshot() => _backend?.GetSnapshot();
 
-    public bool TrySetPowerLimitPercent(float percent) => _backend?.TrySetPowerLimitPercent(percent) ?? false;
+    public bool TrySetPowerLimitPercent(float percent)
+    {
+        bool applied = _backend?.TrySetPowerLimitPercent(percent) ?? false;
+        if (applied) _powerLimitTouched = true;
+        return applied;
+    }
 
-    public bool TryRestorePowerLimitDefault() => _backend?.TryRestorePowerLimitDefault() ?? false;
+    public bool TryRestorePowerLimitDefault()
+    {
+        bool restored = _backend?.TryRestorePowerLimitDefault() ?? false;
+        if (restored) _powerLimitTouched = false;
+        return restored;
+    }
 
     // ------------------------------------------------------------------
     // Overclocking
@@ -137,24 +157,37 @@ public sealed class GpuControlService : IFanController, IDisposable
                && int.TryParse(fanId.AsSpan(FanIdPrefix.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out coolerId);
     }
 
-    public bool TrySetFanPercent(int coolerId, int percent) => _backend?.TrySetFanPercent(coolerId, percent) ?? false;
+    public bool TrySetFanPercent(int coolerId, int percent)
+    {
+        bool applied = _backend?.TrySetFanPercent(coolerId, percent) ?? false;
+        if (applied) _fanTouched = true;
+        return applied;
+    }
 
-    public bool TryRestoreFanAuto() => _backend?.TryRestoreFanAuto() ?? false;
+    public bool TryRestoreFanAuto()
+    {
+        bool restored = _backend?.TryRestoreFanAuto() ?? false;
+        if (restored) _fanTouched = false;
+        return restored;
+    }
 
+    /// <summary>
+    /// On ne rend au pilote que ce que l'app lui a pris. PCPerfSuite n'est pas seul à écrire dans une
+    /// carte graphique : MSI Afterburner ou l'utilitaire du constructeur ont pu poser leur propre
+    /// limite de puissance et leur propre courbe de ventilation avant qu'on démarre, et les remettre
+    /// par défaut à la fermeture les effacerait sans que l'utilisateur ait jamais ouvert l'onglet GPU.
+    /// </summary>
     public void Dispose()
     {
         if (_backend is not { } backend) return;
 
-        if (KeepOverclockOnExit)
-        {
-            TryRestoreFanAuto();
-        }
-        else
+        if (!KeepOverclockOnExit)
         {
             if (_overclockTouched) RestoreOverclockDefaults();
-            else TryRestorePowerLimitDefault();
-            TryRestoreFanAuto();
+            else if (_powerLimitTouched) TryRestorePowerLimitDefault();
         }
+
+        if (_fanTouched) TryRestoreFanAuto();
 
         try { backend.Dispose(); } catch { /* best-effort */ }
         _backend = null;

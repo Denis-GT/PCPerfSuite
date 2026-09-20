@@ -83,6 +83,42 @@ public static class DeletionGuard
             return $"Chemin illisible, suppression refusée : {node.FullPath}";
         }
 
+        if (EvaluatePath(path) is { } refusal) return refusal;
+
+        // Point d'analyse (jonction, lien symbolique) : le chemin ne dit pas où il mène. Une jonction posée
+        // dans un dossier utilisateur peut pointer sur C:\Windows et passer tous les garde-fous ci-dessus.
+        // Le shell ne supprimerait que le lien, mais le message affiché promettrait autre chose — et
+        // l'utilisateur croirait avoir libéré la place du contenu.
+        if (TryResolveLinkTarget(path) is { } target && EvaluatePath(target) is not null)
+        {
+            return $"« {path} » est un lien vers « {target} », un emplacement réservé à Windows : " +
+                   "suppression refusée. Supprimer le lien ne libérerait d'ailleurs aucune place.";
+        }
+
+        return null;
+    }
+
+    /// <summary>Cible d'un lien (jonction, lien symbolique), ou null si le chemin n'en est pas un — ou si
+    /// elle n'est pas résoluble, auquel cas il n'y a rien de plus à vérifier que le chemin lui-même.</summary>
+    private static string? TryResolveLinkTarget(string path)
+    {
+        try
+        {
+            FileSystemInfo? target = Directory.Exists(path)
+                ? new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true)
+                : new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true);
+
+            return target is null ? null : Normalize(target.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Les règles de protection proprement dites, appliquées à un chemin déjà normalisé.</summary>
+    private static string? EvaluatePath(string path)
+    {
         string? root = Path.GetPathRoot(path);
         if (string.IsNullOrEmpty(root) || string.Equals(path, Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase))
         {

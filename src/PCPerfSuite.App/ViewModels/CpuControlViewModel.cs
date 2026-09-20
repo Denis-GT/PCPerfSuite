@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.PowerSettings;
@@ -12,14 +13,20 @@ namespace PCPerfSuite.App.ViewModels;
 /// Un réglage d'alimentation processeur, tel qu'affiché : une liste déroulante pour les réglages à
 /// choix, un curseur pour les autres, et deux valeurs quand la machine a une batterie.
 ///
-/// Chaque modification est écrite immédiatement dans le plan d'alimentation actif, puis relue : si
-/// Windows ne retient pas la valeur, l'utilisateur le voit tout de suite.
+/// Chaque modification est écrite dans le plan d'alimentation actif dès que le curseur se pose, puis
+/// relue : si Windows ne retient pas la valeur, l'utilisateur le voit tout de suite.
 /// </summary>
 public sealed partial class CpuPowerSettingViewModel : ObservableObject
 {
     private readonly CpuPowerTuningService _service;
     private readonly CpuPowerSetting _setting;
     private readonly Action<string> _report;
+
+    /// <summary>Écrire un réglage d'alimentation réapplique le plan d'alimentation entier au système
+    /// (PowerSetActiveScheme) : c'est l'écriture la plus lourde de l'app, et un curseur en lèverait une
+    /// par pixel parcouru.</summary>
+    private readonly Debouncer _writeDebounce = new();
+
     private bool _suppressWrite;
 
     public string Label => _setting.Label;
@@ -77,15 +84,24 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
 
     partial void OnAcChoiceChanged(CpuPowerChoice? value)
     {
-        if (value is not null) AcValue = value.Value;
+        if (value is not null && !_suppressWrite) AcValue = value.Value;
     }
 
     partial void OnBatteryChoiceChanged(CpuPowerChoice? value)
     {
-        if (value is not null) BatteryValue = value.Value;
+        if (value is not null && !_suppressWrite) BatteryValue = value.Value;
     }
 
     private void Write()
+    {
+        if (_suppressWrite) return;
+        _writeDebounce.Schedule(Label, WriteNow);
+    }
+
+    /// <summary>Applique le dernier réglage en attente sans attendre le délai — fermeture de l'app.</summary>
+    public void FlushPendingWrite() => _writeDebounce.Flush();
+
+    private void WriteNow()
     {
         if (_suppressWrite) return;
 
@@ -106,6 +122,15 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
             _suppressWrite = true;
             AcValue = appliedAc;
             BatteryValue = appliedBattery;
+
+            // Les listes déroulantes se resynchronisent aussi : sans ça, un réglage à choix continuerait
+            // d'afficher la valeur demandée alors que Windows en a retenu une autre.
+            if (_setting.Choices is { } choices)
+            {
+                AcChoice = choices.FirstOrDefault(c => c.Value == appliedAc);
+                BatteryChoice = choices.FirstOrDefault(c => c.Value == appliedBattery);
+            }
+
             _suppressWrite = false;
 
             _report($"« {Label} » : Windows a retenu {Format(appliedAc)} au lieu de {Format(ac)}.");
@@ -138,6 +163,12 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
     /// <summary>Bloque l'application pendant qu'on repositionne plusieurs curseurs d'un coup.</summary>
     private bool _suppressApply;
+
+    /// <summary>Une écriture de limite de puissance vaut un aller-retour MSR ou SMU, une relecture de
+    /// vérification et un enregistrement du fichier de réglages : on attend que le curseur se pose.</summary>
+    private readonly Debouncer _applyDebounce = new();
+
+    private const string PowerLimitKey = "limites de puissance";
 
     private float _defaultSustainedWatts;
     private float _defaultBurstWatts;
@@ -303,6 +334,12 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     private void Apply()
     {
         if (_suppressApply || !IsPowerLimitAvailable || !RiskAccepted) return;
+        _applyDebounce.Schedule(PowerLimitKey, ApplyNow);
+    }
+
+    private void ApplyNow()
+    {
+        if (_suppressApply || !IsPowerLimitAvailable || !RiskAccepted) return;
 
         Status = _cpu.TrySetPowerLimits((float)SustainedWatts, HasBurstLimit ? (float)BurstWatts : null, out string message)
             ? message
@@ -323,6 +360,10 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     private void ResetLimits()
     {
         if (!IsPowerLimitAvailable) return;
+
+        // Une application encore en attente réécrirait la limite juste après le retour aux valeurs
+        // d'origine : on l'abandonne.
+        _applyDebounce.Cancel(PowerLimitKey);
 
         bool ok = _cpu.TryRestoreDefaults(out string message);
         Status = ok ? message : $"Retour aux limites d'origine refusé : {message}";
@@ -388,8 +429,13 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         AppSettingsStore.Save(settings);
     }
 
+    /// <summary>Les réglages encore en attente sont appliqués avant de partir : un utilisateur qui ferme
+    /// l'app juste après avoir lâché un curseur doit retrouver son réglage au prochain lancement.</summary>
     public void Dispose()
     {
+        _applyDebounce.Flush();
+        foreach (CpuPowerSettingViewModel setting in PowerSettings) setting.FlushPendingWrite();
+
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         _cpu.EmergencyRestored -= OnEmergencyRestored;
     }

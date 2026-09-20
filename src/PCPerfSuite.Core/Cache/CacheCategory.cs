@@ -9,8 +9,11 @@ public sealed class CacheCategory
     /// <summary>Chemins candidats (variables d'environnement non résolues). Le premier qui existe sert de dossier "ouvrir".</summary>
     public required IReadOnlyList<string> PathTemplates { get; init; }
 
-    /// <summary>Si vrai, on vide le contenu du dossier mais on garde le dossier lui-même (certains pilotes s'attendent à ce qu'il existe).</summary>
-    public bool KeepFolder { get; init; } = true;
+    /// <summary>Supprime aussi les sous-dossiers devenus vides après le nettoyage. Le dossier racine, lui,
+    /// n'est jamais supprimé : certains pilotes s'attendent à le trouver. À laisser désactivé sur les caches
+    /// de shaders, dont les pilotes attendent l'arborescence, et à activer là où les dossiers vides
+    /// s'accumulent pour de bon (les milliers de dossiers laissés par les installeurs dans %TEMP%).</summary>
+    public bool RemoveEmptySubdirectories { get; init; }
 
     /// <summary>Si renseigné, ne supprime que les fichiers dont le nom correspond (ex: "thumbcache_*.db") plutôt que tout le dossier.</summary>
     public string? FileNamePattern { get; init; }
@@ -46,6 +49,7 @@ public static class KnownCaches
             Name = "Fichiers temporaires (%TEMP%)",
             Description = "Le dossier temporaire de ton compte Windows (WIN+R puis %temp%). S'accumule avec les installeurs, mises à jour, fichiers d'app oubliés.",
             PathTemplates = new[] { "%TEMP%" },
+            RemoveEmptySubdirectories = true,
         },
         new()
         {
@@ -53,6 +57,7 @@ public static class KnownCaches
             Name = "Fichiers temporaires système",
             Description = "Dossier temporaire partagé par tous les comptes et les services Windows.",
             PathTemplates = new[] { "%SystemRoot%\\Temp" },
+            RemoveEmptySubdirectories = true,
             RequiresAdmin = true,
         },
         new()

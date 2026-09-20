@@ -78,6 +78,10 @@ public sealed class ProcessService : IDisposable
     private readonly uint _processorCount;
     private readonly string _windowsDirectory;
 
+    // Voir le commentaire sur les capacités « collantes » dans le relevé.
+    private bool _everSawIoRate;
+    private bool _everSawPrivateWorkingSet;
+
     /// <summary>Fréquence réelle des cœurs rapportée à leur fréquence nominale, collectée à chaque relevé pour
     /// couvrir exactement le même intervalle que les écarts de temps processeur.</summary>
     private readonly PdhCounterSampler _cpuPerformance = new(PdhCounterSampler.ProcessorPerformance);
@@ -99,7 +103,10 @@ public sealed class ProcessService : IDisposable
         // projet, et il masquerait la classe du framework ici.
         uint count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
         _processorCount = count > 0 ? count : (uint)System.Environment.ProcessorCount;
-        _windowsDirectory = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Windows);
+        // Avec le séparateur final : sans lui, "C:\WindowsApps\x.exe" commence par "C:\Windows" et serait
+        // classé comme un composant du système.
+        _windowsDirectory = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Windows)
+            .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
     /// <summary>Oublie les compteurs précédents : le prochain relevé n'aura donc ni %CPU ni débit (null, et
@@ -156,8 +163,11 @@ public sealed class ProcessService : IDisposable
         var processes = new List<ProcessInfo>(entries.Count);
         var seen = new HashSet<int>(entries.Count);
         int inaccessible = 0;
-        bool anyIoRate = false;
-        bool anyPrivateWorkingSet = false;
+        // Capacités « collantes » : une fois qu'un débit d'E/S ou un jeu de travail privé a été lu, la
+        // colonne reste. Les recalculer à chaque relevé la ferait disparaître dès qu'aucun processus
+        // n'écrit — c'est-à-dire clignoter sur une machine au repos.
+        bool anyIoRate = _everSawIoRate;
+        bool anyPrivateWorkingSet = _everSawPrivateWorkingSet;
 
         foreach (ProcessEntry entry in entries)
         {
@@ -271,6 +281,8 @@ public sealed class ProcessService : IDisposable
 
         ForgetVanishedProcesses(seen);
         _lastTimestamp = start;
+        _everSawIoRate = anyIoRate;
+        _everSawPrivateWorkingSet = anyPrivateWorkingSet;
 
         return new ProcessSnapshot
         {
@@ -504,9 +516,13 @@ public sealed class ProcessService : IDisposable
     private void ResolveImmutableData(Tracked tracked, int pid, bool accessible)
     {
         if (tracked.ResolvedOnce) return;
-        tracked.ResolvedOnce = true;
 
+        // Un processus tout juste lancé peut n'être pas encore ouvrable. Marquer la résolution comme
+        // faite avant d'y arriver le condamnerait à rester sans chemin, sans éditeur et sans compte pour
+        // toute sa vie, même une fois devenu lisible : on réessaiera au relevé suivant.
         if (!accessible) return;
+
+        tracked.ResolvedOnce = true;
 
         tracked.ExecutablePath = TryGetImagePath(tracked.Handle);
         if (tracked.ExecutablePath is { Length: > 0 } path)

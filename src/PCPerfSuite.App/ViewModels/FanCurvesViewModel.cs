@@ -20,6 +20,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     private readonly Action _persist;
     private readonly Action<FanControlItemViewModel> _copyToAll;
 
+    /// <summary>Dernière consigne effectivement envoyée au ventilateur, pour ne pas la repousser
+    /// identique à chaque relevé. Null : rien n'est posé, le ventilateur est au firmware.</summary>
+    private float? _lastSentPercent;
+
     public string FanId { get; }
     public string DisplayName { get; }
 
@@ -90,19 +94,32 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
         if (target is { } percent)
         {
-            _controller.TrySetPercent(FanId, percent);
+            // La consigne n'est réécrite que si elle a bougé. La repousser à chaque relevé ferait
+            // dialoguer avec la puce Super I/O (ou le pilote graphique) dix fois par seconde,
+            // indéfiniment, pour lui redire ce qu'elle applique déjà.
+            if (_lastSentPercent is not { } last || Math.Abs(last - percent) >= MinPercentChange)
+            {
+                if (_controller.TrySetPercent(FanId, percent)) _lastSentPercent = percent;
+            }
+
             TargetPercent = percent;
         }
         else
         {
             TargetPercent = null;
+            _lastSentPercent = null;
         }
     }
+
+    /// <summary>En dessous de cet écart, la consigne est considérée comme inchangée : les ventilateurs
+    /// se pilotent par paliers de quelques pour cent, un demi-point ne change rien à leur vitesse.</summary>
+    private const float MinPercentChange = 0.5f;
 
     public void RestoreAuto()
     {
         if (Mode == FanControlMode.Auto) return;
         _controller.TrySetAuto(FanId);
+        _lastSentPercent = null;
     }
 
     /// <summary>Recopie la courbe et les réglages de régulation d'un autre ventilateur.</summary>
@@ -127,6 +144,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             _controller.TrySetAuto(FanId);
             TargetPercent = null;
         }
+
+        // Le firmware a repris la main (ou va la reprendre) : la prochaine consigne doit repartir,
+        // même si elle vaut la dernière qu'on avait posée.
+        _lastSentPercent = null;
         _regulator.Reset();
         _persist();
     }
@@ -259,7 +280,15 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         HasGpu = snapshot.Gpu is not null;
 
-        List<FanReading> motherboard = snapshot.Fans.Where(f => f.CanControl).ToList();
+        // Règle de compatibilité 5 : sur un portable, le refroidissement appartient au contrôleur
+        // embarqué du constructeur, donc on n'expose aucun ventilateur de carte mère ici — même quand
+        // LibreHardwareMonitor voit une puce Super I/O pilotable (barebones Clevo/Tongfang, quelques
+        // MSI). Sans ce filtre, l'onglet les afficherait comme pilotables et NoFansMessage promettrait
+        // exactement le contraire de ce que l'app ferait. Le ventilateur du GPU, lui, passe par le
+        // pilote graphique (NVAPI/ADLX/IGCL) et reste légitime sur un portable à carte dédiée.
+        List<FanReading> motherboard = MachineInfo.Current.IsLaptop
+            ? new List<FanReading>()
+            : snapshot.Fans.Where(f => f.CanControl).ToList();
         SyncFanList(motherboard);
 
         foreach (FanControlItemViewModel item in Fans)

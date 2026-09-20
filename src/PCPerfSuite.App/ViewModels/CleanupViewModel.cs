@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Cache;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
@@ -63,6 +64,12 @@ public sealed partial class CleanupViewModel : ObservableObject
 
     [ObservableProperty] private bool isScanning;
     [ObservableProperty] private string totalReclaimableDisplay = "0 o";
+
+    /// <summary>Vrai quand l'app tourne sous un autre compte que la personne devant l'écran : les caches
+    /// affichés ici sont alors ceux de l'autre profil, ce que <see cref="OtherProfileMessage"/> explique.</summary>
+    public bool IsOtherProfile => SessionUser.IsOtherProfile;
+
+    public string OtherProfileMessage => SessionUser.OtherProfileMessage ?? "";
 
     public CleanupViewModel()
     {

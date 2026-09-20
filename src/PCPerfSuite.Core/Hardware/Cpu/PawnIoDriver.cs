@@ -81,8 +81,56 @@ public static class PawnIoDriver
             }
 
             _library = library;
+
+            if (!TryResolveExports())
+            {
+                NativeLibrary.Free(library);
+                _library = IntPtr.Zero;
+                _loadError = "La bibliothèque PawnIO installée n'expose pas les points d'entrée attendus " +
+                             "(version trop ancienne ?). Réinstaller PawnIO depuis pawnio.eu.";
+                return;
+            }
+
             ApiVersion = ReadApiVersion();
             Version ??= ApiVersion;
+        }
+    }
+
+    // Points d'entrée résolus une seule fois, à l'ouverture de la bibliothèque. Sans ce cache, chaque
+    // appel au pilote — donc chaque lecture de MSR, plusieurs par seconde sur le chemin de lecture des
+    // limites de puissance — refaisait un NativeLibrary.GetExport suivi d'un
+    // Marshal.GetDelegateForFunctionPointer.
+    private static PawnIoOpen? _open;
+    private static PawnIoLoad? _load;
+    private static PawnIoExecute? _execute;
+    private static PawnIoClose? _close;
+
+    /// <summary>Point d'entrée d'exécution, null tant que la bibliothèque n'est pas chargée.</summary>
+    internal static PawnIoExecute? Execute => _execute;
+
+    /// <summary>Point d'entrée de fermeture, null tant que la bibliothèque n'est pas chargée.</summary>
+    internal static PawnIoClose? Close => _close;
+
+    /// <summary>Résout tous les points d'entrée d'un coup. Un PawnIO plus ancien pourrait ne pas les
+    /// exporter tous : l'absence doit rester une indisponibilité annoncée, pas une exception au premier
+    /// appel matériel.</summary>
+    private static bool TryResolveExports()
+    {
+        try
+        {
+            _open = GetExport<PawnIoOpen>("pawnio_open");
+            _load = GetExport<PawnIoLoad>("pawnio_load");
+            _execute = GetExport<PawnIoExecute>("pawnio_execute");
+            _close = GetExport<PawnIoClose>("pawnio_close");
+            return true;
+        }
+        catch
+        {
+            _open = null;
+            _load = null;
+            _execute = null;
+            _close = null;
+            return false;
         }
     }
 
@@ -158,19 +206,17 @@ public static class PawnIoDriver
             return null;
         }
 
-        var open = GetExport<PawnIoOpen>("pawnio_open");
-        int hr = open(out IntPtr handle);
+        int hr = _open!(out IntPtr handle);
         if (hr != 0 || handle == IntPtr.Zero)
         {
             error = "Ouverture du pilote PawnIO refusée (app lancée sans les droits administrateur ?).";
             return null;
         }
 
-        var load = GetExport<PawnIoLoad>("pawnio_load");
-        hr = load(handle, blob, (nuint)blob.Length);
+        hr = _load!(handle, blob, (nuint)blob.Length);
         if (hr != 0)
         {
-            GetExport<PawnIoClose>("pawnio_close")(handle);
+            _close!(handle);
             error = $"Le module {moduleName} a refusé cette machine ({PawnIoModule.DescribeError(hr)}).";
             return null;
         }
@@ -246,9 +292,14 @@ public sealed class PawnIoModule : IDisposable
                 return false;
             }
 
+            if (PawnIoDriver.Execute is not { } execute)
+            {
+                LastError = unchecked((int)0x80004005); // E_FAIL : bibliothèque non chargée.
+                return false;
+            }
+
             try
             {
-                var execute = PawnIoDriver.GetExport<PawnIoDriver.PawnIoExecute>("pawnio_execute");
                 LastError = execute(
                     _handle, function,
                     input, (nuint)input.Length,
@@ -284,7 +335,7 @@ public sealed class PawnIoModule : IDisposable
         {
             if (_handle == IntPtr.Zero) return;
 
-            try { PawnIoDriver.GetExport<PawnIoDriver.PawnIoClose>("pawnio_close")(_handle); }
+            try { PawnIoDriver.Close?.Invoke(_handle); }
             catch { /* best-effort : le pilote se libère de toute façon à la fin du processus */ }
 
             _handle = IntPtr.Zero;

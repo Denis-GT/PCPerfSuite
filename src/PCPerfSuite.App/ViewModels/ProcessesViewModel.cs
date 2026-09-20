@@ -1328,8 +1328,13 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         // Sur le pool, pas ici : Dispose prend le verrou du service et attend donc la fin d'un relevé en vol.
         // Appelé sur le thread d'interface à la fermeture de la fenêtre, il laissait l'application en vie
-        // sans fenêtre, l'air plantée, le temps que le relevé se termine. Si le processus s'arrête avant que
-        // le nettoyage soit fini, il n'y a rien à perdre : Windows ferme les handles restants.
-        _ = Task.Run(_service.Dispose);
+        // sans fenêtre, l'air plantée, le temps que le relevé se termine.
+        //
+        // On lui laisse un court délai, puis on passe : la fermeture de la fenêtre enchaîne sur l'arrêt de
+        // l'application, et un nettoyage lancé sans être attendu n'avait quasiment aucune chance de
+        // s'exécuter. Au pire, c'est Windows qui ferme les handles restants — rien n'est perdu, mais autant
+        // que ce soit le cas rare plutôt que le cas courant.
+        Task cleanup = Task.Run(_service.Dispose);
+        cleanup.Wait(TimeSpan.FromMilliseconds(500));
     }
 }

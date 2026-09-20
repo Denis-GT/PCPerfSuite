@@ -42,7 +42,13 @@ public sealed class SamplingLoop : IDisposable
     /// tout de suite la nouvelle cadence (sinon, passer d'une minute à une seconde attendrait la minute).</summary>
     public void IntervalChanged()
     {
-        if (!_cts.IsCancellationRequested) _wake.Set();
+        if (_cts.IsCancellationRequested) return;
+
+        // Le test ci-dessus et ce Set ne sont pas indivisibles : l'arrêt peut s'intercaler entre les deux
+        // et libérer le handle sous nos pieds. Un réglage modifié à l'instant précis de la fermeture n'a
+        // aucun intérêt, donc on laisse simplement tomber.
+        try { _wake.Set(); }
+        catch (ObjectDisposedException) { /* boucle déjà arrêtée */ }
     }
 
     private void Run()
@@ -97,11 +103,23 @@ public sealed class SamplingLoop : IDisposable
     private static long ToStopwatchTicks(TimeSpan interval)
         => (long)(interval.TotalSeconds * Stopwatch.Frequency);
 
+    /// <summary>Délai laissé au relevé en cours pour finir avant qu'on abandonne. Un groupe coûteux ou un
+    /// pilote qui traîne peut dépasser deux secondes ; au-delà, c'est qu'il ne rendra pas la main.</summary>
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
+
     public void Dispose()
     {
         _cts.Cancel();
-        // Un relevé encore en cours au-delà du délai garde ses handles : les libérer sous lui ferait planter la boucle.
-        if (_thread.IsAlive && !_thread.Join(TimeSpan.FromSeconds(2))) return;
+
+        if (_thread.IsAlive && !_thread.Join(StopTimeout))
+        {
+            // Le thread garde ses handles : les libérer sous lui ferait planter la boucle. Ce qu'il lit,
+            // lui, est protégé par le verrou de HardwareMonitorService, qui attend la fin du relevé avant
+            // de fermer quoi que ce soit — on peut donc l'abandonner sans danger, mais pas sans le dire.
+            Debug.WriteLine($"SamplingLoop : relevé toujours en cours après {StopTimeout.TotalSeconds:0} s, thread abandonné.");
+            return;
+        }
+
         _cts.Dispose();
         _wake.Dispose();
     }

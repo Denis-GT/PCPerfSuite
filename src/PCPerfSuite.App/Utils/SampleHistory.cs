@@ -81,16 +81,18 @@ public sealed class SampleHistory
         Changed?.Invoke();
     }
 
-    /// <summary>Plus grande valeur présente, 0 s'il n'y en a aucune.</summary>
+    /// <summary>Plus grande valeur présente, 0 s'il n'y en a aucune. Part de l'infini négatif : une série
+    /// entièrement négative (une décharge de batterie, par exemple) doit rendre son maximum réel, pas 0 —
+    /// une valeur qu'elle n'a jamais prise.</summary>
     public double Max()
     {
-        double max = 0;
+        double max = double.NegativeInfinity;
         for (int i = 0; i < Count; i++)
         {
             // NaN > max est toujours faux : les valeurs absentes sont ignorées d'office.
             if (this[i] > max) max = this[i];
         }
-        return max;
+        return double.IsNegativeInfinity(max) ? 0 : max;
     }
 
     /// <summary>Plus grande valeur absolue présente, 0 s'il n'y en a aucune : échelle d'une valeur signée.</summary>

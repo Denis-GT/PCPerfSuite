@@ -82,7 +82,16 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
         Description = isApu
             ? $"AMD {codeName} — limites de puissance par la boîte aux lettres MP1 du SMU."
             : $"AMD {codeName} — limite de puissance (PPT) par la RSMU.";
-        PowerLimit = CpuCapability.Full;
+
+        // Détecté à l'exécution, jamais supposé : une famille de bureau dont la commande SMU d'écriture
+        // n'est pas répertoriée (Dragon Range, par exemple) reste lisible mais pas réglable. On l'annonce
+        // ici plutôt que de laisser l'utilisateur bouger un curseur actif pour buter sur un refus dont le
+        // code d'erreur n'a aucun sens — la commande n'ayant jamais été envoyée.
+        PowerLimit = isApu || DesktopCommandFor(codeName) != 0
+            ? CpuCapability.Full
+            : CpuCapability.ReadOnly(
+                $"Les commandes SMU d'écriture de ce processeur (AMD {codeName}) ne sont pas répertoriées dans " +
+                "cette version : ses limites de puissance sont lisibles, mais pas modifiables.");
     }
 
     public static ICpuTuningBackend Create()
@@ -138,6 +147,12 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
 
     public bool TrySetPowerLimits(float sustainedWatts, float? burstWatts, out string message)
     {
+        if (!PowerLimit.CanWrite)
+        {
+            message = PowerLimit.Reason ?? "Les limites de puissance ne sont pas modifiables sur ce processeur.";
+            return false;
+        }
+
         float sustained = Math.Clamp(sustainedWatts, _minWatts, _maxWatts);
         float burst = Math.Clamp(burstWatts ?? sustained, sustained, _maxWatts);
 
@@ -177,15 +192,20 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     // Envoi des consignes
     // ------------------------------------------------------------------
 
+    /// <summary>Commande RSMU d'écriture de la limite PPT, ou 0 si elle n'est pas répertoriée pour cette
+    /// famille. C'est cette même table qui décide, à la construction, si la limite est modifiable : sans
+    /// cela, l'app annoncerait un réglage qu'elle ne peut pas appliquer.</summary>
+    private static uint DesktopCommandFor(AmdCodeName codeName) => codeName switch
+    {
+        AmdCodeName.Matisse or AmdCodeName.Vermeer => 0x53,
+        AmdCodeName.Raphael or AmdCodeName.GraniteRidge => 0x56,
+        _ => 0,
+    };
+
     /// <summary>Bureau : la RSMU prend la limite PPT, que le module sait adresser lui-même.</summary>
     private bool SendDesktopLimit(float watts)
     {
-        uint command = _codeName switch
-        {
-            AmdCodeName.Matisse or AmdCodeName.Vermeer => 0x53,
-            AmdCodeName.Raphael or AmdCodeName.GraniteRidge => 0x56,
-            _ => 0,
-        };
+        uint command = DesktopCommandFor(_codeName);
         if (command == 0) return false;
 
         var input = new ulong[7];
@@ -216,8 +236,6 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     /// les arguments, poser la commande, attendre la réponse. 1 = OK.</summary>
     private bool SendMp1(uint command, uint argument)
     {
-        const int maxAttempts = 1000;
-
         if (!WaitForResponse(out _)) return false;
         if (!WriteRegister(_mp1.Response, 0)) return false;
 
@@ -229,22 +247,32 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
 
         if (!WriteRegister(_mp1.Command, command)) return false;
 
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        for (int attempt = 0; attempt < PollAttempts; attempt++)
         {
             if (!ReadRegister(_mp1.Response, out uint response)) return false;
-            if (response == 0) continue;
-            return response == 1; // 1 = SMU_OK ; 0xFE = commande inconnue, 0xFF = échec
+            if (response != 0) return response == 1; // 1 = SMU_OK ; 0xFE = commande inconnue, 0xFF = échec
+            Thread.Sleep(PollDelayMs);
         }
 
         return false;
     }
 
+    /// <summary>Nombre de sondages de la boîte aux lettres, espacés de <see cref="PollDelayMs"/> :
+    /// ensemble, ils font un délai d'expiration d'environ 200 ms.</summary>
+    private const int PollAttempts = 200;
+
+    /// <summary>Pause entre deux sondages. Le SMU met quelques centaines de microsecondes à répondre :
+    /// enchaîner les lectures sans pause martèle le pilote et, surtout, épuise les tentatives avant qu'il
+    /// n'ait fini — on conclurait alors à tort à un refus (c'est aussi ce que fait RyzenAdj).</summary>
+    private const int PollDelayMs = 1;
+
     private bool WaitForResponse(out uint response)
     {
-        for (int attempt = 0; attempt < 1000; attempt++)
+        for (int attempt = 0; attempt < PollAttempts; attempt++)
         {
             if (!ReadRegister(_mp1.Response, out response)) return false;
             if (response != 0) return true;
+            Thread.Sleep(PollDelayMs);
         }
 
         response = 0;
@@ -304,6 +332,15 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     // Identification
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Familles qui passent par la boîte aux lettres MP1 plutôt que par la RSMU.
+    ///
+    /// Dragon Range (Ryzen 7045) n'y figure volontairement pas : ce sont des puces de bureau Raphael en
+    /// boîtier portable, et rien ne dit laquelle des deux boîtes aux lettres leur firmware expose. Les
+    /// ajouter ici à l'aveugle reviendrait à envoyer des commandes au hasard au microcontrôleur qui
+    /// arbitre la puissance du processeur. Elles sont donc annoncées en lecture seule, jusqu'à
+    /// vérification sur une vraie machine.
+    /// </summary>
     private static bool IsApu(AmdCodeName codeName) => codeName is
         AmdCodeName.Renoir or AmdCodeName.Lucienne or AmdCodeName.Cezanne or
         AmdCodeName.Rembrandt or AmdCodeName.Phoenix or AmdCodeName.HawkPoint;
@@ -361,10 +398,18 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
                 _mutex = new Mutex(false, PciMutexName);
                 _held = _mutex.WaitOne(TimeSpan.FromMilliseconds(500), false);
             }
+            catch (AbandonedMutexException)
+            {
+                // Un autre outil a planté en le détenant. .NET signale l'abandon par une exception, mais
+                // l'attente a bien réussi : le mutex est à nous, et c'est à nous de le relâcher. Le compter
+                // comme un échec le laisserait abandonné à son tour, et l'outil suivant recevrait la même
+                // exception, en chaîne.
+                _held = true;
+            }
             catch
             {
-                // Mutex inaccessible (droits, abandon d'un autre processus) : on continue sans, comme le
-                // fait LibreHardwareMonitor — le risque est une lecture incohérente, pas une écriture ratée.
+                // Mutex inaccessible (droits) : on continue sans, comme le fait LibreHardwareMonitor —
+                // le risque est une lecture incohérente, pas une écriture ratée.
                 _held = false;
             }
         }

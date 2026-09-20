@@ -12,6 +12,43 @@ public sealed class WindowsPerformanceSettingsService
 {
     private readonly PowerPlanService _powerPlans = new();
 
+    /// <summary>
+    /// Écrit une valeur de sous-réglage d'alimentation, en mémorisant à la première activation celle qui
+    /// était en place.
+    ///
+    /// Décocher rend alors exactement ce que le PC avait avant l'app, et pas une valeur par défaut
+    /// supposée : les constructeurs livrent souvent leurs propres réglages d'alimentation, et « 5 % de
+    /// cœurs parqués au minimum » n'est pas forcément ce que cette machine avait.
+    /// </summary>
+    private void ApplyPowerValue(string subGroup, string setting, bool enable, uint enabledValue, uint defaultValue)
+    {
+        string key = $"{subGroup}/{setting}";
+
+        if (enable)
+        {
+            RememberOriginalValue(key, subGroup, setting);
+            _powerPlans.SetValueIndexAsync(subGroup, setting, enabledValue).GetAwaiter().GetResult();
+            return;
+        }
+
+        AppSettings settings = AppSettingsStore.Load();
+        uint restored = settings.OriginalPowerValues.TryGetValue(key, out uint original) ? original : defaultValue;
+        _powerPlans.SetValueIndexAsync(subGroup, setting, restored).GetAwaiter().GetResult();
+    }
+
+    /// <summary>Retient la valeur d'avant la première écriture, et elle seule : réécrire à chaque
+    /// activation mémoriserait la valeur que l'app vient elle-même de poser.</summary>
+    private void RememberOriginalValue(string key, string subGroup, string setting)
+    {
+        AppSettings settings = AppSettingsStore.Load();
+        if (settings.OriginalPowerValues.ContainsKey(key)) return;
+
+        if (_powerPlans.GetValueIndexAsync(subGroup, setting).GetAwaiter().GetResult() is not { } current) return;
+
+        settings.OriginalPowerValues[key] = current;
+        AppSettingsStore.Save(settings);
+    }
+
     public IReadOnlyList<PerformanceTweak> GetTweaks()
     {
         return new List<PerformanceTweak>
@@ -70,6 +107,8 @@ public sealed class WindowsPerformanceSettingsService
                     // Une valeur absente veut donc dire "activé", pas "état inconnu".
                     return value == 0 ? TweakState.Disabled : TweakState.Enabled;
                 },
+                // HKCU : le réglage appartient au profil de l'utilisateur, pas à la machine.
+                RequiresElevation = false,
                 Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
                     @"Software\Microsoft\GameBar", "AutoGameModeEnabled", enable ? 1 : 0),
             },
@@ -88,6 +127,8 @@ public sealed class WindowsPerformanceSettingsService
                     // n'active pas ce mode "performances" (équivalent à 0/1/3).
                     return value == 2 ? TweakState.Enabled : TweakState.Disabled;
                 },
+                // HKCU, comme le Mode Jeu : aucune élévation nécessaire.
+                RequiresElevation = false,
                 Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
                     @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting", enable ? 2 : 0),
             },
@@ -120,8 +161,10 @@ public sealed class WindowsPerformanceSettingsService
                 {
                     int? value = RegistryHelper.ReadDword(RegistryHive.LocalMachine,
                         @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", "NetworkThrottlingIndex");
-                    // Valeur absente = limite par défaut de Windows (~10), donc "désactivé" comme 10 l'est explicitement.
-                    return value == -1 || value == unchecked((int)0xFFFFFFFF) ? TweakState.Enabled : TweakState.Disabled;
+                    // 0xFFFFFFFF lu en DWORD signé vaut -1 : c'est la même valeur, écrite des deux façons
+                    // selon les guides. Valeur absente = limite par défaut de Windows (~10), donc
+                    // "désactivé", comme 10 l'est explicitement.
+                    return value == -1 ? TweakState.Enabled : TweakState.Disabled;
                 },
                 Apply = enable =>
                 {
@@ -158,16 +201,15 @@ public sealed class WindowsPerformanceSettingsService
                 Id = "usb-selective-suspend",
                 Name = "Désactiver la suspension sélective USB",
                 Category = "Alimentation",
-                Description = "Empêche Windows de mettre en veille les périphériques USB inactifs (souris/clavier gaming, DAC audio, contrôleurs). Évite les micro-latences au réveil.",
+                Description = "Empêche Windows de mettre en veille les périphériques USB inactifs (souris/clavier gaming, DAC audio, contrôleurs). Évite les micro-latences au réveil. Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut.",
                 GetState = () =>
                 {
                     uint? value = _powerPlans.GetValueIndexAsync(PowerSubGroups.Usb, PowerSubGroups.UsbSelectiveSuspend)
                         .GetAwaiter().GetResult();
                     return value switch { 0 => TweakState.Enabled, > 0 => TweakState.Disabled, _ => TweakState.Unknown };
                 },
-                Apply = enable => _powerPlans
-                    .SetValueIndexAsync(PowerSubGroups.Usb, PowerSubGroups.UsbSelectiveSuspend, enable ? 0u : 1u)
-                    .GetAwaiter().GetResult(),
+                Apply = enable => ApplyPowerValue(
+                    PowerSubGroups.Usb, PowerSubGroups.UsbSelectiveSuspend, enable, enabledValue: 0u, defaultValue: 1u),
             },
 
             new()
@@ -175,16 +217,15 @@ public sealed class WindowsPerformanceSettingsService
                 Id = "core-parking",
                 Name = "Désactiver la mise en veille des cœurs CPU (core parking)",
                 Category = "CPU",
-                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge. Utile pour des charges très en dents de scie (jeux avec pics CPU soudains).",
+                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge. Utile pour des charges très en dents de scie (jeux avec pics CPU soudains). Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut.",
                 GetState = () =>
                 {
                     uint? value = _powerPlans.GetValueIndexAsync(PowerSubGroups.Processor, PowerSubGroups.ProcessorMinCoreParkingState)
                         .GetAwaiter().GetResult();
                     return value switch { 100 => TweakState.Enabled, not null => TweakState.Disabled, _ => TweakState.Unknown };
                 },
-                Apply = enable => _powerPlans
-                    .SetValueIndexAsync(PowerSubGroups.Processor, PowerSubGroups.ProcessorMinCoreParkingState, enable ? 100u : 5u)
-                    .GetAwaiter().GetResult(),
+                Apply = enable => ApplyPowerValue(
+                    PowerSubGroups.Processor, PowerSubGroups.ProcessorMinCoreParkingState, enable, enabledValue: 100u, defaultValue: 5u),
             },
 
             new()
@@ -192,7 +233,7 @@ public sealed class WindowsPerformanceSettingsService
                 Id = "pcie-aspm",
                 Name = "Désactiver l'économie d'énergie PCIe (ASPM)",
                 Category = "Alimentation",
-                Description = "L'ASPM met en veille légère le bus PCIe (GPU, NVMe) entre les pics d'activité. Le désactiver élimine de micro-latences au prix d'une consommation/chaleur un peu plus élevée en idle.",
+                Description = "L'ASPM met en veille légère le bus PCIe (GPU, NVMe) entre les pics d'activité. Le désactiver élimine de micro-latences au prix d'une consommation/chaleur un peu plus élevée en idle. Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut.",
                 IsRisky = true,
                 GetState = () =>
                 {
@@ -200,9 +241,8 @@ public sealed class WindowsPerformanceSettingsService
                         .GetAwaiter().GetResult();
                     return value switch { 0 => TweakState.Enabled, > 0 => TweakState.Disabled, _ => TweakState.Unknown };
                 },
-                Apply = enable => _powerPlans
-                    .SetValueIndexAsync(PowerSubGroups.PciExpress, PowerSubGroups.PciExpressAspm, enable ? 0u : 1u)
-                    .GetAwaiter().GetResult(),
+                Apply = enable => ApplyPowerValue(
+                    PowerSubGroups.PciExpress, PowerSubGroups.PciExpressAspm, enable, enabledValue: 0u, defaultValue: 1u),
             },
 
             new()
@@ -211,6 +251,9 @@ public sealed class WindowsPerformanceSettingsService
                 Name = "Isolation du noyau / Intégrité de la mémoire (HVCI)",
                 Category = "Sécurité ↔ Performances",
                 Description = "Fonctionnalité de sécurité qui peut réduire les perf CPU de quelques % et bloque certains pilotes non signés récents (dont celui utilisé par le monitoring capteurs de cette app sur certaines cartes mères). Lecture seule ici — clique pour ouvrir le réglage Windows.",
+                // L'interrupteur n'écrit rien : il ouvre la page Windows, puis revient à l'état réel.
+                IsReadOnly = true,
+                RequiresElevation = false,
                 GetState = () =>
                 {
                     int? value = RegistryHelper.ReadDword(RegistryHive.LocalMachine,

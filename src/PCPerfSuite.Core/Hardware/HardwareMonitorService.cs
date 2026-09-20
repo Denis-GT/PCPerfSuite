@@ -19,6 +19,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private readonly UpdateVisitor _visitor = new();
     private bool _disposed;
 
+    /// <summary>Sérialise le relevé et la fermeture. Le relevé tourne sur son propre thread pendant que le
+    /// thread d'interface peut, lui, appeler <see cref="Dispose"/> (fermeture de la fenêtre). La boucle de
+    /// relevé abandonne son attente au bout de quelques secondes : sans ce verrou, _computer.Close()
+    /// s'exécuterait pendant qu'un relevé encore en vol lit des objets LibreHardwareMonitor déjà fermés,
+    /// et le plantage arriverait dans du code natif, à la fermeture — introuvable depuis un signalement.</summary>
+    private readonly object _gate = new();
+
     /// <summary>Part du temps qu'un groupe de capteurs peut passer à se lire en cadence automatique. Un CPU Intel,
     /// que LibreHardwareMonitor lit cœur par cœur (~30 ms mesurés sur un i5-13500T), est ainsi relu toutes les
     /// ~600 ms, et un groupe quasi gratuit à chaque relevé.</summary>
@@ -76,7 +83,18 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     /// <summary>Relevé du tick <paramref name="tick"/> : chaque groupe n'est relu que si c'est son tour.</summary>
     /// <param name="epoch">Change avec la durée du tick (voir <see cref="TickInterval"/>) ; les numéros de tick repartent alors de zéro.</param>
+    /// <exception cref="ObjectDisposedException">Le service a été fermé : l'appelant traite déjà l'échec
+    /// d'un relevé, et à ce stade l'app est en train de se fermer.</exception>
     public HardwareSnapshot GetSnapshot(long epoch, long tick)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return GetSnapshotCore(epoch, tick);
+        }
+    }
+
+    private HardwareSnapshot GetSnapshotCore(long epoch, long tick)
     {
         long start = Stopwatch.GetTimestamp();
 
@@ -536,9 +554,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     /// <summary>Bascule un ventilateur en pilotage logiciel et applique un % cible (0-100), borné aux
     /// limites que la puce Super I/O accepte réellement. Retourne false si le capteur est introuvable
-    /// (carte mère débranchée du point de vue LibreHardwareMonitor — ne devrait pas arriver en usage normal).</summary>
+    /// (carte mère débranchée du point de vue LibreHardwareMonitor — ne devrait pas arriver en usage normal),
+    /// ou si la machine est un portable (voir <see cref="LaptopControlRefused"/>).</summary>
     public bool TrySetFanPercent(string controlSensorId, float percent)
     {
+        if (LaptopControlRefused()) return false;
+
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
@@ -547,6 +568,15 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Règle de compatibilité 5 : sur un portable, le refroidissement appartient au contrôleur embarqué
+    /// du constructeur, et une écriture malheureuse peut laisser la machine sans ventilation. Certains
+    /// portables (barebones Clevo/Tongfang, quelques MSI et Gigabyte) embarquent pourtant une puce
+    /// Super I/O que LibreHardwareMonitor sait piloter : le garde-fou est donc ici, au plus près de
+    /// l'écriture, et pas seulement dans le ViewModel qui remplit la liste.
+    /// </summary>
+    private static bool LaptopControlRefused() => MachineInfo.Current.IsLaptop;
+
     bool IFanController.TrySetPercent(string fanId, float percent) => TrySetFanPercent(fanId, percent);
 
     bool IFanController.TrySetAuto(string fanId) => TrySetFanAuto(fanId);
@@ -554,6 +584,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// <summary>Rend le pilotage du ventilateur au firmware de la carte mère (courbe BIOS par défaut).</summary>
     public bool TrySetFanAuto(string controlSensorId)
     {
+        if (LaptopControlRefused()) return false;
+
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
@@ -581,13 +613,18 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         return sensor?.Control;
     }
 
+    /// <summary>Ferme les sources de capteurs. Attend qu'un relevé encore en vol se termine — quelques
+    /// centaines de millisecondes au pire — plutôt que de lui retirer le matériel sous les pieds.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _cpuLoad.Dispose();
-        _battery.Dispose();
-        LaptopFans.Dispose();
-        _computer.Close();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _cpuLoad.Dispose();
+            _battery.Dispose();
+            LaptopFans.Dispose();
+            _computer.Close();
+        }
     }
 }

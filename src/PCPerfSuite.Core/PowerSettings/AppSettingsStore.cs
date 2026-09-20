@@ -43,6 +43,11 @@ public sealed class AppSettings
 
     /// <summary>Comportement de la fenêtre principale de PCPerfSuite.</summary>
     public AppWindowSettings Window { get; set; } = new();
+
+    /// <summary>Valeur d'un réglage d'alimentation Windows telle qu'elle était avant que l'app n'y touche,
+    /// clé = "guidSousGroupe/guidRéglage". Permet à « décocher » de rendre exactement ce qui était en place
+    /// plutôt qu'une valeur par défaut supposée, qui n'est pas forcément celle de ce PC.</summary>
+    public Dictionary<string, uint> OriginalPowerValues { get; set; } = new();
 }
 
 /// <summary>
@@ -242,36 +247,89 @@ public sealed class OverlayAppearanceSettings
     public double BackgroundOpacity { get; set; } = 0.45;
 }
 
-/// <summary>Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).</summary>
+/// <summary>
+/// Petit stockage JSON local pour l'état de l'app (pas besoin d'une DB pour si peu).
+///
+/// Deux précautions, parce que ce fichier est la seule trace des réglages de l'utilisateur :
+/// - toutes les lectures et écritures passent par un verrou. Les ViewModels enregistrent depuis
+///   le thread UI pendant que <see cref="PowerPlanService"/> lit et écrit depuis le pool de
+///   threads ; sans verrou, deux accès simultanés se heurtent sur un partage de fichier refusé et
+///   l'enregistrement se perd en silence ;
+/// - l'écriture est atomique (fichier temporaire puis remplacement). Une écriture directe tronque
+///   le fichier avant de le réécrire : une coupure au milieu laisse un JSON incomplet, que la
+///   lecture suivante ne peut que jeter — tous les réglages avec.
+/// </summary>
 public static class AppSettingsStore
 {
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PCPerfSuite", "settings.json");
 
+    private static readonly object Gate = new();
+
+    /// <summary>Raison du dernier échec de lecture ou d'enregistrement, null tant que tout va bien.
+    /// Affichée dans le diagnostic « Compatibilité de ce PC » : un réglage qui ne s'enregistre pas
+    /// doit se voir, pas disparaître sans un mot.</summary>
+    public static string? LastError { get; private set; }
+
     public static AppSettings Load()
     {
-        try
+        lock (Gate)
         {
-            if (File.Exists(FilePath))
+            try
             {
-                string json = File.ReadAllText(FilePath);
-                return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                if (File.Exists(FilePath))
+                {
+                    string json = File.ReadAllText(FilePath);
+                    AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json);
+                    if (settings is not null) return settings;
+                }
+
+                return new AppSettings();
+            }
+            catch (Exception ex)
+            {
+                // Le fichier illisible est mis de côté plutôt qu'écrasé au prochain enregistrement :
+                // c'est la seule trace de ce que l'utilisateur avait réglé, et de quoi comprendre
+                // ce qui l'a abîmé.
+                TryBackupUnreadableFile();
+                LastError = $"Réglages illisibles, remis à zéro ({ex.Message}).";
+                return new AppSettings();
             }
         }
-        catch { /* fichier corrompu ou illisible : on repart d'un état vide */ }
-
-        return new AppSettings();
     }
 
     public static void Save(AppSettings settings)
     {
+        lock (Gate)
+        {
+            string temp = FilePath + ".tmp";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+
+                // Écriture atomique : on écrit un fichier temporaire complet, puis on le met à la place
+                // de l'ancien par un remplacement que le système de fichiers garantit indivisible.
+                File.WriteAllText(temp, json);
+                File.Move(temp, FilePath, overwrite: true);
+                LastError = null;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Enregistrement des réglages impossible ({ex.Message}).";
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort */ }
+            }
+        }
+    }
+
+    /// <summary>Renomme le fichier illisible en .corrupt pour qu'il survive à l'enregistrement suivant.</summary>
+    private static void TryBackupUnreadableFile()
+    {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(FilePath, json);
+            if (File.Exists(FilePath)) File.Move(FilePath, FilePath + ".corrupt", overwrite: true);
         }
-        catch { /* best-effort */ }
+        catch { /* best-effort : si on n'y arrive pas, le fichier sera écrasé, tant pis */ }
     }
 }

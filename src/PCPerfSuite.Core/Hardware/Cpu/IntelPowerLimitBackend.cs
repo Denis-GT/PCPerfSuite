@@ -84,6 +84,18 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
         float burst = ((limit >> 32) & 0x7FFF) * powerUnitWatts;
         bool locked = (limit & (1UL << 63)) != 0;
 
+        // Des limites nulles veulent dire qu'on n'a rien lu de exploitable : le MSR est peut-être présent
+        // mais vide (machine virtuelle, firmware qui masque le RAPL). Continuer produirait un curseur de
+        // 5 à 6 W, absurde et sans rapport avec ce processeur — mieux vaut annoncer l'indisponibilité.
+        if (Math.Max(sustained, burst) <= 0)
+        {
+            msr.Dispose();
+            return new UnsupportedCpuBackend(
+                "Ce processeur ne publie pas ses limites de puissance (registre RAPL vide) : elles ne sont " +
+                "ni lisibles ni modifiables. C'est le cas sous certaines machines virtuelles et sur les " +
+                "firmwares qui masquent ce registre.");
+        }
+
         // 0x614 donne le TDP et les bornes du processeur ; absent ou vide sur certains modèles, d'où le repli.
         float hardwareMin = MinAllowedWatts;
         float hardwareMax = Math.Max(sustained, burst) * 2f;

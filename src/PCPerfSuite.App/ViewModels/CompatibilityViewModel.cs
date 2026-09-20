@@ -6,8 +6,10 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Metrics;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.LaptopFans;
+using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -92,6 +94,21 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return new CompatibilityRow("Droits administrateur", elevated ? "Oui" : "Non",
             elevated ? "Tous les capteurs accessibles." : "Sans administrateur, la plupart des capteurs et tous les réglages matériels sont inaccessibles.",
             elevated);
+
+        yield return SessionUser.OtherProfileMessage is { } otherProfile
+            ? new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount, otherProfile, false)
+            : new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount,
+                "L'app tourne sous le compte de la session : fichiers temporaires et caches nettoyés sont bien ceux de cet utilisateur.", true);
+
+        yield return AppSettingsStore.LastError is { } settingsError
+            ? new CompatibilityRow("Enregistrement des réglages", "En échec", settingsError, false)
+            : new CompatibilityRow("Enregistrement des réglages", "OK",
+                "Les réglages de PCPerfSuite s'enregistrent normalement dans %LOCALAPPDATA%\\PCPerfSuite.", true);
+
+        yield return CrashLog.LastError is { } crash
+            ? new CompatibilityRow("Dernière erreur interne", "Signalée", crash, false)
+            : new CompatibilityRow("Dernière erreur interne", "Aucune",
+                $"Les erreurs inattendues sont journalisées dans {CrashLog.FilePath}.", true);
 
         if (snapshot is not null)
         {

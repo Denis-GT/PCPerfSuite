@@ -1,11 +1,21 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Cache;
 
 public sealed class CacheCleanerService
 {
+    /// <summary>
+    /// Résout les variables d'environnement d'un chemin de cache.
+    ///
+    /// Attention : %TEMP%, %LOCALAPPDATA% et %APPDATA% sont ceux du *processus*. L'app étant manifestée
+    /// requireAdministrator, lancée par « Exécuter en tant qu'administrateur » depuis un compte standard
+    /// elle tourne sous le compte administrateur, et ces chemins désignent alors le profil de celui-ci.
+    /// Le cas est détecté par <see cref="SessionUser.IsOtherProfile"/> et annoncé à l'utilisateur (onglet
+    /// Nettoyage et diagnostic de compatibilité) plutôt que de laisser croire que ses caches sont vides.
+    /// </summary>
     public static string ResolvePath(string template) => Environment.ExpandEnvironmentVariables(template);
 
     public async Task<CacheCategoryResult> ScanAsync(CacheCategory category, CancellationToken ct = default)
@@ -87,7 +97,7 @@ public sealed class CacheCleanerService
                     }
                 }
 
-                if (!category.KeepFolder && category.FileNamePattern is null)
+                if (category.RemoveEmptySubdirectories && category.FileNamePattern is null)
                 {
                     TryRemoveEmptySubdirectories(path);
                 }

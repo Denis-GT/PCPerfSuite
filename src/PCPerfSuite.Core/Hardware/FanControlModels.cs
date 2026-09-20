@@ -129,6 +129,10 @@ public sealed class FanCurveRegulator
     private float? _referenceTempC;
     private float _target;
 
+    /// <summary>Ventilateur actuellement arrêté par le seuil « arrêt à froid ». Voir Evaluate : la sortie
+    /// de l'arrêt a sa propre hystérésis.</summary>
+    private bool _stopped;
+
     public float Evaluate(IReadOnlyList<FanCurvePoint> points, float tempC, FanCurveConfig config)
     {
         bool recompute = _referenceTempC is not { } reference
@@ -142,7 +146,20 @@ public sealed class FanCurveRegulator
         }
 
         float referenceTemp = _referenceTempC ?? tempC;
-        if (config.StopBelowTempC is { } stop && referenceTemp < stop) return 0;
+
+        // Arrêt à froid, avec son hystérésis à lui : on s'arrête sous le seuil, mais on ne repart qu'une
+        // fois remonté d'un cran au-dessus. Sans ça, une température qui oscille autour du seuil fait
+        // démarrer et stopper le ventilateur à chaque relevé — le bruit le plus pénible qui soit.
+        if (config.StopBelowTempC is { } stop)
+        {
+            float restart = stop + Math.Max(0, config.HysteresisC);
+            _stopped = _stopped ? referenceTemp < restart : referenceTemp < stop;
+            if (_stopped) return 0;
+        }
+        else
+        {
+            _stopped = false;
+        }
 
         float min = Math.Clamp(config.MinPercent, 0, 100);
         float max = Math.Clamp(config.MaxPercent, min, 100);
@@ -151,5 +168,9 @@ public sealed class FanCurveRegulator
 
     /// <summary>À appeler quand la courbe ou les bornes changent : la prochaine consigne repart de la
     /// température courante au lieu de rester sur l'ancienne référence.</summary>
-    public void Reset() => _referenceTempC = null;
+    public void Reset()
+    {
+        _referenceTempC = null;
+        _stopped = false;
+    }
 }

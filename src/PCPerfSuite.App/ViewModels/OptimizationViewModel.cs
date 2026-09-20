@@ -59,7 +59,9 @@ public sealed partial class TweakItemViewModel : ObservableObject
 
     private async Task ApplyAsync(bool value)
     {
-        if (!ElevationHelper.IsAdministrator())
+        // Seuls les réglages qui écrivent dans HKLM ou dans le plan d'alimentation ont besoin de
+        // l'élévation : ceux qui ne touchent qu'au profil de l'utilisateur marchent très bien sans.
+        if (Tweak.RequiresElevation && !ElevationHelper.IsAdministrator())
         {
             ErrorMessage = "Relance PCPerfSuite en administrateur pour modifier ce réglage.";
             SetOnSilently(!value);
@@ -71,6 +73,10 @@ public sealed partial class TweakItemViewModel : ObservableObject
         try
         {
             await Task.Run(() => Tweak.Apply(value));
+
+            // Réglage en lecture seule : l'app vient d'ouvrir la page Windows, elle n'a rien changé.
+            // L'interrupteur ne doit pas prétendre le contraire en restant dans sa nouvelle position.
+            if (Tweak.IsReadOnly) SetOnSilently(!value);
         }
         catch (Exception ex)
         {

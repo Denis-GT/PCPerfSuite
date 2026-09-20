@@ -119,14 +119,20 @@ public sealed partial class PowerPlanService
         };
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Impossible de démarrer powercfg.");
-        string stdout = await process.StandardOutput.ReadToEndAsync();
-        string stderr = await process.StandardError.ReadToEndAsync();
+
+        // Les deux tubes sont drainés en parallèle. Lus l'un après l'autre, powercfg se bloque en
+        // écriture dès qu'il remplit le tampon (~4 Ko) de celui qu'on ne lit pas encore : il ne se
+        // termine alors jamais, la première attente ne rend jamais la main, et l'onglet Optimisation
+        // reste bloqué sur son chargement pour toute la session.
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+        await Task.WhenAll(stdoutTask, stderrTask);
         await process.WaitForExitAsync();
 
         if (process.ExitCode != 0)
-            throw new InvalidOperationException($"powercfg {arguments} a échoué ({process.ExitCode}): {stderr}");
+            throw new InvalidOperationException($"powercfg {arguments} a échoué ({process.ExitCode}): {stderrTask.Result}");
 
-        return stdout;
+        return stdoutTask.Result;
     }
 
     // "<guid> (<nom localisé>) *" — l'astérisque marque le plan actif, ni le GUID ni l'astérisque ne sont traduits.
