@@ -7,9 +7,11 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Interop;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.PowerSettings;
@@ -164,6 +166,11 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     [ObservableProperty] private string displayName = "";
     [ObservableProperty] private string? executablePath;
+
+    /// <summary>Icône du fichier, chargée en arrière-plan. Null tant qu'elle n'est pas arrivée, et null
+    /// définitivement pour un processus protégé ou sans chemin lisible : la vue affiche alors un glyphe
+    /// neutre à la place.</summary>
+    [ObservableProperty] private ImageSource? icon;
     [ObservableProperty] private string? publisher;
     [ObservableProperty] private string? userName;
     [ObservableProperty] private string? windowTitle;
@@ -314,6 +321,27 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         TerminateCommand.NotifyCanExecuteChanged();
         OpenLocationCommand.NotifyCanExecuteChanged();
         ShowPropertiesCommand.NotifyCanExecuteChanged();
+        LoadIcon(value);
+    }
+
+    /// <summary>Va chercher l'icône du fichier. Le chemin n'est résolu qu'une fois par processus, donc
+    /// cette méthode n'est appelée qu'une fois par ligne ; ShellIcons met de plus en cache par chemin, et
+    /// les dizaines de processus qui partagent un même exécutable n'en coûtent qu'une lecture.
+    /// « async void » assumé : c'est une réaction à un changement de propriété, il n'y a personne pour
+    /// attendre le résultat, et ShellIcons ne lève pas.</summary>
+    private async void LoadIcon(string? path)
+    {
+        if (path is not { Length: > 0 })
+        {
+            Icon = null;
+            return;
+        }
+
+        ImageSource? loaded = await ShellIcons.GetAsync(path);
+
+        // La ligne a pu être réaffectée à un autre processus pendant l'attente (les lignes sont réutilisées
+        // en place) : on ne pose l'icône que si le chemin est toujours celui qu'on a demandé.
+        if (ExecutablePath == path) Icon = loaded;
     }
 
     [RelayCommand]
@@ -411,8 +439,12 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     public ICollectionView RowsView => _rowsView;
     public ProcessColumnsViewModel Columns { get; } = new();
 
+    /// <summary>Cadences proposées. 0,5 s sert à attraper une pointe courte : un relevé complet coûte
+    /// déjà plusieurs dizaines de millisecondes (voir <see cref="ReadDurationHint"/>), ce n'est pas une
+    /// cadence à laisser tourner en fond.</summary>
     public IReadOnlyList<ProcessRefreshOption> RefreshOptions { get; } = new[]
     {
+        new ProcessRefreshOption(500, "0,5 s"),
         new ProcessRefreshOption(1000, "1 s"),
         new ProcessRefreshOption(2000, "2 s"),
         new ProcessRefreshOption(5000, "5 s"),
@@ -532,7 +564,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
-        SelectedRefresh = RefreshOptions.FirstOrDefault(r => r.Ms == saved.RefreshMs) ?? RefreshOptions[1];
+        // Repli cherché par sa valeur et non par son indice : insérer une cadence dans la liste
+        // décalerait un indice et changerait le défaut sans qu'on s'en aperçoive.
+        SelectedRefresh = RefreshOptions.FirstOrDefault(r => r.Ms == saved.RefreshMs)
+            ?? RefreshOptions.First(r => r.Ms == DefaultRefreshMs);
         UpdateSortGlyphs();
 
         _rowsView = (ListCollectionView)CollectionViewSource.GetDefaultView(Rows);

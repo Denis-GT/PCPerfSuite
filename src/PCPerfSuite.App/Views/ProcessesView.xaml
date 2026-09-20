@@ -48,15 +48,38 @@
 
             <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="Relevé" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Border Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center" Margin="0,0,14,0">
-                    <ListBox Style="{StaticResource PillSelector}"
-                             ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
-                             DisplayMemberPath="Label" ToolTip="{Binding ReadDurationHint}"/>
-                </Border>
+                <!-- Liste déroulante plutôt que pilules : cinq cadences alignées prenaient toute la barre
+                     d'outils pour un réglage qu'on touche deux fois par session. -->
+                <ComboBox Width="96" VerticalAlignment="Center" Margin="0,0,10,0"
+                          ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
+                          DisplayMemberPath="Label">
+                    <ComboBox.ToolTip>
+                        <StackPanel MaxWidth="320">
+                            <TextBlock Text="{Binding ReadDurationHint}" TextWrapping="Wrap"/>
+                            <TextBlock Text="0,5 s sert à attraper une pointe courte : un relevé complet coûte déjà plusieurs dizaines de millisecondes, ce n'est pas une cadence à laisser tourner en fond."
+                                       TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </ComboBox.ToolTip>
+                </ComboBox>
 
-                <TextBlock Text="Figer" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsFrozen}" VerticalAlignment="Center"
-                          ToolTip="Arrête complètement les relevés, pour lire ou copier tranquillement"/>
+                <!-- Un bouton, pas un interrupteur : c'est une action qu'on déclenche puis qu'on annule.
+                     Les deux états se superposent dans une Grid, ce qui fige la largeur du bouton — sinon
+                     la barre d'outils se réorganiserait à chaque clic. -->
+                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding IsFrozen}" VerticalAlignment="Center"
+                              ToolTip="Arrête complètement les relevés, pour lire ou copier tranquillement. Cliquer à nouveau pour reprendre.">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsFrozen, Converter={StaticResource InverseBoolToVisibility}}">
+                            <TextBlock Text="&#xE769;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                            <TextBlock Text="Figer" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding IsFrozen, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="&#xE768;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                            <TextBlock Text="Figé" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </ToggleButton>
 
                 <Button Style="{StaticResource GhostButton}" Margin="14,0,0,0"
                         Command="{Binding ToggleColumnsCommand}">
@@ -182,10 +205,25 @@
                                     <ColumnDefinition Width="{Binding Owner.Columns.Publisher.Width}"/>
                                 </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="0" Text="{Binding DisplayName}" Style="{StaticResource Body}" FontSize="12.5"
-                                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                           Margin="6,0,10,0" ToolTip="{Binding PathDisplay}"
-                                           Visibility="{Binding Owner.Columns.Name.CellVisibility}"/>
+                                <!-- Icône du fichier à gauche du nom : dans quatre cents lignes, une icône se
+                                     reconnaît bien plus vite qu'un nom. Elle arrive en arrière-plan ; tant
+                                     qu'elle manque — processus protégé, chemin illisible, ou icône pas encore
+                                     lue — un glyphe neutre tient la place pour que les noms restent alignés. -->
+                                <Grid Grid.Column="0" Margin="6,0,10,0"
+                                      Visibility="{Binding Owner.Columns.Name.CellVisibility}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Image Grid.Column="0" Source="{Binding Icon}" Width="16" Height="16"
+                                           VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock x:Name="FallbackGlyph" Grid.Column="0" Text="&#xE7C4;" Style="{StaticResource Icon}"
+                                               FontSize="12" Foreground="{StaticResource TextTertiaryBrush}"
+                                               HorizontalAlignment="Center" Visibility="Collapsed"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Style="{StaticResource Body}" FontSize="12.5"
+                                               VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               Margin="8,0,0,0" ToolTip="{Binding PathDisplay}"/>
+                                </Grid>
 
                                 <TextBlock Grid.Column="1" Text="{Binding Pid}" Style="{StaticResource Caption}" FontSize="12.5"
                                            TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
@@ -229,6 +267,11 @@
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.Publisher.CellVisibility}"/>
                             </Grid>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                                    <Setter TargetName="FallbackGlyph" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
 

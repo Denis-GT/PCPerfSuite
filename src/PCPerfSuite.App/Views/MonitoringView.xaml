@@ -15,11 +15,11 @@
                     <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
                         <TextBlock Text="&#xE916;" Style="{StaticResource Icon}" FontSize="14" Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0"/>
                         <TextBlock Text="Actualisation" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                        <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
                                  controls:TextBoxBehaviors.CommitOnEnter="True"
+                                 controls:TextBoxBehaviors.Step="True"
                                  ToolTip="{Binding RefreshHint}"
                                  Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
-                        <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
                         <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
@@ -81,10 +81,11 @@
                                                         Visibility="{Binding IsAuto, Converter={StaticResource InverseBoolToVisibility}}">
                                                 <TextBlock Text="Relu toutes les" Style="{StaticResource Body}" FontSize="12.5"
                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                                <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
                                                          controls:TextBoxBehaviors.CommitOnEnter="True"
+                                                         controls:TextBoxBehaviors.Step="True"
+                                                         ToolTip="{Binding RefreshHint}"
                                                          Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
-                                                <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                             </StackPanel>
                                             <TextBlock Text="{Binding ReasonText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
                                         </StackPanel>
@@ -278,7 +279,8 @@
                                                 <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
                                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
                                             </StackPanel>
-                                            <controls:MeterBar Grid.Column="1" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"/>
+                                            <controls:MeterBar Grid.Column="1" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"
+                                                               UseValueColor="True"/>
                                             <TextBlock Grid.Column="2" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
                                                        TextAlignment="Right" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="3" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">

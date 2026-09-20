@@ -115,10 +115,11 @@
                                 <TextBlock Text="{Binding CadenceText}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBox Style="{StaticResource GlassTextBox}" Width="86" TextAlignment="Right"
+                                <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
                                          controls:TextBoxBehaviors.CommitOnEnter="True"
+                                         controls:TextBoxBehaviors.Step="True"
+                                         ToolTip="{Binding RefreshHint}"
                                          Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
-                                <TextBlock Text="ms" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                             </StackPanel>
                         </Grid>
 

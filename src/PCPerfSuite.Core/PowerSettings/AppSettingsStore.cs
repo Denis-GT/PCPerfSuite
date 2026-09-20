@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.Core.PowerSettings;
@@ -176,6 +177,9 @@ public sealed class CpuControlSettings
     /// <summary>L'utilisateur a lu et accepté l'avertissement avant la première écriture. Mémorisé pour ne
     /// pas le reposer à chaque réglage.</summary>
     public bool RiskAccepted { get; set; }
+
+    /// <summary>Profils enregistrés par l'utilisateur : tout l'onglet Processeur sous un nom.</summary>
+    public List<CpuProfile> Profiles { get; set; } = new();
 }
 
 public sealed class OverlaySettings

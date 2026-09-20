@@ -29,6 +29,9 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
 
     private bool _suppressWrite;
 
+    /// <summary>Identifiant stable du réglage, clé de ce réglage dans un profil enregistré.</summary>
+    public string Id => _setting.Id;
+
     public string Label => _setting.Label;
     public string Description => _setting.Description;
     public IReadOnlyList<CpuPowerChoice>? Choices => _setting.Choices;
@@ -92,6 +95,57 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
         if (value is not null && !_suppressWrite) BatteryValue = value.Value;
     }
 
+    /// <summary>Une valeur en clair, pour le résumé d'un profil : le libellé du choix, ou le nombre et
+    /// son unité.</summary>
+    public string Describe(uint value)
+        => _setting.Choices?.FirstOrDefault(c => c.Value == value)?.Label ?? Format(value);
+
+    /// <summary>Les valeurs en place, pour les enregistrer dans un profil.</summary>
+    public CpuProfilePowerValue Capture() => new()
+    {
+        Ac = (uint)Math.Round(AcValue),
+        Battery = ShowBattery ? (uint)Math.Round(BatteryValue) : null,
+    };
+
+    /// <summary>
+    /// Repose les valeurs d'un profil, puis écrit comme n'importe quelle modification (avec sa relecture
+    /// de vérification). Renvoie faux si rien n'était applicable : le profil vient peut-être d'une autre
+    /// machine, où ce réglage acceptait des valeurs que ce Windows-ci ne propose pas.
+    /// </summary>
+    public bool ApplyFromProfile(CpuProfilePowerValue value)
+    {
+        uint? ac = value.Ac is { } rawAc ? Sanitize(rawAc) : null;
+        uint? battery = ShowBattery && value.Battery is { } rawBattery ? Sanitize(rawBattery) : null;
+        if (ac is null && battery is null) return false;
+
+        _suppressWrite = true;
+        if (ac is { } acValue)
+        {
+            AcValue = acValue;
+            if (_setting.Choices is { } choices) AcChoice = choices.FirstOrDefault(c => c.Value == acValue) ?? AcChoice;
+        }
+
+        if (battery is { } batteryValue)
+        {
+            BatteryValue = batteryValue;
+            if (_setting.Choices is { } choices) BatteryChoice = choices.FirstOrDefault(c => c.Value == batteryValue) ?? BatteryChoice;
+        }
+
+        _suppressWrite = false;
+
+        Write();
+        return true;
+    }
+
+    /// <summary>Ramène une valeur venue d'un profil dans ce que ce réglage accepte ici : une option de
+    /// liste absente de cette machine est refusée plutôt que rabotée (un « mode boost 4 » ramené à 2
+    /// appliquerait un réglage que personne n'a demandé), une valeur numérique est bornée.</summary>
+    private uint? Sanitize(uint value)
+    {
+        if (_setting.Choices is { } choices) return choices.Any(c => c.Value == value) ? value : null;
+        return (uint)Math.Clamp(value, _setting.Min, _setting.Max);
+    }
+
     private void Write()
     {
         if (_suppressWrite) return;
@@ -140,6 +194,21 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
         _report(ShowBattery
             ? $"« {Label} » : {Format(ac)} sur secteur, {Format(battery)} sur batterie."
             : $"« {Label} » : {Format(ac)}.");
+    }
+}
+
+/// <summary>Un profil processeur enregistré, tel qu'affiché dans la liste des profils. Le résumé est
+/// calculé par l'onglet, seul à connaître les libellés et les unités des réglages de CETTE machine.</summary>
+public sealed class CpuProfileViewModel
+{
+    public CpuProfile Model { get; }
+    public string Name => Model.Name;
+    public string Summary { get; }
+
+    public CpuProfileViewModel(CpuProfile model, string summary)
+    {
+        Model = model;
+        Summary = summary;
     }
 }
 
@@ -205,6 +274,14 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string powerSettingsStatus = "";
 
+    /// <summary>Profils enregistrés par l'utilisateur : tout l'onglet sous un nom.</summary>
+    public ObservableCollection<CpuProfileViewModel> Profiles { get; } = new();
+
+    [ObservableProperty] private string newProfileName = "";
+
+    /// <summary>Null tant qu'aucun profil n'a été touché : la ligne d'état ne s'affiche qu'ensuite.</summary>
+    [ObservableProperty] private string? profileStatus;
+
     /// <summary>Vrai si la machine a une batterie : les réglages ont alors deux valeurs à afficher.</summary>
     public bool ShowBatteryColumn => _powerTuning.HasBattery;
 
@@ -239,6 +316,13 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         LoadLimits(settings);
         LoadPowerSettings();
+
+        // Après LoadPowerSettings : le résumé d'un profil se lit dans les libellés et les unités des
+        // réglages réellement exposés par cette machine.
+        foreach (CpuProfile profile in settings.Cpu.Profiles)
+        {
+            Profiles.Add(new CpuProfileViewModel(profile, BuildSummary(profile)));
+        }
 
         _cpu.EmergencyRestored += OnEmergencyRestored;
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
@@ -379,6 +463,144 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         settings.Cpu.BurstWatts = null;
         AppSettingsStore.Save(settings);
     }
+
+    /// <summary>Enregistre tout l'onglet sous un nom : les réglages d'alimentation Windows, et les
+    /// limites en watts quand elles sont disponibles et déverrouillées.</summary>
+    [RelayCommand]
+    private void SaveProfile()
+    {
+        string name = NewProfileName.Trim();
+        if (name.Length == 0) name = $"Profil {Profiles.Count + 1}";
+
+        var profile = new CpuProfile { Name = name };
+        foreach (CpuPowerSettingViewModel setting in PowerSettings)
+        {
+            profile.PowerSettings[setting.Id] = setting.Capture();
+        }
+
+        if (IsPowerLimitAvailable && RiskAccepted)
+        {
+            profile.SustainedWatts = (float)SustainedWatts;
+            profile.BurstWatts = HasBurstLimit ? (float)BurstWatts : null;
+        }
+
+        // Même nom = on remplace, pour pouvoir mettre un profil à jour sans le supprimer d'abord.
+        CpuProfileViewModel? existing = Profiles.FirstOrDefault(
+            p => string.Equals(p.Name, name, StringComparison.CurrentCultureIgnoreCase));
+        if (existing is not null) Profiles.Remove(existing);
+
+        Profiles.Add(new CpuProfileViewModel(profile, BuildSummary(profile)));
+        NewProfileName = "";
+        ProfileStatus = $"Profil « {name} » enregistré.";
+        PersistProfiles();
+    }
+
+    /// <summary>
+    /// Applique un profil. Il a pu être écrit sur une autre machine ou sur une autre plateforme : ce qui
+    /// n'existe pas ici est ignoré, et le nombre de réglages laissés de côté est annoncé plutôt que passé
+    /// sous silence. Les limites en watts ne sont posées que si ce PC les expose et que l'avertissement a
+    /// été accepté — sinon le reste du profil s'applique quand même, et on dit pourquoi elles n'ont pas suivi.
+    /// </summary>
+    [RelayCommand]
+    private void ApplyProfile(CpuProfileViewModel? profile)
+    {
+        if (profile is null) return;
+
+        CpuProfile model = profile.Model;
+        int applied = 0;
+        int skipped = 0;
+
+        foreach ((string id, CpuProfilePowerValue value) in model.PowerSettings)
+        {
+            CpuPowerSettingViewModel? setting = PowerSettings.FirstOrDefault(s => s.Id == id);
+            if (setting is null || !setting.ApplyFromProfile(value))
+            {
+                skipped++;
+                continue;
+            }
+
+            applied++;
+        }
+
+        var parts = new List<string>
+        {
+            applied == 0
+                ? "aucun réglage d'alimentation applicable"
+                : Plural(applied, "réglage d'alimentation appliqué", "réglages d'alimentation appliqués"),
+        };
+
+        if (skipped > 0) parts.Add(Plural(skipped, "ignoré, absent de ce PC", "ignorés, absents de ce PC"));
+
+        string watts = ApplyProfileWatts(model);
+        if (watts.Length > 0) parts.Add(watts);
+
+        ProfileStatus = $"Profil « {profile.Name} » : {string.Join(" · ", parts)}.";
+    }
+
+    [RelayCommand]
+    private void DeleteProfile(CpuProfileViewModel? profile)
+    {
+        if (profile is null) return;
+
+        Profiles.Remove(profile);
+        ProfileStatus = $"Profil « {profile.Name} » supprimé.";
+        PersistProfiles();
+    }
+
+    /// <summary>Volet « watts » d'un profil. Renvoie ce qu'il y a à en dire, ou une chaîne vide si le
+    /// profil n'en portait pas.</summary>
+    private string ApplyProfileWatts(CpuProfile model)
+    {
+        if (model.SustainedWatts is not { } sustained) return "";
+        if (!IsPowerLimitAvailable) return "limites en watts ignorées, ce PC ne les expose pas";
+        if (!RiskAccepted) return "limites en watts ignorées, l'avertissement n'a pas encore été accepté";
+
+        // La limite soutenue d'abord : la poser pousse la limite de pointe si elle passait en dessous,
+        // et c'est ensuite celle du profil qui doit avoir le dernier mot.
+        _suppressApply = true;
+        SustainedWatts = Math.Clamp(sustained, MinWatts, MaxWatts);
+        if (HasBurstLimit) BurstWatts = Math.Clamp(model.BurstWatts ?? sustained, MinWatts, MaxWatts);
+        _suppressApply = false;
+
+        // Sans passer par le débounce : appliquer un profil est un geste ponctuel dont on veut voir
+        // l'effet — et le message de relecture — tout de suite.
+        _applyDebounce.Cancel(PowerLimitKey);
+        ApplyNow();
+        return $"limites posées à {SustainedWatts:0} W";
+    }
+
+    /// <summary>Résumé d'un profil dans les termes de CETTE machine : un réglage que ce PC n'expose pas
+    /// n'y figure pas, puisqu'il ne serait pas appliqué non plus.</summary>
+    private string BuildSummary(CpuProfile profile)
+    {
+        // Parcourir les réglages de la machine, et non les clés du profil : l'ordre du fichier n'est pas
+        // garanti, celui du catalogue si.
+        var parts = new List<string>();
+        foreach (CpuPowerSettingViewModel setting in PowerSettings)
+        {
+            if (!profile.PowerSettings.TryGetValue(setting.Id, out CpuProfilePowerValue? value)) continue;
+            if (value.Ac is not { } ac) continue;
+
+            parts.Add($"{setting.Label} : {setting.Describe(ac)}");
+        }
+
+        if (profile.SustainedWatts is { } sustained) parts.Add($"{sustained:0} W soutenu");
+        if (profile.BurstWatts is { } burst) parts.Add($"{burst:0} W en pointe");
+
+        return parts.Count == 0
+            ? "Aucun des réglages de ce profil n'existe sur ce PC."
+            : string.Join("  •  ", parts);
+    }
+
+    private void PersistProfiles()
+    {
+        AppSettings settings = AppSettingsStore.Load();
+        settings.Cpu.Profiles = Profiles.Select(p => p.Model).ToList();
+        AppSettingsStore.Save(settings);
+    }
+
+    private static string Plural(int count, string singular, string plural)
+        => count > 1 ? $"{count} {plural}" : $"{count} {singular}";
 
     [RelayCommand]
     private void OpenDriverSite()

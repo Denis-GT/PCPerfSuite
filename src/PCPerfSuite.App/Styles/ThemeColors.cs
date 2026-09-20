@@ -13,6 +13,7 @@ internal static class ThemeColors
     public static Color Accent => Get("AccentColor", 0xFF0A84FF);
     public static Color Accent2 => Get("AccentColor2", 0xFF5FE0C7);
     public static Color Warn => Get("WarnColor", 0xFFFF9F0A);
+    public static Color Danger => Get("DangerColor", 0xFFFF453A);
     public static Color TextPrimary => Get("TextPrimaryColor", 0xFFF2F4FA);
     public static Color TextSecondary => Get("TextSecondaryColor", 0xFFACB4C8);
 

@@ -266,6 +266,9 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
     private int _manualMs;
     private int _lastRefreshMs = 1000;
 
+    /// <summary>Bornes admises, affichées en infobulle du champ.</summary>
+    public string RefreshHint => RefreshRates.Hint;
+
     /// <summary>Cadence imposée hors automatique, bornée comme l'actualisation (et ramenée dans ces bornes à l'affichage).</summary>
     public int ManualMs
     {

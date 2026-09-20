@@ -15,9 +15,6 @@ namespace PCPerfSuite.App.ViewModels;
 /// <summary>Disque proposé à l'analyse, affiché en tuile : icône selon le type, nom, jauge d'occupation.</summary>
 public sealed partial class DriveOption : ObservableObject
 {
-    /// <summary>Seuil de la jauge rouge, le même que l'Explorateur.</summary>
-    private const double AlmostFullPercent = 90;
-
     public required string RootPath { get; init; }
     public required string Title { get; init; }
     public required string Kind { get; init; }
@@ -30,7 +27,6 @@ public sealed partial class DriveOption : ObservableObject
     public long TotalBytes { get; init; }
 
     public double UsedPercent => TotalBytes > 0 ? 100.0 * UsedBytes / TotalBytes : 0;
-    public bool IsAlmostFull => UsedPercent >= AlmostFullPercent;
     public string UsageText => $"{ByteFormatter.Format(UsedBytes)} utilisés sur {ByteFormatter.Format(TotalBytes)}";
 
     [ObservableProperty] private bool isSelected;

@@ -219,6 +219,61 @@
                     </StackPanel>
                 </Border>
             </StackPanel>
+
+            <!-- ============ Profils ============ -->
+            <!-- Hors du bloc précédent, volontairement : sur une machine sans limites de puissance
+                 accessibles (Snapdragon, PC sans PawnIO), un profil garde tout son sens — il porte
+                 alors les seuls réglages d'alimentation Windows, qui marchent partout. -->
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="Profils" Style="{StaticResource H2}"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Text="Enregistre tout l'onglet sous un nom — mode boost, états de fréquence, arbitrage performance/économie, et les limites en watts si ce PC les expose — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBox Style="{StaticResource GlassTextBox}" Width="220"
+                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                 Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Content="Enregistrer les réglages actuels" Style="{StaticResource AccentButton}"
+                                Margin="8,0,0,0" Command="{Binding SaveProfileCommand}"/>
+                    </StackPanel>
+
+                    <TextBlock Text="Aucun profil enregistré pour l'instant." Style="{StaticResource Caption}" Margin="0,12,0,0"
+                               Visibility="{Binding Profiles.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+
+                    <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,12,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="Appliquer" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
+                                                    Command="{Binding DataContext.ApplyProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="&#xE74D;" Style="{StaticResource IconButton}" ToolTip="Supprimer ce profil"
+                                                    Command="{Binding DataContext.DeleteProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="{Binding ProfileStatus}" Style="{StaticResource Caption}" Margin="0,4,0,0"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
