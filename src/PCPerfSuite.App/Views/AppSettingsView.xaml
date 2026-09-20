@@ -24,8 +24,8 @@
                         <StackPanel Grid.Column="0" Margin="0,0,24,0">
                             <TextBlock Text="Réduire dans la zone de notification à la fermeture"
                                        Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
-                            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
-                                       Text="La croix range l'app près de l'horloge au lieu de la quitter : le monitoring, les courbes de ventilation et l'overlay continuent de tourner. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer vraiment l'app."/>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                     Text="La croix range l'app près de l'horloge au lieu de la quitter : le monitoring, les courbes de ventilation et l'overlay continuent de tourner. Clic sur l'icône pour rouvrir la fenêtre, clic droit → « Quitter » pour fermer vraiment l'app."/>
                         </StackPanel>
                         <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
                                   IsChecked="{Binding MinimizeToTrayOnClose}"/>
@@ -59,8 +59,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Margin="0,0,24,0">
-                                                <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                                <TextBox Text="{Binding Title}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"/>
+                                                <TextBox Text="{Binding Detail}" Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
                                             </StackPanel>
                                             <Border x:Name="StatusBadge" Grid.Column="1" Style="{StaticResource BadgeSuccess}" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Status}" Style="{StaticResource BadgeText}"/>
@@ -82,8 +82,8 @@
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
                             <StackPanel>
                                 <TextBlock Text="Métriques non disponibles sur ce PC (« N/D »)" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Ces valeurs ne sont pas fournies par le matériel ou les pilotes de ce PC : ce n'est pas un dysfonctionnement de PCPerfSuite."
-                                           Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,3,0,6"/>
+                                <TextBox Text="Ces valeurs ne sont pas fournies par le matériel ou les pilotes de ce PC : ce n'est pas un dysfonctionnement de PCPerfSuite."
+                                         Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,3,0,6"/>
                                 <TextBlock Text="Aucune : tout ce que propose PCPerfSuite est lu sur ce PC." Style="{StaticResource Caption}"
                                            Visibility="{Binding UnavailableMetrics.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
                                 <ItemsControl ItemsSource="{Binding UnavailableMetrics}">
@@ -101,8 +101,8 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="{Binding CopyStatus}" Style="{StaticResource Caption}" Margin="0,0,0,12"
-                                   Visibility="{Binding CopyStatus, Converter={StaticResource NullToVisibility}}"/>
+                        <TextBox Text="{Binding CopyStatus}" Style="{StaticResource SelectableCaption}" Margin="0,0,0,12"
+                                 Visibility="{Binding CopyStatus, Converter={StaticResource NullToVisibility}}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

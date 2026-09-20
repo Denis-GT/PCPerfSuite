@@ -11,8 +11,8 @@
 
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding Fans.Count, Converter={StaticResource ZeroCountToVisibility}}">
-                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                           Text="{Binding NoFansMessage, Mode=OneTime}" TextWrapping="Wrap"/>
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                         Text="{Binding NoFansMessage, Mode=OneTime}" TextWrapping="Wrap"/>
             </Border>
 
             <ItemsControl ItemsSource="{Binding Fans}">
@@ -99,8 +99,8 @@
                                     <Border Style="{StaticResource InsetTile}" Padding="8">
                                         <controls:FanCurveEditor Points="{Binding Points}" CurrentTempC="{Binding SourceTempC}"/>
                                     </Border>
-                                    <TextBlock Text="Glisse un point pour le déplacer, double-clic pour en ajouter un, clic droit pour en retirer un."
-                                               Style="{StaticResource Caption}" Margin="0,6,0,0"/>
+                                    <TextBox Text="Glisse un point pour le déplacer, double-clic pour en ajouter un, clic droit pour en retirer un."
+                                             Style="{StaticResource SelectableCaption}" Margin="0,6,0,0"/>
 
                                     <!-- Réglages de régulation -->
                                     <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0"/>
@@ -146,8 +146,8 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="Arrêt complet à froid (0 RPM)" Style="{StaticResource Body}"/>
-                                            <TextBlock Text="Tous les ventilateurs ne redémarrent pas proprement après un arrêt : à activer en connaissance de cause."
-                                                       Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                            <TextBox Text="Tous les ventilateurs ne redémarrent pas proprement après un arrêt : à activer en connaissance de cause."
+                                                     Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                             <Slider Width="120" Minimum="20" Maximum="70" IsSnapToTickEnabled="True" TickFrequency="1"

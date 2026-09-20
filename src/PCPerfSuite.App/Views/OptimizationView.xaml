@@ -26,8 +26,8 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" VerticalAlignment="Top" Margin="0,1,12,0"/>
-                    <TextBlock Grid.Column="1" Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
-                               Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → « Exécuter en tant qu'administrateur »)."/>
+                    <TextBox Grid.Column="1" Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
+                             Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → « Exécuter en tant qu'administrateur »)."/>
                 </Grid>
             </Border>
 

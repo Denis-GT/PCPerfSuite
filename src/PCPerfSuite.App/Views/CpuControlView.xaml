@@ -12,18 +12,18 @@
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Compatibilité" Style="{StaticResource H2}"/>
-                    <TextBlock Text="{Binding CpuName}" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,8,0,0"
-                               TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding PlatformText}" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding DriverText}" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding CpuName}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold" Margin="0,8,0,0"
+                             TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding PlatformText}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding DriverText}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
                                 Visibility="{Binding IsDriverMissing, Converter={StaticResource BoolToVisibility}}">
                         <Button Content="Installer PawnIO" Style="{StaticResource AccentButton}"
                                 Command="{Binding OpenDriverSiteCommand}"/>
-                        <TextBlock Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                   TextWrapping="Wrap" MaxWidth="480"
-                                   Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
+                        <TextBox Style="{StaticResource SelectableCaption}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                 TextWrapping="Wrap" MaxWidth="480"
+                                 Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -32,8 +32,8 @@
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Réglages d'alimentation" Style="{StaticResource H2}"/>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                               Text="Les réglages processeur du plan d'alimentation Windows actif, appliqués immédiatement. Sans pilote et sans risque : ce sont les mêmes que ceux du panneau de configuration, y compris ceux que Windows masque par défaut. Ils fonctionnent sur Intel, AMD comme Snapdragon."/>
+                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                             Text="Les réglages processeur du plan d'alimentation Windows actif, appliqués immédiatement. Sans pilote et sans risque : ce sont les mêmes que ceux du panneau de configuration, y compris ceux que Windows masque par défaut. Ils fonctionnent sur Intel, AMD comme Snapdragon."/>
 
                     <ItemsControl ItemsSource="{Binding PowerSettings}" Margin="0,14,0,0">
                         <ItemsControl.ItemTemplate>
@@ -54,7 +54,7 @@
                                             <TextBlock Grid.Column="0" Text="Sur secteur" Style="{StaticResource Caption}"
                                                        VerticalAlignment="Center"/>
                                             <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
-                                                      DisplayMemberPath="Label" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                      ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
                                                       Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
                                             <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
                                                     IsSnapToTickEnabled="True" TickFrequency="1"
@@ -75,7 +75,7 @@
                                             <TextBlock Grid.Column="0" Text="Sur batterie" Style="{StaticResource Caption}"
                                                        VerticalAlignment="Center"/>
                                             <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
-                                                      DisplayMemberPath="Label" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                      ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
                                                       Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
                                             <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
                                                     IsSnapToTickEnabled="True" TickFrequency="1"
@@ -91,18 +91,18 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock Text="{Binding PowerSettingsStatus}" Style="{StaticResource Caption}"
-                               Margin="0,6,0,0" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding PowerSettingsStatus}" Style="{StaticResource SelectableCaption}"
+                             Margin="0,6,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
             <!-- ============ Indisponible ============ -->
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsPowerLimitUnavailable, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap">
-                    <Run Text="N/D :"/>
-                    <Run Text="{Binding UnavailableReason, Mode=OneWay}"/>
-                </TextBlock>
+                <!-- Un seul champ avec StringFormat plutôt que deux Run : c'est la phrase qu'on recopie
+                     dans un rapport de bug, elle doit pouvoir se sélectionner d'un bloc. -->
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                       Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=N/D : {0}}"/>
             </Border>
 
             <StackPanel Visibility="{Binding IsPowerLimitAvailable, Converter={StaticResource BoolToVisibility}}">
@@ -149,15 +149,15 @@
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Text="Limites de puissance" Style="{StaticResource H2}"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                                   Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
 
                         <!-- Avertissement, à accepter une fois -->
                         <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
                                 Visibility="{Binding NeedsRiskAcceptance, Converter={StaticResource BoolToVisibility}}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
-                                           Text="Ces réglages écrivent directement dans le processeur. Relever une limite augmente la chaleur et la consommation, et ne tient que si le refroidissement suit. Les limites ne survivent pas à un redémarrage, et l'app les rend d'origine en quittant : en cas de souci, redémarrer suffit toujours."/>
+                                <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap"
+                                         Text="Ces réglages écrivent directement dans le processeur. Relever une limite augmente la chaleur et la consommation, et ne tient que si le refroidissement suit. Les limites ne survivent pas à un redémarrage, et l'app les rend d'origine en quittant : en cas de souci, redémarrer suffit toujours."/>
                                 <Button Content="J'ai compris, débloquer les réglages" Style="{StaticResource AccentButton}"
                                         HorizontalAlignment="Left" Margin="0,12,0,0" Command="{Binding AcceptRiskCommand}"/>
                             </StackPanel>
@@ -200,8 +200,8 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Appliquer au démarrage" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                    <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"
-                                               Text="Réapplique ces limites au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, le processeur repart toujours de ses limites d'origine."/>
+                                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,2,0,0" TextWrapping="Wrap"
+                                             Text="Réapplique ces limites au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, le processeur repart toujours de ses limites d'origine."/>
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ApplyAtStartup}" VerticalAlignment="Center"/>
                             </Grid>
@@ -211,11 +211,11 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <TextBlock Text="{Binding Status}" Style="{StaticResource Caption}" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                        <TextBox Text="{Binding Status}" Style="{StaticResource SelectableCaption}" Margin="0,14,0,0" TextWrapping="Wrap"/>
 
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextTertiaryBrush}"
-                                   Text="Sécurité : si le processeur reste collé à 98 °C pendant 15 secondes avec une limite relevée, l'app rétablit d'elle-même les limites d'origine."/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                 Foreground="{StaticResource TextTertiaryBrush}"
+                                 Text="Sécurité : si le processeur reste collé à 98 °C pendant 15 secondes avec une limite relevée, l'app rétablit d'elle-même les limites d'origine."/>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -227,8 +227,8 @@
             <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                 <StackPanel>
                     <TextBlock Text="Profils" Style="{StaticResource H2}"/>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                               Text="Enregistre tout l'onglet sous un nom — mode boost, états de fréquence, arbitrage performance/économie, et les limites en watts si ce PC les expose — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
+                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                             Text="Enregistre tout l'onglet sous un nom — mode boost, états de fréquence, arbitrage performance/économie, et les limites en watts si ce PC les expose — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <TextBox Style="{StaticResource GlassTextBox}" Width="220"
@@ -269,9 +269,9 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock Text="{Binding ProfileStatus}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               TextWrapping="Wrap"
-                               Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
+                    <TextBox Text="{Binding ProfileStatus}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             TextWrapping="Wrap"
+                             Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
                 </StackPanel>
             </Border>
         </StackPanel>

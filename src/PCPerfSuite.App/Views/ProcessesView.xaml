@@ -52,7 +52,7 @@
                      d'outils pour un réglage qu'on touche deux fois par session. -->
                 <ComboBox Width="96" VerticalAlignment="Center" Margin="0,0,10,0"
                           ItemsSource="{Binding RefreshOptions}" SelectedItem="{Binding SelectedRefresh}"
-                          DisplayMemberPath="Label">
+                          ItemTemplate="{StaticResource LabelOptionTemplate}">
                     <ComboBox.ToolTip>
                         <StackPanel MaxWidth="320">
                             <TextBlock Text="{Binding ReadDurationHint}" TextWrapping="Wrap"/>
@@ -319,8 +319,8 @@
 
                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
                     <TextBlock Text="{Binding DisplayName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding PathDisplay}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             TextWrapping="Wrap"/>
                     <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap">
                         <Run Text="PID"/>
                         <Run Text="{Binding Pid, Mode=OneWay}"/>
@@ -331,8 +331,8 @@
                         <Run Text="· démarré le"/>
                         <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
                     </TextBlock>
-                    <TextBlock Text="{Binding Publisher}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
+                    <TextBox Text="{Binding Publisher}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
                     <TextBlock Text="{Binding WindowTitle}" Style="{StaticResource Caption}" Margin="0,4,0,0"
                                TextTrimming="CharacterEllipsis"
                                Visibility="{Binding WindowTitle, Converter={StaticResource NullToVisibility}}"/>
@@ -361,7 +361,7 @@
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource Caption}" Margin="0,10,0,0"
-                   TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>
+        <TextBox Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
+                 TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>
     </Grid>
 </UserControl>
