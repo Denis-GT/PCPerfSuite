@@ -208,6 +208,26 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         _ => "Arrière-plan",
     };
 
+    /// <summary>En-tête du groupe où la ligne se range quand la liste est triée par nom. Au pluriel et plus
+    /// explicite que <see cref="KindLabel"/>, qui tient dans une colonne étroite.</summary>
+    public string GroupLabel => Kind switch
+    {
+        ProcessKind.Application => "Applications",
+        ProcessKind.Windows => "Processus Windows",
+        _ => "Processus en arrière-plan",
+    };
+
+    /// <summary>Rang de la famille, utilisé comme critère de tri principal au tri par nom. L'ordre des
+    /// en-têtes, lui, est fixé ailleurs (ApplyGrouping) ; ce rang sert à ranger la SOURCE par famille, ce
+    /// qui fait qu'un processus changeant de famille devient mal placé, se fait déplacer, et rejoint du
+    /// même coup le bon groupe.</summary>
+    public int GroupRank => Kind switch
+    {
+        ProcessKind.Application => 0,
+        ProcessKind.Windows => 2,
+        _ => 1,
+    };
+
     public string CpuDisplay => CpuPercent is not { } value
         ? "--"
         : value < 10 ? value.ToString("0.0", CultureInfo.CurrentCulture) + " %"
@@ -307,7 +327,13 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         IsAccessible = IsAccessible,
     };
 
-    partial void OnKindChanged(ProcessKind value) => OnPropertyChanged(nameof(KindLabel));
+    partial void OnKindChanged(ProcessKind value)
+    {
+        OnPropertyChanged(nameof(KindLabel));
+        OnPropertyChanged(nameof(GroupLabel));
+        OnPropertyChanged(nameof(GroupRank));
+    }
+
     partial void OnCpuPercentChanged(double? value) => OnPropertyChanged(nameof(CpuDisplay));
     partial void OnMemoryBytesChanged(long? value) => OnPropertyChanged(nameof(MemoryDisplay));
     partial void OnIoBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(IoDisplay));
@@ -586,6 +612,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         _rowsView.LiveFilteringProperties.Add(nameof(ProcessRowViewModel.MatchesFilter));
         _rowsView.IsLiveFiltering = true;
 
+        ApplyGrouping();
+
         _initialized = true;
     }
 
@@ -727,6 +755,11 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         return (a, b) =>
         {
+            // Tri par nom : les groupes d'abord, façon Gestionnaire des tâches. Le rang de groupe est
+            // comparé hors du sens du tri — inverser le tri doit retourner les noms DANS chaque groupe,
+            // pas remonter les processus Windows au-dessus des applications.
+            if (column == "name" && a.GroupRank != b.GroupRank) return a.GroupRank.CompareTo(b.GroupRank);
+
             int result = column switch
             {
                 "name" => string.Compare(a.DisplayName, b.DisplayName, StringComparison.CurrentCultureIgnoreCase),
@@ -899,9 +932,53 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }
 
         UpdateSortGlyphs();
+        ApplyGrouping();
         QueueOrder(force: true);
         Persist();
     }
+
+    /// <summary>
+    /// Groupe la liste en Applications / Processus en arrière-plan / Processus Windows, mais seulement au
+    /// tri par nom : c'est le seul tri où le regroupement aide à retrouver quelque chose. Trier par CPU ou
+    /// par mémoire sert justement à voir les plus gros consommateurs toutes familles confondues, des
+    /// en-têtes y couperaient le classement.
+    ///
+    /// Pas de IsLiveGrouping : un Move rend déjà son groupe à la ligne déplacée, et le rang de groupe étant
+    /// le critère de tri principal, un processus qui change de famille devient « mal placé » et se fait
+    /// déplacer au réordonnancement suivant. Le regroupement dynamique, lui, ajouterait des notifications
+    /// pendant que des Move sont en vol — exactement ce qui provoquait les lignes affichées en double
+    /// (voir le commentaire de QueueOrder).
+    /// </summary>
+    private void ApplyGrouping()
+    {
+        bool grouped = SortColumnId == "name";
+        bool alreadyGrouped = _rowsView.GroupDescriptions.Count > 0;
+        if (grouped == alreadyGrouped) return;
+
+        // Changer les groupes provoque un Reset de la vue : on ne le fait qu'au changement de tri, jamais
+        // au fil des relevés.
+        _rowsView.GroupDescriptions.Clear();
+        if (!grouped) return;
+
+        var description = new PropertyGroupDescription(nameof(ProcessRowViewModel.GroupLabel));
+
+        // Les trois en-têtes sont déclarés d'avance, dans l'ordre voulu. Sans ça, une vue WPF crée ses
+        // groupes au fil des éléments qu'elle rencontre : l'ordre dépendrait de l'état de la liste au moment
+        // où le regroupement est posé, et « Processus en arrière-plan » pouvait passer devant
+        // « Applications ». Un groupe resté vide est masqué par le gabarit (voir ProcessesView.xaml).
+        foreach (string name in GroupNames) description.GroupNames.Add(name);
+
+        _rowsView.GroupDescriptions.Add(description);
+    }
+
+    /// <summary>Les en-têtes de groupe, dans leur ordre d'affichage. Doit rester accordé à
+    /// <see cref="ProcessRowViewModel.GroupLabel"/> et <see cref="ProcessRowViewModel.GroupRank"/>.</summary>
+    private static readonly string[] GroupNames =
+    [
+        "Applications",
+        "Processus en arrière-plan",
+        "Processus Windows",
+    ];
 
     private void UpdateSortGlyphs()
     {

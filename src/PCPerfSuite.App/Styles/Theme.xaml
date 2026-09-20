@@ -72,7 +72,13 @@
     <Thickness x:Key="PagePadding">32,28,32,28</Thickness>
     <sys:Double x:Key="PageMaxWidth">1200</sys:Double>
     <CornerRadius x:Key="CardRadius">16</CornerRadius>
-    <CornerRadius x:Key="ControlRadius">10</CornerRadius>
+    <!-- Tout ce qui est interactif partage le même arrondi : dans une barre d'outils, boutons, listes
+         déroulantes et champs de saisie font la même hauteur et se touchent, deux arrondis différents se
+         verraient tout de suite. Les surfaces (cartes, tuiles, encarts, popups) gardent le leur. -->
+    <CornerRadius x:Key="ControlRadius">6</CornerRadius>
+
+    <!-- Anneau de focus clavier : le rayon du contrôle plus les 3 px dont l'anneau déborde (Margin="-3"). -->
+    <CornerRadius x:Key="FocusRadius">9</CornerRadius>
 
     <!-- Fond de fenêtre : dégradé sombre façon "wallpaper flouté" derrière le verre.
          Sert de secours visuel si le fond Mica/Acrylic natif (MainWindow.xaml.cs) n'est pas
@@ -292,7 +298,7 @@
         <Setter Property="Control.Template">
             <Setter.Value>
                 <ControlTemplate>
-                    <Border Margin="-3" CornerRadius="20" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5"
+                    <Border Margin="-3" CornerRadius="{StaticResource FocusRadius}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5"
                             SnapsToDevicePixels="True"/>
                 </ControlTemplate>
             </Setter.Value>
@@ -313,9 +319,9 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid>
-                        <Border Background="{TemplateBinding Background}" CornerRadius="17"/>
+                        <Border Background="{TemplateBinding Background}" CornerRadius="{StaticResource ControlRadius}"/>
                         <!-- Voile de survol/appui posé sur la couleur du bouton, quelle qu'elle soit (DangerButton compris). -->
-                        <Border x:Name="Veil" CornerRadius="17" Background="Transparent"/>
+                        <Border x:Name="Veil" CornerRadius="{StaticResource ControlRadius}" Background="Transparent"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}" RecognizesAccessKey="True"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>
@@ -351,7 +357,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="17" Padding="{TemplateBinding Padding}">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlRadius}" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -396,7 +402,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1" CornerRadius="17" Padding="{TemplateBinding Padding}"
+                            BorderThickness="1" CornerRadius="{StaticResource ControlRadius}" Padding="{TemplateBinding Padding}"
                             RenderOptions.ClearTypeHint="Enabled">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
                     </Border>
@@ -440,7 +446,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
                     <Grid Margin="10,1">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="10" Padding="12,9">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,9">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="28"/>
@@ -484,7 +490,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid Margin="10,1">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="10" Padding="12,9">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,9">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="28"/>
@@ -532,7 +538,7 @@
         <Setter Property="Control.Template">
             <Setter.Value>
                 <ControlTemplate>
-                    <Border CornerRadius="8" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5" SnapsToDevicePixels="True"/>
+                    <Border CornerRadius="{StaticResource ControlRadius}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5" SnapsToDevicePixels="True"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -547,7 +553,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}"
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="{TemplateBinding Padding}"
                             RenderOptions.ClearTypeHint="Enabled">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -1005,7 +1011,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8"
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}"
                             Padding="{TemplateBinding Padding}" Margin="3,1"
                             RenderOptions.ClearTypeHint="Enabled">
                         <Grid>
@@ -1177,7 +1183,7 @@
         </Setter>
     </Style>
 
-    <!-- Sélecteur en pilules (cadence de rafraîchissement, position de l'overlay...) : une ListBox
+    <!-- Sélecteur segmenté (position de l'overlay, famille de processus...) : une ListBox
          horizontale dont l'élément sélectionné prend la couleur d'accent. -->
     <Style x:Key="PillItem" TargetType="ListBoxItem">
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
@@ -1187,7 +1193,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="10,5" Margin="1"
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="10,5" Margin="1"
                             RenderOptions.ClearTypeHint="Enabled">
                         <ContentPresenter HorizontalAlignment="Center"/>
                     </Border>
@@ -1236,7 +1242,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlRadius}">
                         <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
                                       VerticalAlignment="Center" Focusable="False"
                                       HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
@@ -1268,7 +1274,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlRadius}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>

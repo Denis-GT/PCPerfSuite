@@ -14,7 +14,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="11" Padding="12,10"
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,10"
                                 RenderOptions.ClearTypeHint="Enabled">
                             <ContentPresenter/>
                         </Border>

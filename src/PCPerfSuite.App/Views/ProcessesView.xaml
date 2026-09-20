@@ -30,13 +30,13 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="0" Width="260" Margin="0,0,14,0">
-                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="32,7,10,7"
+                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="28,7,8,7"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"/>
                 <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="12,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+                           Margin="9,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
                 <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un. -->
                 <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Margin="29,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
                            Visibility="{Binding SearchText.Length, Converter={StaticResource ZeroCountToVisibility}}"/>
             </Grid>
 
@@ -181,12 +181,59 @@
                          VirtualizingPanel.IsVirtualizing="True"
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.ScrollUnit="Pixel"
+                         VirtualizingPanel.IsVirtualizingWhenGrouping="True"
                          SelectedItem="{Binding SelectedRow}"
                          MouseEnter="OnListMouseEnter" MouseLeave="OnListMouseLeave"
                          IsKeyboardFocusWithinChanged="OnListKeyboardFocusWithinChanged"
                          PreviewMouseRightButtonDown="OnListRightButtonDown"
                          ContextMenuOpening="OnListContextMenuOpening"
                          KeyDown="OnListKeyDown">
+                    <!-- Groupes Applications / Arrière-plan / Windows, posés par le ViewModel au seul tri par
+                         nom. IsVirtualizingWhenGrouping ci-dessus n'est pas décoratif : par défaut WPF coupe la
+                         virtualisation dès qu'une vue est groupée, et les quatre cents lignes seraient toutes
+                         réalisées. Le gabarit du GroupItem ne contient donc que son en-tête et un
+                         ItemsPresenter, et son panneau reste un VirtualizingStackPanel — tout emballage
+                         supplémentaire casserait la mesure et ramènerait le problème. -->
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.Panel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </GroupStyle.Panel>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="GroupItem">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="GroupItem">
+                                                <StackPanel x:Name="Root">
+                                                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+                                                            Margin="6,10,10,4" Padding="0,0,0,4">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="11.5"/>
+                                                            <TextBlock Text="{Binding ItemCount, StringFormat=({0})}" Style="{StaticResource Eyebrow}"
+                                                                       FontSize="11.5" Foreground="{StaticResource TextTertiaryBrush}"
+                                                                       Margin="6,0,0,0" Typography.NumeralAlignment="Tabular"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <ItemsPresenter/>
+                                                </StackPanel>
+                                                <ControlTemplate.Triggers>
+                                                    <!-- Les trois groupes sont déclarés d'avance par le ViewModel pour fixer leur
+                                                         ordre : celui qui n'a aucun processus (un PC sans rien en arrière-plan,
+                                                         une recherche qui ne laisse que des applications) ne doit pas afficher
+                                                         un en-tête « (0) » tout seul. -->
+                                                    <DataTrigger Binding="{Binding ItemCount}" Value="0">
+                                                        <Setter TargetName="Root" Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <!-- Hauteur fixe : le défilement au pixel reste fluide et la liste sait estimer sa

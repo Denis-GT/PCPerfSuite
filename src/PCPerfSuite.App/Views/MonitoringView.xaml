@@ -120,55 +120,69 @@
                              repère de valeur. Elle est posée sur le seul élément qui en a besoin, le libellé tronqué. -->
                         <Border Style="{StaticResource Card}" Padding="16,14">
                             <StackPanel>
+                                <!-- Deux colonnes seulement, et l'intitulé sous le nom de catégorie. Avec les trois
+                                     colonnes d'avant (intitulé en « * », min/moy/max et valeur en « Auto »), WPF
+                                     servait les deux « Auto » en premier et il ne restait parfois rien à l'intitulé :
+                                     tronqué à zéro pixel, il ne dessinait même pas ses points de suspension. C'est ce
+                                     qui faisait disparaître le libellé des tuiles à valeur large — débits disque et
+                                     réseau, mAh de la batterie. MinWidth garantit qu'il reste toujours de la place. -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*" MinWidth="96"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Ellipse Width="7" Height="7" Fill="{Binding LineBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                                            <TextBlock Text="{Binding CategoryName}" Style="{StaticResource Eyebrow}" Foreground="{Binding LineBrush}"
-                                                       VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                        <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" Margin="0,2,0,0"
-                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
+                                        <Ellipse Width="7" Height="7" Fill="{Binding LineBrush}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                        <TextBlock Text="{Binding CategoryName}" Style="{StaticResource Eyebrow}" Foreground="{Binding LineBrush}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                    <!-- Min, moyenne et max depuis le démarrage (ou la dernière remise à zéro), face à la
-                                         valeur en direct et au tiers de sa taille : c'est l'instantané qui se lit en
-                                         premier. Sans unité si elle est la même que la valeur en direct juste à côté. -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0"
-                                                Typography.NumeralAlignment="Tabular"
-                                                ToolTip="Min, moyenne et max depuis le démarrage ou la dernière remise à zéro">
-                                        <!-- Une colonne qui ne rétrécit jamais par mini-colonne (et pas seulement sur le bloc
-                                             entier) : ni les trois chiffres entre eux, ni la valeur en direct à leur droite
-                                             ne se décalent d'un relevé à l'autre. -->
-                                        <StackPanel Margin="0,0,6,0" controls:StickyWidth.IsEnabled="True">
-                                            <TextBlock Text="min" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
-                                            <TextBlock Text="{Binding MinimumDisplay, Mode=OneWay}" FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,6,0" controls:StickyWidth.IsEnabled="True">
-                                            <TextBlock Text="moy" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
-                                            <TextBlock Text="{Binding AverageDisplay, Mode=OneWay}" FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
-                                        </StackPanel>
-                                        <StackPanel controls:StickyWidth.IsEnabled="True">
-                                            <TextBlock Text="max" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
-                                            <TextBlock Text="{Binding MaximumDisplay, Mode=OneWay}" FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
-                                        </StackPanel>
-                                    </StackPanel>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Label}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/>
+
                                     <!-- Chiffres de largeur égale, et une place qui ne rétrécit pas : la valeur ne se
                                          tortille plus d'un relevé à l'autre. -->
-                                    <TextBlock Grid.Column="2" TextWrapping="NoWrap" Margin="10,0,0,0" VerticalAlignment="Center"
-                                               TextAlignment="Right" Typography.NumeralAlignment="Tabular"
-                                               controls:StickyWidth.IsEnabled="True" ToolTip="{Binding Note}">
+                                    <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" TextWrapping="NoWrap" Margin="10,0,0,0"
+                                               VerticalAlignment="Center" TextAlignment="Right" Typography.NumeralAlignment="Tabular"
+                                               controls:StickyWidth.IsEnabled="True" controls:StickyWidth.ResetKey="{Binding StatsEpoch}"
+                                               ToolTip="{Binding Note}">
                                         <Run Text="{Binding DisplayValue, Mode=OneWay}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                         <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </TextBlock>
                                 </Grid>
+
+                                <!-- Min, moyenne et max depuis le démarrage (ou la dernière remise à zéro), sur leur
+                                     propre ligne et alignés à droite, sous la valeur en direct. Ils partageaient avant
+                                     la ligne de l'intitulé et lui prenaient toute la place. -->
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0"
+                                            Typography.NumeralAlignment="Tabular"
+                                            ToolTip="Min, moyenne et max depuis le démarrage ou la dernière remise à zéro">
+                                    <!-- Une colonne qui ne rétrécit jamais par mini-colonne (et pas seulement sur le bloc
+                                         entier) : ni les trois chiffres entre eux, ni la valeur en direct à leur droite
+                                         ne se décalent d'un relevé à l'autre. -->
+                                    <StackPanel Margin="0,0,10,0" controls:StickyWidth.IsEnabled="True"
+                                                controls:StickyWidth.ResetKey="{Binding StatsEpoch}">
+                                        <TextBlock Text="min" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                        <TextBlock Text="{Binding MinimumDisplay, Mode=OneWay}" FontSize="11"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,10,0" controls:StickyWidth.IsEnabled="True"
+                                                controls:StickyWidth.ResetKey="{Binding StatsEpoch}">
+                                        <TextBlock Text="moy" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                        <TextBlock Text="{Binding AverageDisplay, Mode=OneWay}" FontSize="11"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                    </StackPanel>
+                                    <StackPanel controls:StickyWidth.IsEnabled="True"
+                                                controls:StickyWidth.ResetKey="{Binding StatsEpoch}">
+                                        <TextBlock Text="max" Style="{StaticResource ColumnHeader}" FontSize="9" TextAlignment="Right"/>
+                                        <TextBlock Text="{Binding MaximumDisplay, Mode=OneWay}" FontSize="11"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                    </StackPanel>
+                                </StackPanel>
                                 <!-- Pourquoi la valeur n'est pas un nombre (conso totale "secteur" sur un portable branché). -->
                                 <TextBox Text="{Binding Note}" Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,6,0,0"
                                          Visibility="{Binding Note, Converter={StaticResource NullToVisibility}}"/>
