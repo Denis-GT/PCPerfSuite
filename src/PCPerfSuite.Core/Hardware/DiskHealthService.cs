@@ -29,17 +29,19 @@ public sealed class DiskHealthReport
 /// </summary>
 public sealed class DiskHealthService
 {
-    public Task<DiskHealthReport> CheckAsync(string driveName, CancellationToken ct = default)
-        => Task.Run(() => Check(driveName), ct);
+    /// <param name="hardwareIdentifier">Identifiant LibreHardwareMonitor du disque (ex. "/nvme/0"), utilisé
+    /// pour un appariement par numéro de disque physique quand le nom seul ne suffit pas ou est vide.</param>
+    public Task<DiskHealthReport> CheckAsync(string driveName, string? hardwareIdentifier = null, CancellationToken ct = default)
+        => Task.Run(() => Check(driveName, hardwareIdentifier), ct);
 
-    private static DiskHealthReport Check(string driveName)
+    private static DiskHealthReport Check(string driveName, string? hardwareIdentifier)
     {
         ManagementObject? disk;
         try
         {
             using var searcher = new ManagementObjectSearcher(
                 @"root\Microsoft\Windows\Storage", "SELECT * FROM MSFT_PhysicalDisk");
-            disk = FindBestMatch(searcher.Get(), driveName, "FriendlyName");
+            disk = FindBestMatch(searcher.Get(), driveName, hardwareIdentifier, "FriendlyName");
         }
         catch (Exception ex)
         {
@@ -129,22 +131,42 @@ public sealed class DiskHealthService
     private static string EscapeWmiString(string value) => value.Replace("'", "''");
 
     /// <summary>
-    /// Corrèle un nom de disque LibreHardwareMonitor (ex: "WD_BLACK SN770 2TB") avec l'entrée
-    /// Windows Storage Management correspondante (ex: "NVMe WD_BLACK SN770 2TB") : les deux sources
-    /// ne formatent pas le nom à l'identique (préfixe de bus en plus/en moins), donc on compare les
-    /// noms normalisés (lettres/chiffres uniquement) par inclusion plutôt que par égalité stricte.
+    /// Corrèle un disque LibreHardwareMonitor avec l'entrée Windows Storage Management correspondante.
+    /// Essaie d'abord un appariement par numéro de disque physique (fiable, et le seul qui marche quand
+    /// LibreHardwareMonitor n'a pas pu lire de nom) : le dernier segment de l'identifiant LibreHardwareMonitor
+    /// ("/nvme/0" -&gt; 0) est le même numéro que Windows utilise pour \\.\PhysicalDriveN, généralement identique
+    /// à MSFT_PhysicalDisk.DeviceId pour un disque en accès direct (hors grappe Storage Spaces). À défaut,
+    /// retombe sur une comparaison de noms normalisés (lettres/chiffres uniquement, par inclusion) : les deux
+    /// sources ne formatent pas le nom à l'identique (ex: "WD_BLACK SN770 2TB" vs "NVMe WD_BLACK SN770 2TB").
     /// </summary>
-    private static ManagementObject? FindBestMatch(ManagementObjectCollection collection, string targetName, string nameProperty)
+    private static ManagementObject? FindBestMatch(
+        ManagementObjectCollection collection, string targetName, string? hardwareIdentifier, string nameProperty)
     {
+        var candidates = collection.Cast<ManagementBaseObject>().Cast<ManagementObject>().ToList();
+
+        if (TryParsePhysicalDriveIndex(hardwareIdentifier) is { } index)
+        {
+            ManagementObject? byIndex = candidates.FirstOrDefault(
+                c => string.Equals(c["DeviceId"]?.ToString(), index.ToString(), StringComparison.Ordinal));
+            if (byIndex is not null)
+            {
+                foreach (ManagementObject other in candidates.Where(c => c != byIndex)) other.Dispose();
+                return byIndex;
+            }
+        }
+
         string normalizedTarget = Normalize(targetName);
-        if (normalizedTarget.Length == 0) return null;
+        if (normalizedTarget.Length == 0)
+        {
+            foreach (ManagementObject c in candidates) c.Dispose();
+            return null;
+        }
 
         ManagementObject? best = null;
         int bestScore = -1;
 
-        foreach (ManagementBaseObject item in collection)
+        foreach (ManagementObject candidate in candidates)
         {
-            var candidate = (ManagementObject)item;
             string? name = candidate[nameProperty] as string;
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -177,6 +199,15 @@ public sealed class DiskHealthService
         }
 
         return best;
+    }
+
+    private static int? TryParsePhysicalDriveIndex(string? hardwareIdentifier)
+    {
+        if (string.IsNullOrEmpty(hardwareIdentifier)) return null;
+
+        int lastSlash = hardwareIdentifier.LastIndexOf('/');
+        string tail = lastSlash >= 0 ? hardwareIdentifier[(lastSlash + 1)..] : hardwareIdentifier;
+        return int.TryParse(tail, out int index) ? index : null;
     }
 
     private static string Normalize(string value)

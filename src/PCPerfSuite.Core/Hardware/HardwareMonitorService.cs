@@ -2,6 +2,7 @@ using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Hardware.Memory;
+using PCPerfSuite.Core.Hardware.Storage;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -324,8 +325,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                              .DefaultIfEmpty()
                              .Max();
 
-        float? power = FindSensor(hardware, SensorType.Power, "CPU Package")?.Value
-                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power)?.Value;
+        float? power = ReadTotalPackagePower(hardware);
 
         float? maxClock = hardware.Sensors
             .Where(s => s.SensorType == SensorType.Clock)
@@ -352,6 +352,27 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             MaxClockMhz = maxClock,
             CoreVoltage = coreVoltage,
         };
+    }
+
+    // Noms de capteur "puissance totale du package" connus, par ordre de priorité : Intel expose "CPU Package"
+    // (RAPL), AMD "Package" (sans préfixe "CPU" : FindSensor("CPU Package") ne le matche donc jamais) ou,
+    // selon la génération, "CPU PPT"/"Total Power". On ne retient volontairement qu'un nom qui identifie
+    // explicitement le TOTAL du package, jamais un domaine partiel ("Core Power", "SOC Power" chez AMD) :
+    // un domaine partiel donnerait une puissance CPU artificiellement basse, potentiellement bloquée à 0 W
+    // sur les plateformes où ce domaine précis n'est pas peuplé sans le pilote PawnIO.
+    private static readonly string[] TotalPackagePowerNames = { "CPU Package", "Package", "CPU PPT", "Total Power" };
+
+    /// <summary>Puissance totale du CPU. Renvoie null (affiché "N/D", jamais "0 W") si aucun capteur reconnu
+    /// comme "total du package" n'existe sur ce PC, plutôt que de retomber sur n'importe quel capteur de
+    /// puissance au hasard (un domaine partiel bloqué à 0 W est une valeur valide, donc indiscernable d'une
+    /// vraie mesure si on ne sait pas ce qu'on a pris).</summary>
+    private static float? ReadTotalPackagePower(IHardware hardware)
+    {
+        foreach (string name in TotalPackagePowerNames)
+        {
+            if (FindSensor(hardware, SensorType.Power, name)?.Value is { } value) return value;
+        }
+        return null;
     }
 
     private bool IsPreferredGpu(HardwareType type) => (PreferredGpuVendor, type) switch
@@ -656,10 +677,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         float? writeRate = FindSensor(hardware, SensorType.Throughput, "Write Rate")?.Value;
         float? temp = hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature)?.Value;
 
-        // Les SSD/NVMe exposent soit "Remaining Life" (déjà le % restant), soit "Percentage Used"
-        // (convention NVMe standard : usure consommée, donc vie restante = 100 - valeur). La plupart
-        // des HDD n'exposent ni l'un ni l'autre : RemainingLifePercent reste alors null (affiché "--").
-        float? remainingLife = FindSensor(hardware, SensorType.Level, "Remaining Life")?.Value;
+        // LibreHardwareMonitor (via DiskInfoToolkit) publie un capteur "Life" normalisé — un % de vie
+        // restante déjà calculé quel que soit le fabricant, à partir de quel que soit l'attribut SMART
+        // spécifique au vendeur qu'il a réussi à lire ("SSD Life Left", "Percent Lifetime Used"...). On le
+        // cherche en priorité : plus fiable et plus répandu que les noms d'attributs bruts ci-dessous.
+        // "Remaining Life"/"Percentage Used" restent en repli pour les cas où seul l'attribut brut existe :
+        // le premier est déjà un % restant, le second (convention NVMe standard) une usure consommée,
+        // donc vie restante = 100 - valeur. Si rien de tout ça n'existe (la plupart des HDD), reste null
+        // (affiché "--").
+        float? remainingLife = FindSensor(hardware, SensorType.Level, "Life")?.Value
+                                ?? FindSensor(hardware, SensorType.Level, "Remaining Life")?.Value;
         if (remainingLife is null)
         {
             float? percentageUsed = FindSensor(hardware, SensorType.Level, "Percentage Used")?.Value;
@@ -668,7 +695,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         return new DiskSnapshot
         {
-            Name = hardware.Name,
+            Name = ResolveDiskName(hardware),
             Identifier = hardware.Identifier.ToString(),
             UsedPercent = usedPercent,
             ReadRateBytesPerSecond = readRate,
@@ -676,6 +703,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             TemperatureC = temp,
             RemainingLifePercent = remainingLife,
         };
+    }
+
+    /// <summary>hardware.Name (le modèle lu par LibreHardwareMonitor) est vide sur certains contrôleurs
+    /// NVMe/ponts dont l'IDENTIFY échoue alors que le reste (SMART, débit...) se lit sans problème :
+    /// dans ce cas, on retombe sur Win32_DiskDrive, indexé par le même numéro de disque physique que
+    /// LibreHardwareMonitor place en dernier segment de son identifiant ("/nvme/0", "/ssd/2"...).</summary>
+    private static string ResolveDiskName(IHardware hardware)
+    {
+        if (!string.IsNullOrWhiteSpace(hardware.Name)) return hardware.Name;
+
+        string identifier = hardware.Identifier.ToString();
+        int lastSlash = identifier.LastIndexOf('/');
+        if (lastSlash >= 0 && int.TryParse(identifier[(lastSlash + 1)..], out int index)
+            && DiskModelReader.ModelsByIndex.TryGetValue(index, out string? model))
+        {
+            return model;
+        }
+
+        return new DiskSnapshot().Name; // "Disque inconnu"
     }
 
     private static void CollectFans(IHardware hardware, SensorGroup group, List<FanReading> into)

@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.Processes;
@@ -96,9 +97,25 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS", true);
 
         bool elevated = ElevationHelper.IsAdministrator();
+        bool pawnIoInstalled = PawnIoDriver.IsInstalled;
         yield return new CompatibilityRow("Droits administrateur", elevated ? "Oui" : "Non",
-            elevated ? "Tous les capteurs accessibles." : "Sans administrateur, la plupart des capteurs et tous les réglages matériels sont inaccessibles.",
+            elevated
+                ? (pawnIoInstalled
+                    ? "Tous les capteurs accessibles."
+                    : "La plupart des capteurs sont accessibles ; certains (températures et tensions CPU, sondes de carte "
+                      + "mère, limites de puissance) demandent aussi le pilote PawnIO — voir la ligne « Pilote PawnIO » ci-dessous.")
+                : "Sans administrateur, la plupart des capteurs et tous les réglages matériels sont inaccessibles.",
             elevated);
+
+        // PawnIO remplace WinRing0 depuis LibreHardwareMonitor 0.9.5 pour l'accès bas niveau (MSR, Super I/O) :
+        // sans lui, une grande partie des capteurs CPU/carte mère reste "N/D" même app lancée en administrateur.
+        // Se réinstalle depuis l'onglet Réglages CPU, qui propose déjà le bouton de téléchargement.
+        yield return new CompatibilityRow("Pilote PawnIO", pawnIoInstalled ? $"Installé ({PawnIoDriver.Version})" : "Non installé",
+            pawnIoInstalled
+                ? "Utilisé par LibreHardwareMonitor pour les capteurs bas niveau et par PCPerfSuite pour les limites de puissance CPU."
+                : (PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.")
+                  + " À installer depuis l'onglet « Réglages CPU » (bouton « Installer PawnIO »).",
+            pawnIoInstalled);
 
         yield return SessionUser.OtherProfileMessage is { } otherProfile
             ? new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount, otherProfile, false)

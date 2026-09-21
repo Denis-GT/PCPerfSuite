@@ -1,6 +1,7 @@
 using System.Globalization;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.App.Metrics;
@@ -113,9 +114,10 @@ public static class MetricCatalog
     public const string DefaultUnavailableHint =
         "Ce PC ne fournit pas cette valeur : son matériel ou son pilote ne l'expose pas. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
 
-    private const string CpuSensorHint =
-        "Ce CPU ou sa carte mère n'exposent pas cette valeur (selon le modèle et le fabricant du processeur). " +
-        "Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+    // PawnIO ne change pas en cours d'exécution (il faudrait redémarrer l'app après l'avoir installé) : un
+    // calcul une fois au chargement du catalogue suffit, pas besoin de re-sonder à chaque affichage.
+    private static readonly string CpuSensorHint = BuildLowLevelSensorHint(
+        "Ce CPU ou sa carte mère n'exposent pas cette valeur (selon le modèle et le fabricant du processeur).");
 
     private const string GpuSensorHint =
         "Le pilote de ce GPU n'expose pas cette valeur. Sur un portable, le GPU dédié en veille ne renvoie parfois rien " +
@@ -129,9 +131,21 @@ public static class MetricCatalog
         "Le % n'est disponible que si le constructeur fournit la vitesse maximale du ventilateur ; sinon seuls les RPM " +
         "sont connus. Voir Paramètres › Compatibilité de ce PC.";
 
-    internal const string MotherboardHint =
-        "Aucune sonde carte mère lisible sur ce PC : c'est le cas de la plupart des portables et de certaines cartes mères " +
-        "récentes. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+    internal static readonly string MotherboardHint = BuildLowLevelSensorHint(
+        "Aucune sonde carte mère lisible sur ce PC : c'est le cas de la plupart des portables et de certaines cartes mères récentes.");
+
+    /// <summary>Les sondes CPU (température, tension) et carte mère (Super I/O) passent par le pilote PawnIO
+    /// de LibreHardwareMonitor : quand il manque, c'est la cause la plus courante et la plus actionnable d'un
+    /// "N/D" sur ces deux catégories — bien plus qu'une réelle limite du matériel. On le dit explicitement
+    /// plutôt que de laisser croire que rien ne peut être fait.</summary>
+    private static string BuildLowLevelSensorHint(string baseReason)
+    {
+        string suffix = PawnIoDriver.IsInstalled
+            ? ""
+            : " Le pilote PawnIO n'est pas installé sur ce PC : il est nécessaire pour la plupart des sondes bas niveau " +
+              "(températures et tensions CPU, sondes de carte mère) — voir Paramètres › Compatibilité de ce PC › « Pilote PawnIO ».";
+        return $"{baseReason} Ce n'est pas un dysfonctionnement de PCPerfSuite.{suffix}";
+    }
 
     /// <summary>L'utilisation de la mémoire vient d'abord de LibreHardwareMonitor, puis de la même API que
     /// le Gestionnaire des tâches (GlobalMemoryStatusEx) : voir la ligne « Mémoire » de Paramètres ›

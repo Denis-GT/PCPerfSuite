@@ -162,7 +162,8 @@ public sealed class DiskSnapshot
 {
     public string Name { get; init; } = "Disque inconnu";
 
-    /// <summary>Identifiant stable côté LibreHardwareMonitor (pas le numéro PhysicalDriveN de Windows).</summary>
+    /// <summary>Identifiant LibreHardwareMonitor, ex. "/nvme/0" : le dernier segment est le même numéro
+    /// de disque physique que Windows (\\.\PhysicalDriveN, Win32_DiskDrive.Index).</summary>
     public string Identifier { get; init; } = "";
 
     public float? UsedPercent { get; init; }

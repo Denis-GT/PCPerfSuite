@@ -54,9 +54,18 @@ public sealed partial class DiskItemViewModel : ObservableObject
         HealthSummary = null;
         try
         {
-            DiskHealthReport report = await _health.CheckAsync(Name);
+            DiskHealthReport report = await _health.CheckAsync(Name, Identifier);
             HealthStatus = report.Status;
             HealthSummary = BuildSummary(report);
+
+            // Repli pour "Vie restante" : certains disques (ex. quelques SSD SATA) n'ont pas de capteur SMART
+            // que LibreHardwareMonitor sait lire en continu, mais Windows Storage Management, lui, expose une
+            // usure (compteur de fiabilité). On ne l'utilise qu'en dernier recours, une fois testé : la valeur
+            // vient alors du dernier test, pas d'une lecture SMART continue.
+            if (RemainingLifePercent is null && report.WearPercent is { } wear)
+            {
+                RemainingLifePercent = Math.Clamp(100 - wear, 0, 100);
+            }
         }
         catch (Exception ex)
         {
