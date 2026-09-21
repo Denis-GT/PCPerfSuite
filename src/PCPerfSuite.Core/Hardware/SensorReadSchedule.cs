@@ -67,9 +67,27 @@ internal sealed class SensorReadSchedule
     private long _lastReadEpoch = -1;
     private long _lastReadTick;
 
-    public SensorReadSchedule(SensorGroup group) => Group = group;
+    public SensorReadSchedule(SensorGroup group)
+    {
+        Group = group;
+        _maxAutoInterval = MaxAutoIntervalFor(group);
+    }
 
     public SensorGroup Group { get; }
+
+    private readonly TimeSpan _maxAutoInterval;
+
+    /// <summary>Plafond de la cadence automatique pour un groupe donné. Le GPU (backend NVIDIA/AMD de
+    /// LibreHardwareMonitor) coûte facilement quelques dizaines de ms de plus à lire que le CPU, ce qui suffit
+    /// à le repousser jusqu'au plafond générique de <see cref="HardwareMonitorService.MaxAutoInterval"/> (5 s) —
+    /// bien au-delà du ressenti « temps réel » attendu d'un overlay façon MSI Afterburner. On lui réserve donc
+    /// un plafond propre, plus court, sans toucher au plafond générique qui protège les groupes réellement
+    /// coûteux (ex. température par cœur sur un CPU Intel multi-cœurs).</summary>
+    private static TimeSpan MaxAutoIntervalFor(SensorGroup group) => group switch
+    {
+        SensorGroup.Gpu => TimeSpan.FromMilliseconds(750),
+        _ => HardwareMonitorService.MaxAutoInterval,
+    };
 
     public TimeSpan? ManualInterval
     {
@@ -152,7 +170,7 @@ internal sealed class SensorReadSchedule
         if (_averageReadMs is not { } average) return;
 
         double costMs = Math.Min(average / HardwareMonitorService.AutoReadBudget,
-            HardwareMonitorService.MaxAutoInterval.TotalMilliseconds);
+            _maxAutoInterval.TotalMilliseconds);
         double needed = costMs / Math.Max(1, tickInterval.TotalMilliseconds);
 
         if (needed > _autoTicks * (1 + AutoHysteresis) || needed < (_autoTicks - 1) * (1 - AutoHysteresis))

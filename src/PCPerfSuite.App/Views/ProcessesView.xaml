@@ -81,6 +81,26 @@
                     </Grid>
                 </ToggleButton>
 
+                <!-- Regroupement par application : c'est ce que montre l'onglet « Processus » du
+                     Gestionnaire des tâches, et donc ce à quoi l'utilisateur compare ce qu'il voit ici. -->
+                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding GroupByApplication}"
+                              VerticalAlignment="Center" Margin="10,0,0,0"
+                              ToolTip="Rassemble les instances d'une même application sous une ligne qui additionne leurs mesures, comme le Gestionnaire des tâches. Décoché, chaque processus a sa ligne.">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xF168;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                        <TextBlock Text="Regrouper" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
+
+                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding ShowDetails}"
+                              VerticalAlignment="Center" Margin="10,0,0,0"
+                              ToolTip="Affiche sous la liste le détail du processus sélectionné, avec ses courbes de CPU et de mémoire.">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE946;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
+                        <TextBlock Text="Détails" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
+
                 <Button Style="{StaticResource GhostButton}" Margin="14,0,0,0"
                         Command="{Binding ToggleColumnsCommand}">
                     <StackPanel Orientation="Horizontal">
@@ -259,20 +279,44 @@
                                 <Grid Grid.Column="0" Margin="6,0,10,0"
                                       Visibility="{Binding Owner.Columns.Name.CellVisibility}">
                                     <Grid.ColumnDefinitions>
+                                        <!-- Gouttière du chevron : réservée sur TOUTES les lignes, qu'elles
+                                             en portent un ou non, pour que les icônes restent alignées. -->
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="16"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <Image Grid.Column="0" Source="{Binding Icon}" Width="16" Height="16"
+
+                                    <!-- Chevron d'un agrégat. Un bouton plat : le clic ne doit pas être pris
+                                         par la sélection de la ligne, sans quoi déplier changerait aussi ce
+                                         que « Terminer » vise. -->
+                                    <Button x:Name="Expander" Grid.Column="0" Style="{StaticResource ColumnHeaderButton}"
+                                            Padding="0" Width="16" HorizontalContentAlignment="Center"
+                                            Command="{Binding ToggleExpandCommand}" Visibility="Collapsed"
+                                            ToolTip="Déplier ou replier les processus de cette application">
+                                        <TextBlock Text="{Binding ExpanderGlyph}" Style="{StaticResource Icon}" FontSize="10"/>
+                                    </Button>
+
+                                    <!-- Décalage des membres d'un groupe : c'est le seul repère qui rattache
+                                         visuellement un processus à la ligne qui le totalise. -->
+                                    <Border x:Name="MemberIndent" Grid.Column="1" Width="0"/>
+
+                                    <Image Grid.Column="2" Source="{Binding Icon}" Width="16" Height="16"
                                            VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
-                                    <TextBlock x:Name="FallbackGlyph" Grid.Column="0" Text="&#xE7C4;" Style="{StaticResource Icon}"
+                                    <TextBlock x:Name="FallbackGlyph" Grid.Column="2" Text="&#xE7C4;" Style="{StaticResource Icon}"
                                                FontSize="12" Foreground="{StaticResource TextTertiaryBrush}"
                                                HorizontalAlignment="Center" Visibility="Collapsed"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Style="{StaticResource Body}" FontSize="12.5"
+
+                                    <TextBlock Grid.Column="3" Style="{StaticResource Body}" FontSize="12.5"
                                                VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                               Margin="8,0,0,0" ToolTip="{Binding PathDisplay}"/>
+                                               Margin="8,0,0,0" ToolTip="{Binding PathDisplay}">
+                                        <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run
+                                            Text="{Binding MemberCountDisplay, Mode=OneWay}"
+                                            Foreground="{StaticResource TextTertiaryBrush}"/>
+                                    </TextBlock>
                                 </Grid>
 
-                                <TextBlock Grid.Column="1" Text="{Binding Pid}" Style="{StaticResource Caption}" FontSize="12.5"
+                                <TextBlock Grid.Column="1" Text="{Binding PidDisplay}" Style="{StaticResource Caption}" FontSize="12.5"
                                            TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
                                            Typography.NumeralAlignment="Tabular"
                                            Visibility="{Binding Owner.Columns.Pid.CellVisibility}"/>
@@ -318,6 +362,12 @@
                                 <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
                                     <Setter TargetName="FallbackGlyph" Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
+                                <DataTrigger Binding="{Binding IsAggregate}" Value="True">
+                                    <Setter TargetName="Expander" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsMember}" Value="True">
+                                    <Setter TargetName="MemberIndent" Property="Width" Value="18"/>
+                                </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -354,59 +404,85 @@
             </DockPanel>
         </Border>
 
-        <!-- Détail du processus sélectionné -->
-        <Border Grid.Row="5" Style="{StaticResource Card}" Margin="0,14,0,0"
-                Visibility="{Binding SelectedRow, Converter={StaticResource NullToVisibility}}"
-                DataContext="{Binding SelectedRow}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+        <!-- Détail de la ligne sélectionnée.
 
-                <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                    <TextBlock Text="{Binding DisplayName}" Style="{StaticResource H2}" TextTrimming="CharacterEllipsis"/>
-                    <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
-                             TextWrapping="Wrap"/>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap">
-                        <Run Text="PID"/>
-                        <Run Text="{Binding Pid, Mode=OneWay}"/>
-                        <Run Text="· parent"/>
-                        <Run Text="{Binding ParentPid, Mode=OneWay}"/>
-                        <Run Text="· threads"/>
-                        <Run Text="{Binding ThreadsDisplay, Mode=OneWay}"/>
-                        <Run Text="· démarré le"/>
-                        <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
-                    </TextBlock>
-                    <TextBox Text="{Binding Publisher}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
-                             Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
-                    <TextBlock Text="{Binding WindowTitle}" Style="{StaticResource Caption}" Margin="0,4,0,0"
-                               TextTrimming="CharacterEllipsis"
-                               Visibility="{Binding WindowTitle, Converter={StaticResource NullToVisibility}}"/>
-                </StackPanel>
+             ContentControl et non Border : poser DataContext ET une autre liaison sur le MÊME élément est
+             un piège de WPF. Les autres liaisons de l'élément se résolvent alors contre le nouveau
+             DataContext, donc « Visibility="{Binding SelectedRow}" » cherchait SelectedRow sur la ligne
+             sélectionnée, où cette propriété n'existe pas — la carte ne se montrait ni ne se cachait
+             correctement. Ici, Content ne change pas le DataContext du ContentControl : sa visibilité reste
+             résolue contre le ViewModel de l'onglet, et le DataTemplate reçoit bien la ligne. -->
+        <ContentControl Grid.Row="5" Content="{Binding SelectedRow}"
+                        Visibility="{Binding IsDetailVisible, Converter={StaticResource BoolToVisibility}}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate>
+                    <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <StackPanel Width="200" Margin="0,0,14,0">
-                        <TextBlock Style="{StaticResource Caption}">
-                            <Run Text="CPU"/><Run Text="{Binding CpuDisplay, Mode=OneWay}" FontWeight="SemiBold"
-                                                  Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </TextBlock>
-                        <controls:Sparkline Series="{Binding CpuHistory}" Height="48" Margin="0,6,0,0"
-                                            Maximum="100" ValueFormatter="{Binding FormatCpu}"/>
-                    </StackPanel>
-                    <StackPanel Width="200">
-                        <TextBlock Style="{StaticResource Caption}">
-                            <Run Text="Mémoire"/><Run Text="{Binding MemoryDisplay, Mode=OneWay}" FontWeight="SemiBold"
-                                                      Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </TextBlock>
-                        <controls:Sparkline Series="{Binding MemoryHistory}" Height="48" Margin="0,6,0,0"
-                                            AutoScale="True" MinimumScale="52428800"
-                                            LineBrush="{StaticResource AccentBrush2}"
-                                            ValueFormatter="{Binding FormatMemory}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
-        </Border>
+                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                <TextBlock Style="{StaticResource H2}" TextTrimming="CharacterEllipsis">
+                                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run
+                                        Text="{Binding MemberCountDisplay, Mode=OneWay}"
+                                        Foreground="{StaticResource TextTertiaryBrush}"/>
+                                </TextBlock>
+                                <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                         TextWrapping="Wrap"/>
+                                <!-- Un agrégat n'a ni PID ni parent : cette ligne ne le concerne pas. -->
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Visibility="{Binding IsAggregate, Converter={StaticResource InverseBoolToVisibility}}">
+                                    <Run Text="PID"/>
+                                    <Run Text="{Binding Pid, Mode=OneWay}"/>
+                                    <Run Text="· parent"/>
+                                    <Run Text="{Binding ParentPid, Mode=OneWay}"/>
+                                    <Run Text="· threads"/>
+                                    <Run Text="{Binding ThreadsDisplay, Mode=OneWay}"/>
+                                    <Run Text="· démarré le"/>
+                                    <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Visibility="{Binding IsAggregate, Converter={StaticResource BoolToVisibility}}">
+                                    <Run Text="{Binding MemberCount, Mode=OneWay}"/>
+                                    <Run Text="processus totalisés · threads"/>
+                                    <Run Text="{Binding ThreadsDisplay, Mode=OneWay}"/>
+                                    <Run Text="· le plus ancien démarré le"/>
+                                    <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBox Text="{Binding Publisher}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                         Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
+                                <TextBlock Text="{Binding WindowTitle}" Style="{StaticResource Caption}" Margin="0,4,0,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding WindowTitle, Converter={StaticResource NullToVisibility}}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <StackPanel Width="200" Margin="0,0,14,0">
+                                    <TextBlock Style="{StaticResource Caption}">
+                                        <Run Text="CPU"/><Run Text="{Binding CpuDisplay, Mode=OneWay}" FontWeight="SemiBold"
+                                                              Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    </TextBlock>
+                                    <controls:Sparkline Series="{Binding CpuHistory}" Height="48" Margin="0,6,0,0"
+                                                        Maximum="100" ValueFormatter="{Binding FormatCpu}"/>
+                                </StackPanel>
+                                <StackPanel Width="200">
+                                    <TextBlock Style="{StaticResource Caption}">
+                                        <Run Text="Mémoire"/><Run Text="{Binding MemoryDisplay, Mode=OneWay}" FontWeight="SemiBold"
+                                                                  Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    </TextBlock>
+                                    <controls:Sparkline Series="{Binding MemoryHistory}" Height="48" Margin="0,6,0,0"
+                                                        AutoScale="True" MinimumScale="52428800"
+                                                        LineBrush="{StaticResource AccentBrush2}"
+                                                        ValueFormatter="{Binding FormatMemory}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
 
         <TextBox Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
                  TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>

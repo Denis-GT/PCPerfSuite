@@ -51,6 +51,54 @@ public sealed class GpuSnapshot
     public float? FanPercent { get; init; }
 }
 
+/// <summary>D'où viennent les valeurs d'utilisation de la mémoire. Les trois sources sont cumulées, champ
+/// par champ, dans cet ordre : chacune ne remplit que ce que la précédente a laissé vide.</summary>
+[Flags]
+public enum MemorySource
+{
+    None = 0,
+
+    /// <summary>LibreHardwareMonitor (matériels « Generic Memory » / « Virtual Memory »).</summary>
+    LibreHardwareMonitor = 1,
+
+    /// <summary>GlobalMemoryStatusEx : la source du Gestionnaire des tâches, toujours disponible sous
+    /// Windows et sans privilège particulier.</summary>
+    Windows = 2,
+
+    /// <summary>WMI Win32_PhysicalMemory : la fiche matérielle (type, fréquence, modules, slots).</summary>
+    Wmi = 4,
+}
+
+/// <summary>Une barrette, telle que le BIOS la décrit. Tout champ que ce PC ne renseigne pas reste null et
+/// s'affiche « -- » : bien des mini-PC laissent la marque ou la référence vides, et un portable à mémoire
+/// soudée n'a parfois aucun emplacement nommé.</summary>
+public sealed class MemoryModuleInfo
+{
+    /// <summary>Emplacement physique (« DIMM A1 », « Controller0-ChannelA-DIMM0 »).</summary>
+    public string? Slot { get; init; }
+
+    public string? BankLabel { get; init; }
+    public double? CapacityGb { get; init; }
+
+    /// <summary>Fréquence réellement configurée, celle que rapporte aussi le Gestionnaire des tâches.
+    /// Le BIOS peut ne publier que la fréquence nominale de la barrette : on prend alors celle-là.</summary>
+    public int? SpeedMhz { get; init; }
+
+    /// <summary>« DDR4 », « DDR5 », « LPDDR5 »... ou « Type 42 » quand le code SMBIOS n'est pas dans la
+    /// table de correspondance — mieux vaut un code brut qu'un vide inexpliqué.</summary>
+    public string? TypeLabel { get; init; }
+
+    /// <summary>« DIMM », « SODIMM », « Soudée sur la carte »...</summary>
+    public string? FormFactorLabel { get; init; }
+
+    public string? Manufacturer { get; init; }
+    public string? PartNumber { get; init; }
+
+    /// <summary>Température de la barrette, quand elle porte une sonde thermique lisible sur le SMBus
+    /// (courant en DDR5, rare en DDR4, jamais sur mémoire soudée sans SPD).</summary>
+    public float? TemperatureC { get; init; }
+}
+
 public sealed class MemorySnapshot
 {
     public float? UsedGb { get; init; }
@@ -58,6 +106,28 @@ public sealed class MemorySnapshot
     public float? TotalGb { get; init; }
     public float? LoadPercent { get; init; }
     public float? VirtualUsedGb { get; init; }
+
+    /// <summary>Mémoire virtuelle totale (RAM + fichier d'échange).</summary>
+    public float? VirtualTotalGb { get; init; }
+
+    /// <summary>Barrettes décrites par le BIOS. Vide si WMI n'a rien renvoyé.</summary>
+    public IReadOnlyList<MemoryModuleInfo> Modules { get; init; } = Array.Empty<MemoryModuleInfo>();
+
+    /// <summary>Nombre d'emplacements de la carte, barrettes absentes comprises. Null si le BIOS ne le
+    /// publie pas — fréquent sur les mini-PC et les portables à mémoire soudée.</summary>
+    public int? SlotCount { get; init; }
+
+    /// <summary>Type commun à toutes les barrettes (« DDR5 »), null si elles diffèrent ou sont inconnues.</summary>
+    public string? TypeLabel { get; init; }
+
+    /// <summary>Fréquence commune à toutes les barrettes, null si elles diffèrent ou sont inconnues.</summary>
+    public int? SpeedMhz { get; init; }
+
+    public MemorySource Sources { get; init; }
+
+    /// <summary>Pourquoi la fiche matérielle est vide, quand elle l'est : message technique de WMI, ou
+    /// constat que ce BIOS ne décrit aucune barrette. Null si tout a été lu.</summary>
+    public string? ModulesUnavailableReason { get; init; }
 }
 
 /// <summary>Capteur nommé générique (température, tension...) pour les valeurs dont la liste
@@ -92,7 +162,8 @@ public sealed class DiskSnapshot
 {
     public string Name { get; init; } = "Disque inconnu";
 
-    /// <summary>Identifiant stable côté LibreHardwareMonitor (pas le numéro PhysicalDriveN de Windows).</summary>
+    /// <summary>Identifiant LibreHardwareMonitor, ex. "/nvme/0" : le dernier segment est le même numéro
+    /// de disque physique que Windows (\\.\PhysicalDriveN, Win32_DiskDrive.Index).</summary>
     public string Identifier { get; init; } = "";
 
     public float? UsedPercent { get; init; }

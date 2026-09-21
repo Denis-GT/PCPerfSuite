@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
@@ -605,14 +604,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void OpenDriverSite()
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(PawnIoDriver.DownloadUrl) { UseShellExecute = true });
-        }
-        catch
-        {
-            Status = $"Impossible d'ouvrir le navigateur. L'adresse est : {PawnIoDriver.DownloadUrl}";
-        }
+        if (!PawnIoDriver.TryOpenDownloadPage(out string? error)) Status = error!;
     }
 
     private void OnEmergencyRestored(string message)

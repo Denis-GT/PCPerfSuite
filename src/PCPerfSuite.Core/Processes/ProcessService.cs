@@ -82,9 +82,25 @@ public sealed class ProcessService : IDisposable
     private bool _everSawIoRate;
     private bool _everSawPrivateWorkingSet;
 
-    /// <summary>Fréquence réelle des cœurs rapportée à leur fréquence nominale, collectée à chaque relevé pour
-    /// couvrir exactement le même intervalle que les écarts de temps processeur.</summary>
+    /// <summary>Charge totale telle que l'affiche le Gestionnaire des tâches : c'est la référence sur laquelle
+    /// le facteur d'échelle est calibré à chaque relevé (voir <see cref="UpdateCpuScale"/>).</summary>
+    private readonly PdhCounterSampler _cpuUtility = new(PdhCounterSampler.ProcessorUtility);
+
+    /// <summary>Fréquence réelle des cœurs rapportée à leur fréquence nominale. N'est plus la source
+    /// principale du facteur d'échelle, seulement son repli : c'est une moyenne sur TOUS les cœurs, donc
+    /// très basse dès qu'une machine se sous-cadence au repos, ce qui divisait par trois ou quatre le %CPU
+    /// de chaque processus sur un mini-PC ou un portable.</summary>
     private readonly PdhCounterSampler _cpuPerformance = new(PdhCounterSampler.ProcessorPerformance);
+
+    // Temps système cumulés au relevé précédent, en unités de 100 ns : ils donnent la charge BRUTE de la
+    // machine, exactement à l'échelle de la formule par processus, donc le dénominateur de la calibration.
+    private long _lastIdle100ns;
+    private long _lastKernel100ns;
+    private long _lastUser100ns;
+    private bool _hasSystemTimes;
+
+    private double _cpuScale = 1.0;
+    private CpuScaleSource _cpuScaleSource = CpuScaleSource.Raw;
 
     private long _lastTimestamp;
 
@@ -126,6 +142,10 @@ public sealed class ProcessService : IDisposable
 
             _tracked.Clear();
             _lastTimestamp = 0;
+
+            // La calibration se refait elle aussi de zéro : son dénominateur est un écart de temps système,
+            // qui n'a pas plus de sens qu'un écart par processus après une interruption.
+            _hasSystemTimes = false;
         }
     }
 
@@ -152,10 +172,7 @@ public sealed class ProcessService : IDisposable
             : Stopwatch.GetElapsedTime(_lastTimestamp, start).TotalSeconds;
         bool isFirstSample = elapsedSeconds <= 0;
 
-        // Repli sur 1 (temps processeur brut) si le compteur est indisponible.
-        double frequencyFactor = _cpuPerformance.Sample() is { } performance && performance > 0
-            ? performance / 100.0
-            : 1.0;
+        double frequencyFactor = UpdateCpuScale(elapsedSeconds);
 
         List<ProcessEntry> entries = EnumerateProcesses();
         Dictionary<int, string> windowTitles = CollectWindowTitles();
@@ -190,6 +207,13 @@ public sealed class ProcessService : IDisposable
             long? committed = null;
             double? ioRate = null;
 
+            // Capturé une fois pour toute l'itération, et relu par le bloc E/S plus bas : « ce processus
+            // avait-il déjà une ligne de base AVANT ce relevé ? ». Interroger tracked.HasPrevious là-bas
+            // donnait toujours vrai, puisque le bloc CPU vient de le lever — un processus apparu en cours de
+            // session affichait alors toutes ses E/S depuis son lancement divisées par un seul intervalle,
+            // soit un pic de plusieurs centaines de Mo/s qui le propulsait en tête du tri.
+            bool hadPrevious = false;
+
             if (accessible && GetProcessTimes(tracked.Handle, out long creation, out _, out long kernel, out long user))
             {
                 startTime = SafeFromFileTimeUtc(creation);
@@ -202,9 +226,10 @@ public sealed class ProcessService : IDisposable
                     tracked.ResolvedOnce = false;
                 }
                 tracked.StartTimeUtc = startTime;
+                hadPrevious = tracked.HasPrevious;
 
                 long cpuTime = kernel + user;
-                if (tracked.HasPrevious && !isFirstSample)
+                if (hadPrevious && !isFirstSample)
                 {
                     long delta = cpuTime - tracked.CpuTime100ns;
                     // Le temps processeur ne recule pas : un écart négatif ne peut venir que d'un PID
@@ -213,8 +238,9 @@ public sealed class ProcessService : IDisposable
                     {
                         // 1 unité = 100 ns, donc 10 000 000 unités de temps processeur disponibles par
                         // seconde et par cœur. Diviser par le nombre de processeurs logiques donne la part de
-                        // la machine entière. Le Gestionnaire des tâches pondère en plus par la fréquence réelle
-                        // des cœurs (turbo) : sans ce facteur, les valeurs étaient 2 à 3 fois plus basses.
+                        // la machine entière. Le Gestionnaire des tâches compte en cycles, donc en tenant
+                        // compte de la fréquence réelle : d'où le facteur d'échelle, mesuré par
+                        // UpdateCpuScale plutôt que supposé.
                         double percent = delta / (elapsedSeconds * _processorCount * 100_000.0) * frequencyFactor;
                         cpuPercent = Math.Clamp(percent, 0, 100);
                     }
@@ -245,7 +271,7 @@ public sealed class ProcessService : IDisposable
                 // Toutes les E/S du processus, pas seulement le disque : fichiers, réseau, tubes et console.
                 // C'est ce que compte la colonne du Gestionnaire des tâches, d'où le libellé « E/S ».
                 ulong total = io.ReadTransferCount + io.WriteTransferCount;
-                if (tracked.HasPrevious && !isFirstSample && total >= tracked.IoBytes)
+                if (hadPrevious && !isFirstSample && total >= tracked.IoBytes)
                 {
                     ioRate = (total - tracked.IoBytes) / elapsedSeconds;
                     anyIoRate = true;
@@ -295,7 +321,90 @@ public sealed class ProcessService : IDisposable
             ReadDuration = Stopwatch.GetElapsedTime(start),
             InaccessibleCount = inaccessible,
             IsFirstSample = isFirstSample,
+            CpuScaleFactor = frequencyFactor,
+            CpuScaleSource = _cpuScaleSource,
         };
+    }
+
+    /// <summary>
+    /// Met à jour le facteur qui convertit le temps processeur brut en ce que le Gestionnaire des tâches
+    /// affiche, et le renvoie.
+    ///
+    /// Windows compte le temps processeur en durée, indépendamment de la vitesse à laquelle les cœurs
+    /// tournaient pendant cette durée. Le Gestionnaire des tâches, lui, compte en cycles : un cœur à 800 MHz
+    /// occupé une seconde n'y vaut pas un cœur à 4 GHz occupé une seconde. D'où un facteur d'échelle.
+    ///
+    /// Ce facteur était auparavant lu sur « % Processor Performance », la fréquence moyenne de TOUS les
+    /// cœurs rapportée à la fréquence nominale. C'était une hypothèse sur la machine, et elle est fausse
+    /// dans les deux sens : sur un PC qui se sous-cadence au repos — mini-PC, portable, processeur basse
+    /// consommation — elle vaut 25 à 40 %, et divisait donc par trois ou quatre le %CPU de chaque processus ;
+    /// quand le compteur manque, elle vaut 1, et les valeurs sont deux à trois fois trop basses.
+    ///
+    /// On le MESURE désormais : « % Processor Utility » est exactement la charge totale qu'affiche le
+    /// Gestionnaire des tâches, et GetSystemTimes donne la charge brute de la même machine sur le même
+    /// intervalle, à la même échelle que la formule par processus. Leur rapport est le facteur cherché, et
+    /// par construction la somme de nos lignes suit le total de Windows, à n'importe quelle fréquence.
+    /// https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimes
+    /// </summary>
+    /// <param name="elapsedSeconds">Durée écoulée depuis le relevé précédent ; 0 au tout premier.</param>
+    private double UpdateCpuScale(double elapsedSeconds)
+    {
+        // Toujours échantillonner, même au premier relevé : ces deux compteurs sont des compteurs de taux,
+        // ils n'ont de valeur qu'à partir de leur deuxième collecte. Sauter un tour retarderait d'autant.
+        double? utility = _cpuUtility.Sample();
+        double? performance = _cpuPerformance.Sample();
+
+        double? rawTotalPercent = null;
+        if (GetSystemTimes(out long idle, out long kernel, out long user))
+        {
+            if (_hasSystemTimes && elapsedSeconds > 0)
+            {
+                // kernel CONTIENT idle : le temps disponible est donc kernel + user, et le temps occupé
+                // kernel + user - idle. Le rapport des deux est un pourcentage déjà normalisé par le nombre
+                // de cœurs, sans avoir à le réintroduire.
+                double total = (double)(kernel - _lastKernel100ns) + (user - _lastUser100ns);
+                double busy = total - (idle - _lastIdle100ns);
+                if (total > 0 && busy >= 0) rawTotalPercent = busy / total * 100.0;
+            }
+
+            _lastIdle100ns = idle;
+            _lastKernel100ns = kernel;
+            _lastUser100ns = user;
+            _hasSystemTimes = true;
+        }
+
+        // Sous ce seuil, le rapport de deux petits nombres n'est que du bruit : une machine au repos ferait
+        // sauter le facteur d'un relevé à l'autre. On garde alors le dernier facteur mesuré, qui reste
+        // valable — c'est bien le but d'une calibration que de survivre aux moments où l'on ne mesure rien.
+        const double CalibrationFloorPercent = 2.0;
+
+        if (utility is { } u && u > 0 && rawTotalPercent is { } raw && raw >= CalibrationFloorPercent)
+        {
+            // Bornes larges : elles n'existent que pour qu'une lecture aberrante d'un compteur ne rende pas
+            // la colonne absurde, pas pour corriger une mesure.
+            double measured = Math.Clamp(u / raw, 0.2, 5.0);
+
+            // Lissage : le facteur doit suivre les changements de fréquence, pas les sauts d'un seul relevé.
+            _cpuScale = _cpuScaleSource == CpuScaleSource.Calibrated
+                ? _cpuScale + 0.35 * (measured - _cpuScale)
+                : measured;
+            _cpuScaleSource = CpuScaleSource.Calibrated;
+            return _cpuScale;
+        }
+
+        // Déjà calibré au moins une fois : le dernier facteur mesuré vaut mieux que n'importe quel repli.
+        if (_cpuScaleSource == CpuScaleSource.Calibrated) return _cpuScale;
+
+        if (performance is { } p && p > 0)
+        {
+            _cpuScale = p / 100.0;
+            _cpuScaleSource = CpuScaleSource.Performance;
+            return _cpuScale;
+        }
+
+        _cpuScale = 1.0;
+        _cpuScaleSource = CpuScaleSource.Raw;
+        return _cpuScale;
     }
 
     /// <summary>
@@ -385,6 +494,7 @@ public sealed class ProcessService : IDisposable
                 tracked.Handle = IntPtr.Zero;
             }
             _tracked.Clear();
+            _cpuUtility.Dispose();
             _cpuPerformance.Dispose();
         }
     }
@@ -818,6 +928,12 @@ public sealed class ProcessService : IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint GetActiveProcessorCount(ushort groupNumber);
+
+    /// <summary>Temps système cumulés, en unités de 100 ns. Attention : <c>kernel</c> INCLUT <c>idle</c>,
+    /// ce que la documentation précise explicitement.</summary>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetSystemTimes(out long idleTime, out long kernelTime, out long userTime);
 
     [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

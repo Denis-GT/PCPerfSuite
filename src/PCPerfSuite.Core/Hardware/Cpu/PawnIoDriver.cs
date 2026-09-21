@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
@@ -51,6 +52,23 @@ public static class PawnIoDriver
         {
             EnsureProbed();
             return _library != IntPtr.Zero ? null : _loadError;
+        }
+    }
+
+    /// <summary>Ouvre la page de téléchargement dans le navigateur par défaut. Partagé entre l'onglet
+    /// réglages CPU et le diagnostic de compatibilité, qui proposent tous les deux d'installer le pilote.</summary>
+    public static bool TryOpenDownloadPage(out string? error)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(DownloadUrl) { UseShellExecute = true });
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Impossible d'ouvrir le navigateur. L'adresse est : {DownloadUrl} ({ex.Message})";
+            return false;
         }
     }
 

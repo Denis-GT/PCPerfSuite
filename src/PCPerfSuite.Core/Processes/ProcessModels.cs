@@ -109,6 +109,24 @@ public sealed class ProcessCapabilities
     public bool HasIoRate { get; init; }
 }
 
+/// <summary>D'où vient le facteur qui convertit le temps processeur brut en %CPU affiché. Sert au
+/// diagnostic « Compatibilité de ce PC » : une colonne qui reproduit le Gestionnaire des tâches doit
+/// pouvoir dire sur quoi elle s'est réglée.</summary>
+public enum CpuScaleSource
+{
+    /// <summary>Temps processeur brut, sans pondération : aucun compteur Windows n'a répondu. Les valeurs
+    /// sont alors sous-évaluées sur toute machine qui dépasse sa fréquence nominale.</summary>
+    Raw,
+
+    /// <summary>Replié sur « % Processor Performance » : la fréquence moyenne des cœurs. Approximation,
+    /// utilisée seulement tant qu'aucune calibration n'a pu être faite.</summary>
+    Performance,
+
+    /// <summary>Mesuré : rapport entre « % Processor Utility » (la charge qu'affiche le Gestionnaire des
+    /// tâches) et la charge brute de la même machine sur le même intervalle.</summary>
+    Calibrated,
+}
+
 /// <summary>Photo de l'ensemble des processus à un instant donné.</summary>
 public sealed class ProcessSnapshot
 {
@@ -127,6 +145,11 @@ public sealed class ProcessSnapshot
     /// <summary>Vrai tant qu'aucun relevé précédent ne permet de calculer un écart : les %CPU et les débits
     /// d'E/S sont alors tous null, et surtout pas zéro.</summary>
     public bool IsFirstSample { get; init; }
+
+    /// <summary>Facteur appliqué au temps processeur brut pour obtenir le %CPU affiché.</summary>
+    public double CpuScaleFactor { get; init; } = 1.0;
+
+    public CpuScaleSource CpuScaleSource { get; init; }
 }
 
 public enum TerminateFailure

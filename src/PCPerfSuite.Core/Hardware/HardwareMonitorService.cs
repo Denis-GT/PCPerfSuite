@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
 using PCPerfSuite.Core.Hardware.LaptopFans;
+using PCPerfSuite.Core.Hardware.Memory;
+using PCPerfSuite.Core.Hardware.Storage;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -167,6 +169,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         GpuSnapshot? gpu = null;
         bool gpuIsPreferred = false;
         var memory = new MemorySnapshot();
+        // Températures par emplacement (« DIMM #0 »), relevées sur les matériels « barrette » de
+        // LibreHardwareMonitor et raccordées ensuite à la fiche WMI, qui nomme les mêmes emplacements.
+        var memoryTemperatures = new List<float?>();
         var motherboard = new MotherboardSnapshot();
         var fans = new List<FanReading>();
         var disks = new List<DiskSnapshot>();
@@ -195,7 +200,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                     break;
 
                 case HardwareType.Memory:
-                    memory = ReadMemory(hardware);
+                    // FUSION, et non affectation. LibreHardwareMonitor expose plusieurs matériels de type
+                    // Memory : « Virtual Memory », « Generic Memory », puis UNE BARRETTE par module dès que
+                    // le SPD est lisible sur le SMBus. Une barrette ne porte ni utilisation ni charge —
+                    // seulement une capacité, des timings et une température — si bien qu'une affectation
+                    // sèche faisait gagner le dernier matériel rencontré et effaçait les bonnes valeurs :
+                    // la RAM s'affichait « N/D » sur les PC dont le SPD est lisible, pendant que le
+                    // Gestionnaire des tâches, lui, montrait tout. Chaque champ est donc écrit par le
+                    // premier matériel qui le fournit, comme le font déjà les branches Stockage et Réseau.
+                    memory = MergeMemory(memory, ReadMemory(hardware));
+                    CollectMemoryModuleTemperatures(hardware, memoryTemperatures);
                     break;
 
                 case HardwareType.Motherboard:
@@ -230,7 +244,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         {
             Cpu = cpu,
             Gpu = gpu,
-            Memory = memory,
+            Memory = CompleteMemory(memory, memoryTemperatures),
             Motherboard = motherboard,
             Fans = fans,
             Disks = disks,
@@ -311,8 +325,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                              .DefaultIfEmpty()
                              .Max();
 
-        float? power = FindSensor(hardware, SensorType.Power, "CPU Package")?.Value
-                        ?? hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power)?.Value;
+        float? power = ReadTotalPackagePower(hardware);
 
         float? maxClock = hardware.Sensors
             .Where(s => s.SensorType == SensorType.Clock)
@@ -339,6 +352,27 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             MaxClockMhz = maxClock,
             CoreVoltage = coreVoltage,
         };
+    }
+
+    // Noms de capteur "puissance totale du package" connus, par ordre de priorité : Intel expose "CPU Package"
+    // (RAPL), AMD "Package" (sans préfixe "CPU" : FindSensor("CPU Package") ne le matche donc jamais) ou,
+    // selon la génération, "CPU PPT"/"Total Power". On ne retient volontairement qu'un nom qui identifie
+    // explicitement le TOTAL du package, jamais un domaine partiel ("Core Power", "SOC Power" chez AMD) :
+    // un domaine partiel donnerait une puissance CPU artificiellement basse, potentiellement bloquée à 0 W
+    // sur les plateformes où ce domaine précis n'est pas peuplé sans le pilote PawnIO.
+    private static readonly string[] TotalPackagePowerNames = { "CPU Package", "Package", "CPU PPT", "Total Power" };
+
+    /// <summary>Puissance totale du CPU. Renvoie null (affiché "N/D", jamais "0 W") si aucun capteur reconnu
+    /// comme "total du package" n'existe sur ce PC, plutôt que de retomber sur n'importe quel capteur de
+    /// puissance au hasard (un domaine partiel bloqué à 0 W est une valeur valide, donc indiscernable d'une
+    /// vraie mesure si on ne sait pas ce qu'on a pris).</summary>
+    private static float? ReadTotalPackagePower(IHardware hardware)
+    {
+        foreach (string name in TotalPackagePowerNames)
+        {
+            if (FindSensor(hardware, SensorType.Power, name)?.Value is { } value) return value;
+        }
+        return null;
     }
 
     private bool IsPreferredGpu(HardwareType type) => (PreferredGpuVendor, type) switch
@@ -385,16 +419,58 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         };
     }
 
+    /// <summary>
+    /// Matériels et capteurs mémoire tels que LibreHardwareMonitor les expose, en texte brut, pour le rapport
+    /// de « Compatibilité de ce PC ». C'est la seule façon, depuis un signalement, de voir qu'une machine
+    /// énumère un matériel inattendu ou que la bibliothèque a renommé un capteur : sans cette liste, la RAM
+    /// vide d'un mini-PC restait impossible à diagnostiquer à distance.
+    /// </summary>
+    public IReadOnlyList<string> DescribeMemorySensors()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return Array.Empty<string>();
+
+            var lines = new List<string>();
+            foreach (IHardware hardware in _computer.Hardware)
+            {
+                if (hardware.HardwareType != HardwareType.Memory) continue;
+
+                lines.Add($"{hardware.Name} [{hardware.Identifier}]");
+                foreach (ISensor sensor in hardware.Sensors)
+                {
+                    lines.Add($"    {sensor.SensorType} « {sensor.Name} » = {sensor.Value?.ToString("0.###") ?? "null"}");
+                }
+            }
+            return lines;
+        }
+    }
+
     private static MemorySnapshot ReadMemory(IHardware hardware)
     {
-        // RAM et mémoire virtuelle vivent sur le même matériel, et "Memory Used" est contenu dans
-        // "Virtual Memory Used" : on sépare les deux familles avant de chercher par nom.
+        // Mémoire physique et mémoire virtuelle portent des capteurs de même type, et "Memory Used" est
+        // contenu dans "Virtual Memory Used" : on sépare les deux familles avant de chercher par nom. Selon
+        // la version de la bibliothèque, les deux vivent sur un seul matériel ou sur deux ; le tri par nom
+        // couvre les deux cas.
         ISensor[] virtualSensors = hardware.Sensors.Where(s => s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)).ToArray();
         ISensor[] physicalSensors = hardware.Sensors.Except(virtualSensors).ToArray();
 
-        float? used = FindSensor(physicalSensors, SensorType.Data, "Memory Used")?.Value;
-        float? available = FindSensor(physicalSensors, SensorType.Data, "Memory Available")?.Value;
+        // "Memory Used" / "Memory Available" sont les noms de la bibliothèque aujourd'hui. Le repli sur le
+        // premier capteur du bon type reprend ce que fait déjà la lecture de la carte mère : un nom qui
+        // change d'une version à l'autre ne doit pas vider une colonne entière sans explication. Il n'est
+        // tenté que sur un matériel qui porte AUSSI une charge, donc jamais sur une barrette — celle-ci
+        // expose une "Capacity" de type Data, qu'on prendrait sinon pour de la mémoire utilisée.
         float? load = physicalSensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
+        ISensor[] dataSensors = physicalSensors.Where(s => s.SensorType == SensorType.Data).ToArray();
+
+        float? used = FindSensor(dataSensors, SensorType.Data, "Memory Used")?.Value;
+        float? available = FindSensor(dataSensors, SensorType.Data, "Memory Available")?.Value;
+
+        if (used is null && available is null && load is not null && dataSensors.Length >= 2)
+        {
+            used = dataSensors[0].Value;
+            available = dataSensors[1].Value;
+        }
 
         float? total = used.HasValue && available.HasValue ? used + available : null;
 
@@ -405,7 +481,133 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             TotalGb = total,
             LoadPercent = load,
             VirtualUsedGb = FindSensor(virtualSensors, SensorType.Data, "Memory Used")?.Value,
+            Sources = used is not null || load is not null || total is not null
+                ? MemorySource.LibreHardwareMonitor
+                : MemorySource.None,
         };
+    }
+
+    /// <summary>Complète <paramref name="current"/> par <paramref name="addition"/>, champ par champ, sans
+    /// jamais écraser une valeur déjà lue : sur une machine où plusieurs matériels mémoire coexistent,
+    /// celui qui répond gagne, quel que soit son rang dans l'énumération. La source ajoutée n'est déclarée
+    /// que si elle a réellement comblé quelque chose — le diagnostic doit nommer ce qui a répondu, pas ce
+    /// qu'on a interrogé.</summary>
+    private static MemorySnapshot MergeMemory(MemorySnapshot current, MemorySnapshot addition)
+    {
+        bool contributed =
+            (current.UsedGb is null && addition.UsedGb is not null)
+            || (current.AvailableGb is null && addition.AvailableGb is not null)
+            || (current.TotalGb is null && addition.TotalGb is not null)
+            || (current.LoadPercent is null && addition.LoadPercent is not null)
+            || (current.VirtualUsedGb is null && addition.VirtualUsedGb is not null)
+            || (current.VirtualTotalGb is null && addition.VirtualTotalGb is not null);
+
+        return new MemorySnapshot
+        {
+            UsedGb = current.UsedGb ?? addition.UsedGb,
+            AvailableGb = current.AvailableGb ?? addition.AvailableGb,
+            TotalGb = current.TotalGb ?? addition.TotalGb,
+            LoadPercent = current.LoadPercent ?? addition.LoadPercent,
+            VirtualUsedGb = current.VirtualUsedGb ?? addition.VirtualUsedGb,
+            VirtualTotalGb = current.VirtualTotalGb ?? addition.VirtualTotalGb,
+            Modules = current.Modules.Count > 0 ? current.Modules : addition.Modules,
+            SlotCount = current.SlotCount ?? addition.SlotCount,
+            TypeLabel = current.TypeLabel ?? addition.TypeLabel,
+            SpeedMhz = current.SpeedMhz ?? addition.SpeedMhz,
+            ModulesUnavailableReason = current.ModulesUnavailableReason ?? addition.ModulesUnavailableReason,
+            Sources = contributed ? current.Sources | addition.Sources : current.Sources,
+        };
+    }
+
+    /// <summary>Températures des barrettes exposées par un matériel mémoire. Seules les barrettes en
+    /// portent, et seulement quand leur sonde est lisible sur le SMBus : la liste reste souvent vide.</summary>
+    private static void CollectMemoryModuleTemperatures(IHardware hardware, List<float?> temperatures)
+    {
+        foreach (ISensor sensor in hardware.Sensors)
+        {
+            // Les barrettes exposent aussi des seuils ("Thermal Sensor High Limit"...) qui sont des
+            // températures sans en être : seul le capteur nommé d'après l'emplacement est une mesure.
+            if (sensor.SensorType != SensorType.Temperature) continue;
+            if (!sensor.Name.StartsWith("DIMM", StringComparison.OrdinalIgnoreCase)) continue;
+
+            temperatures.Add(sensor.Value);
+        }
+    }
+
+    /// <summary>Dernière étape du relevé mémoire : combler ce que LibreHardwareMonitor n'a pas fourni par la
+    /// source de Windows, puis y raccrocher la fiche matérielle. Après cet appel, aucune valeur d'utilisation
+    /// ne doit manquer sur une machine sous Windows.</summary>
+    private static MemorySnapshot CompleteMemory(MemorySnapshot memory, List<float?> temperatures)
+    {
+        if (SystemMemoryReader.Read() is { } windows)
+        {
+            memory = MergeMemory(memory, new MemorySnapshot
+            {
+                UsedGb = windows.UsedGb,
+                AvailableGb = windows.AvailableGb,
+                TotalGb = windows.TotalGb,
+                LoadPercent = windows.LoadPercent,
+                VirtualUsedGb = windows.VirtualUsedGb,
+                VirtualTotalGb = windows.VirtualTotalGb,
+                Sources = MemorySource.Windows,
+            });
+        }
+
+        MemoryModuleReader.Report report = MemoryModuleReader.Current;
+
+        return new MemorySnapshot
+        {
+            UsedGb = memory.UsedGb,
+            AvailableGb = memory.AvailableGb,
+            TotalGb = memory.TotalGb,
+            LoadPercent = memory.LoadPercent,
+            VirtualUsedGb = memory.VirtualUsedGb,
+            VirtualTotalGb = memory.VirtualTotalGb,
+            Modules = WithTemperatures(report.Modules, temperatures),
+            SlotCount = report.SlotCount,
+            TypeLabel = CommonValue(report.Modules.Select(m => m.TypeLabel)),
+            SpeedMhz = CommonValue(report.Modules.Select(m => m.SpeedMhz)),
+            ModulesUnavailableReason = report.UnavailableReason,
+            Sources = report.HasModules ? memory.Sources | MemorySource.Wmi : memory.Sources,
+        };
+    }
+
+    /// <summary>Raccroche les températures lues par LibreHardwareMonitor aux barrettes décrites par WMI, dans
+    /// l'ordre des emplacements — le seul lien commun aux deux sources. S'il n'y a pas autant de
+    /// températures que de barrettes, aucune n'est attribuée : une sonde posée sur la mauvaise barrette
+    /// serait pire qu'une case vide.</summary>
+    private static IReadOnlyList<MemoryModuleInfo> WithTemperatures(
+        IReadOnlyList<MemoryModuleInfo> modules, List<float?> temperatures)
+    {
+        if (modules.Count == 0 || temperatures.Count != modules.Count) return modules;
+
+        return modules.Select((module, index) => new MemoryModuleInfo
+        {
+            Slot = module.Slot,
+            BankLabel = module.BankLabel,
+            CapacityGb = module.CapacityGb,
+            SpeedMhz = module.SpeedMhz,
+            TypeLabel = module.TypeLabel,
+            FormFactorLabel = module.FormFactorLabel,
+            Manufacturer = module.Manufacturer,
+            PartNumber = module.PartNumber,
+            TemperatureC = temperatures[index],
+        }).ToList();
+    }
+
+    /// <summary>Valeur partagée par toutes les barrettes, ou null si elles diffèrent : annoncer « DDR5 » sur
+    /// un PC qui mêle deux types serait faux, et sur ce point mieux vaut ne rien dire.</summary>
+    private static T? CommonValue<T>(IEnumerable<T?> values) where T : struct
+    {
+        List<T> present = values.Where(v => v.HasValue).Select(v => v!.Value).Distinct().ToList();
+        return present.Count == 1 ? present[0] : null;
+    }
+
+    private static string? CommonValue(IEnumerable<string?> values)
+    {
+        List<string> present = values.Where(v => v is { Length: > 0 }).Select(v => v!)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return present.Count == 1 ? present[0] : null;
     }
 
     private static MotherboardSnapshot ReadMotherboard(IHardware hardware)
@@ -475,10 +677,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         float? writeRate = FindSensor(hardware, SensorType.Throughput, "Write Rate")?.Value;
         float? temp = hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature)?.Value;
 
-        // Les SSD/NVMe exposent soit "Remaining Life" (déjà le % restant), soit "Percentage Used"
-        // (convention NVMe standard : usure consommée, donc vie restante = 100 - valeur). La plupart
-        // des HDD n'exposent ni l'un ni l'autre : RemainingLifePercent reste alors null (affiché "--").
-        float? remainingLife = FindSensor(hardware, SensorType.Level, "Remaining Life")?.Value;
+        // LibreHardwareMonitor (via DiskInfoToolkit) publie un capteur "Life" normalisé — un % de vie
+        // restante déjà calculé quel que soit le fabricant, à partir de quel que soit l'attribut SMART
+        // spécifique au vendeur qu'il a réussi à lire ("SSD Life Left", "Percent Lifetime Used"...). On le
+        // cherche en priorité : plus fiable et plus répandu que les noms d'attributs bruts ci-dessous.
+        // "Remaining Life"/"Percentage Used" restent en repli pour les cas où seul l'attribut brut existe :
+        // le premier est déjà un % restant, le second (convention NVMe standard) une usure consommée,
+        // donc vie restante = 100 - valeur. Si rien de tout ça n'existe (la plupart des HDD), reste null
+        // (affiché "--").
+        float? remainingLife = FindSensor(hardware, SensorType.Level, "Life")?.Value
+                                ?? FindSensor(hardware, SensorType.Level, "Remaining Life")?.Value;
         if (remainingLife is null)
         {
             float? percentageUsed = FindSensor(hardware, SensorType.Level, "Percentage Used")?.Value;
@@ -487,7 +695,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         return new DiskSnapshot
         {
-            Name = hardware.Name,
+            Name = ResolveDiskName(hardware),
             Identifier = hardware.Identifier.ToString(),
             UsedPercent = usedPercent,
             ReadRateBytesPerSecond = readRate,
@@ -495,6 +703,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             TemperatureC = temp,
             RemainingLifePercent = remainingLife,
         };
+    }
+
+    /// <summary>hardware.Name (le modèle lu par LibreHardwareMonitor) est vide sur certains contrôleurs
+    /// NVMe/ponts dont l'IDENTIFY échoue alors que le reste (SMART, débit...) se lit sans problème :
+    /// dans ce cas, on retombe sur Win32_DiskDrive, indexé par le même numéro de disque physique que
+    /// LibreHardwareMonitor place en dernier segment de son identifiant ("/nvme/0", "/ssd/2"...).</summary>
+    private static string ResolveDiskName(IHardware hardware)
+    {
+        if (!string.IsNullOrWhiteSpace(hardware.Name)) return hardware.Name;
+
+        string identifier = hardware.Identifier.ToString();
+        int lastSlash = identifier.LastIndexOf('/');
+        if (lastSlash >= 0 && int.TryParse(identifier[(lastSlash + 1)..], out int index)
+            && DiskModelReader.ModelsByIndex.TryGetValue(index, out string? model))
+        {
+            return model;
+        }
+
+        return new DiskSnapshot().Name; // "Disque inconnu"
     }
 
     private static void CollectFans(IHardware hardware, SensorGroup group, List<FanReading> into)

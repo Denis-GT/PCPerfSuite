@@ -54,9 +54,18 @@ public sealed partial class DiskItemViewModel : ObservableObject
         HealthSummary = null;
         try
         {
-            DiskHealthReport report = await _health.CheckAsync(Name);
+            DiskHealthReport report = await _health.CheckAsync(Name, Identifier);
             HealthStatus = report.Status;
             HealthSummary = BuildSummary(report);
+
+            // Repli pour "Vie restante" : certains disques (ex. quelques SSD SATA) n'ont pas de capteur SMART
+            // que LibreHardwareMonitor sait lire en continu, mais Windows Storage Management, lui, expose une
+            // usure (compteur de fiabilité). On ne l'utilise qu'en dernier recours, une fois testé : la valeur
+            // vient alors du dernier test, pas d'une lecture SMART continue.
+            if (RemainingLifePercent is null && report.WearPercent is { } wear)
+            {
+                RemainingLifePercent = Math.Clamp(100 - wear, 0, 100);
+            }
         }
         catch (Exception ex)
         {
@@ -140,6 +149,90 @@ public sealed partial class BatteryInfoViewModel : ObservableObject
         if (mWh is not { } energy) return "--";
         string text = $"{energy.ToString("N0", CultureInfo.CurrentCulture)} mWh";
         return b.ToMah(energy) is { } mah ? $"{text} · {mah.ToString("N0", CultureInfo.CurrentCulture)} mAh" : text;
+    }
+}
+
+/// <summary>Une barrette dans la carte "Mémoire".</summary>
+public sealed partial class MemoryModuleViewModel : ObservableObject
+{
+    [ObservableProperty] private string slot = "--";
+    [ObservableProperty] private string capacityDisplay = "--";
+    [ObservableProperty] private string detailsDisplay = "";
+    [ObservableProperty] private string temperatureDisplay = "--";
+
+    public void Apply(MemoryModuleInfo module, int index)
+    {
+        // Le nom d'emplacement du BIOS est parfois vide ou illisible ("_-DIMM#0") : le rang affiché à la
+        // place reste juste et se retrouve dans le boîtier.
+        Slot = module.Slot is { Length: > 0 } name ? name : $"Emplacement {index + 1}";
+        CapacityDisplay = module.CapacityGb is { } gb ? $"{gb:0.#} Go" : "--";
+
+        DetailsDisplay = string.Join(" · ", new[]
+        {
+            module.TypeLabel,
+            module.SpeedMhz is { } speed ? $"{speed} MHz" : null,
+            module.FormFactorLabel,
+            module.Manufacturer,
+            module.PartNumber,
+        }.Where(part => part is { Length: > 0 }));
+
+        TemperatureDisplay = module.TemperatureC is { } temp
+            ? temp.ToString("0", CultureInfo.CurrentCulture) + " °C"
+            : "--";
+    }
+}
+
+/// <summary>
+/// Carte "Mémoire" : ce que la page Mémoire du Gestionnaire des tâches montre et qui ne mérite pas de
+/// courbe — type, fréquence, emplacements occupés, et une ligne par barrette. Ces données viennent de la
+/// table SMBIOS du BIOS : bien des mini-PC et des portables à mémoire soudée ne la remplissent pas, et la
+/// carte dit alors pourquoi au lieu de rester vide (règle 3 du CLAUDE.md).
+/// </summary>
+public sealed partial class MemoryInfoViewModel : ObservableObject
+{
+    [ObservableProperty] private string totalDisplay = "--";
+    [ObservableProperty] private string summaryDisplay = "";
+    [ObservableProperty] private string slotsDisplay = "--";
+
+    /// <summary>Pourquoi la liste des barrettes est vide, null quand elle ne l'est pas.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNote))]
+    private string? note;
+
+    public bool HasNote => Note is not null;
+
+    public ObservableCollectionEx<MemoryModuleViewModel> Modules { get; } = new();
+
+    public void Apply(MemorySnapshot memory)
+    {
+        TotalDisplay = memory.TotalGb is { } total ? $"{total:0.0} Go" : "--";
+
+        SummaryDisplay = string.Join(" · ", new[]
+        {
+            memory.TypeLabel,
+            memory.SpeedMhz is { } speed ? $"{speed} MHz" : null,
+            memory.Modules.Count switch
+            {
+                0 => null,
+                1 => "1 barrette",
+                var n => $"{n} barrettes",
+            },
+        }.Where(part => part is { Length: > 0 }));
+
+        SlotsDisplay = memory.SlotCount is { } slots
+            ? $"{memory.Modules.Count} / {slots}"
+            : memory.Modules.Count > 0 ? memory.Modules.Count.ToString(CultureInfo.CurrentCulture) : "--";
+
+        Note = memory.ModulesUnavailableReason;
+
+        // Mise à jour en place, comme les disques : recréer les lignes à chaque relevé les ferait clignoter.
+        while (Modules.Count > memory.Modules.Count) Modules.RemoveAt(Modules.Count - 1);
+        while (Modules.Count < memory.Modules.Count) Modules.Add(new MemoryModuleViewModel());
+
+        for (int i = 0; i < memory.Modules.Count; i++)
+        {
+            Modules[i].Apply(memory.Modules[i], i);
+        }
     }
 }
 
@@ -489,6 +582,9 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     /// <summary>Infos batterie sans courbe (santé, capacités, cycles) ; carte masquée sans batterie.</summary>
     public BatteryInfoViewModel Battery { get; } = new();
 
+    /// <summary>Fiche mémoire sans courbe (type, fréquence, barrettes, emplacements).</summary>
+    public MemoryInfoViewModel MemoryInfo { get; } = new();
+
     [ObservableProperty] private string? errorMessage;
 
     /// <summary>Ticks ignorés parce que la lecture précédente n'était pas terminée.</summary>
@@ -723,6 +819,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     {
         ApplyDisks(s.Disks);
         Battery.Apply(s.Battery);
+        MemoryInfo.Apply(s.Memory);
 
         var sample = new MetricSample { Hardware = s, Game = s.Game, LocalTime = DateTime.Now };
         _lastSample = sample;

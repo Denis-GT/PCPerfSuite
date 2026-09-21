@@ -269,6 +269,73 @@
                 </StackPanel>
             </Border>
 
+            <!-- Mémoire : ce que montre la page "Mémoire" du Gestionnaire des tâches et qui ne bouge pas —
+                 type, fréquence, emplacements, barrettes. Charge et utilisation sont des tuiles comme les
+                 autres. Ces données viennent de la table SMBIOS du BIOS : beaucoup de mini-PC et de
+                 portables à mémoire soudée ne la remplissent pas, et la carte le dit alors au lieu de
+                 rester vide. -->
+            <Border Style="{StaticResource Card}" Margin="0,18,0,0" DataContext="{Binding MemoryInfo}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Mémoire" Style="{StaticResource H2}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Style="{StaticResource Caption}" VerticalAlignment="Center">
+                            <Run Text="{Binding TotalDisplay, Mode=OneWay}" FontWeight="SemiBold"
+                                 Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <Run Text="{Binding SummaryDisplay, Mode=OneWay, StringFormat={}  ·  {0}}"/>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Emplacements occupés" Style="{StaticResource Caption}" Margin="0,2,16,2"/>
+                        <TextBlock Grid.Column="1" Text="{Binding SlotsDisplay}" Style="{StaticResource Body}" Margin="0,2"
+                                   ToolTip="Barrettes présentes rapportée au nombre d'emplacements de la carte, quand le BIOS le publie."/>
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding Modules}" Margin="0,10,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" MinWidth="150"/>
+                                            <ColumnDefinition Width="Auto" MinWidth="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto" MinWidth="70"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="&#xEEA0;" Style="{StaticResource Icon}" FontSize="15"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,10,0"/>
+                                            <TextBlock Text="{Binding Slot}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding CapacityDisplay}" Style="{StaticResource Body}"
+                                                   VerticalAlignment="Center" Margin="10,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding DetailsDisplay}" Style="{StaticResource Caption}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding DetailsDisplay}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding TemperatureDisplay}" Style="{StaticResource Caption}"
+                                                   TextAlignment="Right" VerticalAlignment="Center"
+                                                   ToolTip="Sonde thermique de la barrette, quand elle en porte une de lisible."/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Pas de fiche matérielle : on dit pourquoi, et que les mesures, elles, sont bonnes. -->
+                    <TextBox Text="{Binding Note}" Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                             Visibility="{Binding HasNote, Converter={StaticResource BoolToVisibility}}"/>
+                </StackPanel>
+            </Border>
+
             <!-- Disques : occupation, usure et test de santé. Débits et température sont des tuiles comme les autres. -->
             <Border Style="{StaticResource Card}" Margin="0,18,0,16">
                 <StackPanel>
@@ -281,6 +348,7 @@
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="90"/>
                                                 <ColumnDefinition Width="160"/>
                                                 <ColumnDefinition Width="50"/>
                                                 <ColumnDefinition Width="130"/>
@@ -291,23 +359,26 @@
                                                 <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
                                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
                                             </StackPanel>
-                                            <controls:MeterBar Grid.Column="1" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"
-                                                               UseValueColor="True"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
+                                            <!-- Espace utilisé, pas un indicateur de santé : jamais coloré en orange/rouge (voir doc de UseValueColor sur MeterBar). -->
+                                            <TextBlock Grid.Column="1" Text="Espace utilisé" Style="{StaticResource Caption}"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                            <controls:MeterBar Grid.Column="2" Value="{Binding UsedPercent}" VerticalAlignment="Center" Margin="8,0"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding UsedPercent, StringFormat={}{0:0}%}" Style="{StaticResource Caption}"
                                                        TextAlignment="Right" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="3" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="4" Style="{StaticResource Caption}" TextAlignment="Right" VerticalAlignment="Center">
                                                 <Run Text="Vie restante :"/>
                                                 <Run Text="{Binding RemainingLifeDisplay, Mode=OneWay}"/>
                                             </TextBlock>
                                         </Grid>
 
-                                        <Grid Margin="0,10,0,0">
+                                        <!-- Santé (Windows Storage Management), visuellement distincte de l'occupation ci-dessus. -->
+                                        <Grid Margin="0,10,0,0" Background="{StaticResource SurfaceAltBrush}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="{Binding HealthSummary}" Style="{StaticResource Caption}"
-                                                       VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
+                                                       VerticalAlignment="Center" TextWrapping="Wrap" Margin="6,6,10,6"
                                                        Foreground="{Binding HealthStatus, Converter={StaticResource DiskHealthBrush}}"/>
                                             <Button Grid.Column="1" Content="{Binding TestButtonLabel}" Style="{StaticResource GhostButton}"
                                                     Command="{Binding TestCommand}" IsEnabled="{Binding IsTesting, Converter={StaticResource InverseBoolean}}"/>
