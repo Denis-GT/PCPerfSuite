@@ -60,14 +60,19 @@ public partial class ProcessesView : UserControl
     }
 
     /// <summary>Un clic droit hors de la sélection la remplace : ce qui est surligné doit être exactement ce
-    /// que le menu contextuel va terminer.</summary>
+    /// que le menu contextuel va terminer.
+    ///
+    /// La sélection passe par SelectedItems, et surtout pas par « item.IsSelected = true » : cela poserait
+    /// une valeur LOCALE sur le conteneur, qui l'emporte définitivement sur la liaison du ItemContainerStyle.
+    /// Le conteneur étant recyclé d'une ligne à l'autre, il resterait ensuite surligné pour des processus
+    /// qui n'ont jamais été sélectionnés, et la ligne réellement visée ne le serait plus.</summary>
     private void OnListRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (ItemsControl.ContainerFromElement(List, (DependencyObject)e.OriginalSource) is not ListBoxItem item) return;
         if (item.IsSelected) return;
 
         List.SelectedItems.Clear();
-        item.IsSelected = true;
+        if (item.DataContext is { } row) List.SelectedItems.Add(row);
     }
 
     private void OnListKeyDown(object sender, KeyEventArgs e)

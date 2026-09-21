@@ -164,6 +164,52 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public int Pid { get; }
     public string Name { get; }
 
+    /// <summary>Vrai pour une ligne d'agrégat — « Google Chrome (32) » — qui ne correspond à aucun processus
+    /// mais totalise ceux qui partagent son exécutable, comme l'onglet « Processus » du Gestionnaire des
+    /// tâches. Elle n'a ni PID, ni heure de démarrage, et ne peut pas être terminée directement : c'est
+    /// l'onglet qui répercute l'action sur ses membres.</summary>
+    public bool IsAggregate { get; }
+
+    /// <summary>Ce qui rassemble les instances d'une même application : son exécutable et le compte qui la
+    /// fait tourner. Deux utilisateurs connectés n'ont pas « le même » navigateur.</summary>
+    public string GroupKey { get; private set; } = "";
+
+    /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce ou si le
+    /// regroupement est désactivé.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMember))]
+    private ProcessRowViewModel? parent;
+
+    public bool IsMember => Parent is not null;
+
+    /// <summary>Nombre de processus totalisés par un agrégat.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MemberCountDisplay))]
+    private int memberCount;
+
+    /// <summary>« (32) » derrière le nom d'un agrégat, chaîne vide ailleurs. L'espace est dans la chaîne :
+    /// les deux Run sont volontairement collés dans le XAML, sans quoi WPF glisserait une espace même sur
+    /// les lignes ordinaires, où il n'y a rien à séparer.</summary>
+    public string MemberCountDisplay => MemberCount > 0 ? $" ({MemberCount})" : "";
+
+    /// <summary>Groupe déplié. Replié, ses membres quittent la vue par le filtre — le seul chemin par lequel
+    /// une ligne entre ou sort, pour que rien ne bouge sous le curseur.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExpanderGlyph))]
+    private bool isExpanded = true;
+
+    /// <summary>Chevron des agrégats : vers le bas quand le groupe est déplié, vers la droite sinon.</summary>
+    public string ExpanderGlyph => IsExpanded ? "" : "";
+
+    /// <summary>La ligne qui porte le classement du groupe : l'agrégat pour un membre, la ligne elle-même
+    /// sinon. C'est ce qui garde les membres accrochés sous leur parent quel que soit le tri.</summary>
+    public ProcessRowViewModel SortSubject => Parent ?? this;
+
+    /// <summary>Famille affichée. Un membre prend celle de son agrégat : un navigateur dont la fenêtre est
+    /// une « Application » et les rendus des processus d'arrière-plan doit rester d'un seul tenant sous
+    /// « Applications », comme dans le Gestionnaire des tâches.</summary>
+    public ProcessKind EffectiveKind => Parent?.Kind ?? Kind;
+
     [ObservableProperty] private string displayName = "";
     [ObservableProperty] private string? executablePath;
 
@@ -210,7 +256,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     /// <summary>En-tête du groupe où la ligne se range quand la liste est triée par nom. Au pluriel et plus
     /// explicite que <see cref="KindLabel"/>, qui tient dans une colonne étroite.</summary>
-    public string GroupLabel => Kind switch
+    public string GroupLabel => EffectiveKind switch
     {
         ProcessKind.Application => "Applications",
         ProcessKind.Windows => "Processus Windows",
@@ -221,7 +267,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     /// en-têtes, lui, est fixé ailleurs (ApplyGrouping) ; ce rang sert à ranger la SOURCE par famille, ce
     /// qui fait qu'un processus changeant de famille devient mal placé, se fait déplacer, et rejoint du
     /// même coup le bon groupe.</summary>
-    public int GroupRank => Kind switch
+    public int GroupRank => EffectiveKind switch
     {
         ProcessKind.Application => 0,
         ProcessKind.Windows => 2,
@@ -238,6 +284,10 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public string IoDisplay => IoBytesPerSecond is { } rate && rate >= 1 ? ByteFormatter.FormatRate(rate) : "--";
 
     public string ThreadsDisplay => ThreadCount > 0 ? ThreadCount.ToString(CultureInfo.CurrentCulture) : "--";
+
+    /// <summary>Un agrégat n'a pas de PID : il en totalise plusieurs. « -- » comme toute valeur absente,
+    /// plutôt qu'un zéro qui désignerait le processus Idle.</summary>
+    public string PidDisplay => IsAggregate ? "--" : Pid.ToString(CultureInfo.CurrentCulture);
 
     public string StartTimeDisplay => Identity.StartTimeUtc is { } start
         ? start.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.CurrentCulture)
@@ -265,6 +315,21 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         Apply(info);
     }
 
+    /// <summary>Ligne d'agrégat. Elle n'a pas d'instantané à recopier : ses valeurs sont les totaux de ses
+    /// membres, posés par <see cref="ApplyAggregate"/> à chaque relevé.</summary>
+    private ProcessRowViewModel(ProcessesViewModel owner, string groupKey, string name)
+    {
+        Owner = owner;
+        IsAggregate = true;
+        GroupKey = groupKey;
+        Pid = 0;
+        Name = name;
+        DisplayName = name;
+    }
+
+    public static ProcessRowViewModel CreateAggregate(ProcessesViewModel owner, string groupKey, string name)
+        => new(owner, groupKey, name);
+
     public void Apply(ProcessInfo info)
     {
         Identity = info.Identity;
@@ -288,7 +353,74 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         CpuHistory.Push(info.CpuPercent);
         MemoryHistory.Push(MemoryBytes);
 
+        // Recalculée à chaque relevé : le chemin de l'exécutable et le compte propriétaire ne sont pas
+        // toujours lisibles à la première apparition d'un processus, et une ligne qui les obtient au relevé
+        // suivant doit rejoindre son groupe.
+        GroupKey = string.Concat(
+            info.ExecutablePath?.ToLowerInvariant() ?? info.Name.ToLowerInvariant(), "\u0000", info.UserName ?? "");
+
         if (IsGone) IsGone = false;
+    }
+
+    /// <summary>
+    /// Totalise les membres du groupe, comme le fait l'onglet « Processus » du Gestionnaire des tâches : une
+    /// application dont les vingt processus consomment chacun 0,3 % affiche bien 6 %, et non vingt lignes qui
+    /// semblent ne rien faire.
+    ///
+    /// Une mesure absente ne compte pas pour zéro : si AUCUN membre ne l'a fournie, le total reste null et la
+    /// cellule affiche « -- ». C'est le cas au tout premier relevé, où aucun %CPU n'est encore calculable.
+    /// </summary>
+    public void ApplyAggregate(List<ProcessRowViewModel> members)
+    {
+        MemberCount = members.Count;
+        // Le nom vient du membre le plus parlant : celui qui a une fenêtre, sinon le premier. Deux processus
+        // du même exécutable portent la même description, mais seul celui qui a une fenêtre porte un titre.
+        ProcessRowViewModel head = members.FirstOrDefault(m => m.Kind == ProcessKind.Application) ?? members[0];
+
+        DisplayName = head.DisplayName;
+        ExecutablePath = head.ExecutablePath;
+        Publisher = head.Publisher;
+        UserName = head.UserName;
+        WindowTitle = head.WindowTitle;
+        IsAccessible = members.Any(m => m.IsAccessible);
+        IsCritical = members.Any(m => m.IsCritical);
+
+        // Un groupe est une « Application » dès qu'un de ses processus a une fenêtre, et un composant de
+        // Windows seulement si tous le sont : c'est ce qui range un navigateur entier sous « Applications ».
+        Kind = members.Any(m => m.Kind == ProcessKind.Application) ? ProcessKind.Application
+            : members.All(m => m.Kind == ProcessKind.Windows) ? ProcessKind.Windows
+            : ProcessKind.Background;
+
+        CpuPercent = SumOrNull(members, m => m.CpuPercent);
+        MemoryBytes = SumOrNull(members, m => (double?)m.MemoryBytes) is { } bytes ? (long)bytes : null;
+        IoBytesPerSecond = SumOrNull(members, m => m.IoBytesPerSecond);
+        ThreadCount = members.Sum(m => m.ThreadCount);
+
+        // La plus ancienne : c'est le démarrage de l'application, pas celui de son dernier processus enfant.
+        DateTime? started = null;
+        foreach (ProcessRowViewModel member in members)
+        {
+            if (member.Identity.StartTimeUtc is { } time && (started is null || time < started)) started = time;
+        }
+        Identity = new ProcessIdentity(0, started);
+        OnPropertyChanged(nameof(StartTimeDisplay));
+
+        // La clé de tri suit la somme des clés lissées de ses membres, et non un nouveau lissage du total :
+        // un agrégat doit bouger dans le classement exactement au même rythme que les lignes qu'il résume.
+        CpuSortKey = members.Sum(m => m.CpuSortKey);
+
+        CpuHistory.Push(CpuPercent);
+        MemoryHistory.Push(MemoryBytes);
+    }
+
+    private static double? SumOrNull(List<ProcessRowViewModel> members, Func<ProcessRowViewModel, double?> get)
+    {
+        double? total = null;
+        foreach (ProcessRowViewModel member in members)
+        {
+            if (get(member) is { } value) total = (total ?? 0) + value;
+        }
+        return total;
     }
 
     /// <summary>Instant (TickCount64) où le processus a été constaté disparu : le sursis de la ligne grisée
@@ -330,6 +462,17 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     partial void OnKindChanged(ProcessKind value)
     {
         OnPropertyChanged(nameof(KindLabel));
+        NotifyGroupingChanged();
+    }
+
+    partial void OnParentChanged(ProcessRowViewModel? value) => NotifyGroupingChanged();
+
+    /// <summary>La famille affichée d'une ligne dépend aussi de son agrégat : quand l'un ou l'autre change,
+    /// l'en-tête de groupe et le rang de tri doivent être relus. Appelé aussi depuis l'onglet, après qu'un
+    /// agrégat a recalculé sa propre famille, pour ses membres.</summary>
+    internal void NotifyGroupingChanged()
+    {
+        OnPropertyChanged(nameof(EffectiveKind));
         OnPropertyChanged(nameof(GroupLabel));
         OnPropertyChanged(nameof(GroupRank));
     }
@@ -368,6 +511,14 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         // La ligne a pu être réaffectée à un autre processus pendant l'attente (les lignes sont réutilisées
         // en place) : on ne pose l'icône que si le chemin est toujours celui qu'on a demandé.
         if (ExecutablePath == path) Icon = loaded;
+    }
+
+    partial void OnIsExpandedChanged(bool value) => Owner.OnGroupExpansionChanged();
+
+    [RelayCommand]
+    private void ToggleExpand()
+    {
+        if (IsAggregate) IsExpanded = !IsExpanded;
     }
 
     [RelayCommand]
@@ -442,6 +593,15 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private readonly MonitoringViewModel _monitoring;
     private readonly DispatcherTimer _timer;
     private readonly Dictionary<ProcessIdentity, ProcessRowViewModel> _byIdentity = new();
+
+    /// <summary>Les lignes d'agrégat, par clé de groupe. Elles ne sont jamais recréées tant que leur
+    /// application tourne : leur historique de mini-courbes et leur sélection survivent aux relevés.</summary>
+    private readonly Dictionary<string, ProcessRowViewModel> _aggregates = new(StringComparer.Ordinal);
+
+    /// <summary>Tampon réutilisé par la reconstruction des agrégats : un dictionnaire neuf à chaque relevé
+    /// coûterait quatre cents allocations toutes les deux secondes, pour rien.</summary>
+    private readonly Dictionary<string, List<ProcessRowViewModel>> _byGroupKey = new(StringComparer.Ordinal);
+
     private readonly HashSet<ProcessIdentity> _seen = new();
     private readonly List<ProcessRowViewModel> _ordered = new();
     private readonly ListCollectionView _rowsView;
@@ -449,6 +609,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     private bool _orderQueued;
     private bool _orderQueuedForce;
+
+    /// <summary>Tous les groupes sont en train d'être dépliés d'un coup : chaque ligne ne doit pas déclencher
+    /// sa propre réévaluation du filtre, l'appelant s'en charge une seule fois à la fin.</summary>
+    private bool _bulkExpanding;
 
     /// <summary>L'onglet est fermé : ce qui traîne encore dans la file du dispatcher ne doit plus toucher à
     /// la liste ni au service.</summary>
@@ -490,8 +654,27 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     [ObservableProperty] private ProcessKindOption? selectedKind;
     [ObservableProperty] private bool isFrozen;
     [ObservableProperty] private bool isChoosingColumns;
-    [ObservableProperty] private bool showDetails;
-    [ObservableProperty] private ProcessRowViewModel? selectedRow;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
+    private bool showDetails;
+
+    [ObservableProperty] private bool groupByApplication = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
+    private ProcessRowViewModel? selectedRow;
+
+    /// <summary>Le panneau de détail s'affiche quand il a quelque chose à montrer ET que l'utilisateur le
+    /// veut. La visibilité est calculée ici, et surtout pas dans la vue : la carte portait sa liaison de
+    /// visibilité sur l'élément où elle posait aussi son DataContext, si bien que WPF cherchait
+    /// « SelectedRow » sur la ligne sélectionnée — où cette propriété n'existe pas.</summary>
+    public bool IsDetailVisible => ShowDetails && SelectedRow is not null;
+
+    /// <summary>Facteur d'échelle du %CPU et sa provenance, repris tels quels du dernier relevé pour la ligne
+    /// « Mesure du %CPU par processus » du diagnostic.</summary>
+    public double CpuScaleFactor { get; private set; } = 1.0;
+
+    public CpuScaleSource CpuScaleSource { get; private set; }
     [ObservableProperty] private string? statusText;
     [ObservableProperty] private string headerSummary = "";
     [ObservableProperty] private string? frozenAtDisplay;
@@ -589,6 +772,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         Columns.ApplyVisibility(saved.VisibleColumnIds);
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
+        GroupByApplication = saved.GroupByApplication;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
         // Repli cherché par sa valeur et non par son indice : insérer une cadence dans la liste
         // décalerait un indice et changerait le défaut sans qu'on s'en aperçoive.
@@ -702,7 +886,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }
 
         RemoveVanishedRows();
+        RebuildAggregates();
 
+        CpuScaleFactor = snapshot.CpuScaleFactor;
+        CpuScaleSource = snapshot.CpuScaleSource;
         TotalCount = snapshot.Processes.Count;
         ReadDurationHint = $"Durée du dernier relevé : {snapshot.ReadDuration.TotalMilliseconds:0} ms"
                            + (snapshot.InaccessibleCount > 0
@@ -726,6 +913,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         for (int i = Rows.Count - 1; i >= 0; i--)
         {
             ProcessRowViewModel row = Rows[i];
+            // Un agrégat ne correspond à aucun processus : sa disparition se décide sur le nombre de ses
+            // membres, dans RemoveUnusedAggregates, et surtout pas ici.
+            if (row.IsAggregate) continue;
             if (_seen.Contains(row.Identity)) continue;
 
             if (keepPlaceholders)
@@ -746,6 +936,159 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         if (removedSelected) OnRowSelectionChanged();
     }
 
+    // ----- Regroupement par application -----
+
+    /// <summary>Un groupe ne vaut que s'il rassemble plusieurs processus : une application qui n'en a qu'un
+    /// reste une ligne ordinaire, sans chevron ni ligne d'en-tête inutile.</summary>
+    private const int MinimumGroupSize = 2;
+
+    /// <summary>
+    /// Refait le regroupement par application : quels processus partagent un exécutable et un compte, et
+    /// quels totaux afficher pour chacun. Appelé à chaque relevé, après que toutes les lignes ont reçu leurs
+    /// valeurs — les totaux n'auraient aucun sens calculés sur des mesures à moitié à jour.
+    ///
+    /// Les lignes d'agrégat entrent et sortent de la collection comme les autres : jamais à leur rang quand
+    /// la liste est visée, pour ne pas décaler ce qui est sous le curseur.
+    /// </summary>
+    private void RebuildAggregates()
+    {
+        foreach (List<ProcessRowViewModel> members in _byGroupKey.Values) members.Clear();
+
+        if (!GroupByApplication)
+        {
+            foreach (ProcessRowViewModel row in Rows) row.Parent = null;
+        }
+        else
+        {
+            foreach (ProcessRowViewModel row in Rows)
+            {
+                // Un processus disparu ne compte plus dans les totaux : sa ligne grisée n'a plus de mesures,
+                // et le faire peser dans la somme ferait mentir l'agrégat pendant tout son sursis.
+                if (row.IsAggregate || row.IsGone) continue;
+
+                if (!_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members))
+                {
+                    members = new List<ProcessRowViewModel>();
+                    _byGroupKey[row.GroupKey] = members;
+                }
+                members.Add(row);
+            }
+        }
+
+        foreach ((string key, List<ProcessRowViewModel> members) in _byGroupKey)
+        {
+            if (members.Count < MinimumGroupSize)
+            {
+                foreach (ProcessRowViewModel member in members) member.Parent = null;
+                continue;
+            }
+
+            bool isNew = !_aggregates.TryGetValue(key, out ProcessRowViewModel? aggregate);
+            if (isNew)
+            {
+                aggregate = ProcessRowViewModel.CreateAggregate(this, key, members[0].Name);
+                _aggregates[key] = aggregate;
+            }
+
+            aggregate!.ApplyAggregate(members);
+
+            // Le rattachement précède l'insertion : c'est lui qui donne aux membres leur clé de classement,
+            // et un agrégat inséré avant que ses membres le connaissent atterrirait loin d'eux, le temps que
+            // le reclassement suivant — jusqu'à trois secondes plus tard — les réunisse.
+            foreach (ProcessRowViewModel member in members)
+            {
+                member.Parent = aggregate;
+                // La famille de l'agrégat vient d'être recalculée : celle de ses membres en découle.
+                member.NotifyGroupingChanged();
+            }
+
+            if (!isNew) continue;
+
+            // Décidée AVANT l'ajout, comme pour une ligne de processus : une ligne hors filtre ne doit
+            // jamais apparaître, même le temps d'un tour.
+            aggregate.MatchesFilter = PassesFilter(aggregate);
+
+            if (IsListBusy) Rows.Add(aggregate);
+            else Rows.Insert(FindInsertIndex(aggregate), aggregate);
+        }
+
+        RemoveUnusedAggregates();
+    }
+
+    /// <summary>Retire les agrégats dont l'application ne tourne plus, ou qui sont retombés à un seul
+    /// processus. Rien n'est retiré tant que la liste est visée : leurs lignes sont déjà hors du filtre, donc
+    /// invisibles, mais l'appartenance au filtre n'est réévaluée qu'une fois le pointeur ressorti.</summary>
+    private void RemoveUnusedAggregates()
+    {
+        if (IsListBusy) return;
+
+        bool removedSelected = false;
+        var removed = new HashSet<ProcessRowViewModel>();
+
+        for (int i = Rows.Count - 1; i >= 0; i--)
+        {
+            ProcessRowViewModel row = Rows[i];
+            if (!row.IsAggregate) continue;
+            if (_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members)
+                && members.Count >= MinimumGroupSize)
+            {
+                continue;
+            }
+
+            _aggregates.Remove(row.GroupKey);
+            removed.Add(row);
+            if (ReferenceEquals(SelectedRow, row)) SelectedRow = null;
+            if (row.IsSelected) removedSelected = true;
+            Rows.RemoveAt(i);
+        }
+
+        if (removed.Count > 0)
+        {
+            // Une ligne grisée n'est pas comptée parmi les membres : elle pointerait sinon sur un agrégat
+            // que plus rien n'affiche, et en hériterait une famille et donc un en-tête de groupe fantômes.
+            foreach (ProcessRowViewModel row in Rows)
+            {
+                if (row.Parent is { } parent && removed.Contains(parent)) row.Parent = null;
+            }
+        }
+
+        if (removedSelected) OnRowSelectionChanged();
+
+        // Les clés mortes s'accumuleraient sinon pendant toute la session : une entrée par exécutable
+        // rencontré depuis l'ouverture de l'onglet, liste vide comprise.
+        foreach (string key in _byGroupKey.Where(e => e.Value.Count == 0).Select(e => e.Key).ToList())
+        {
+            _byGroupKey.Remove(key);
+        }
+    }
+
+    /// <summary>Un groupe vient d'être déplié ou replié : ses membres entrent ou sortent de la vue. Le
+    /// changement est volontaire, donc immédiat — c'est l'utilisateur qui vient de cliquer le chevron.</summary>
+    internal void OnGroupExpansionChanged()
+    {
+        if (!_initialized || _bulkExpanding) return;
+
+        UpdateFilterMembership();
+
+        // La mise en forme dynamique traite ces changements d'appartenance en priorité DataBind : réconcilier
+        // tout de suite interrogerait une vue qui affiche encore les membres qu'on vient de replier, et la
+        // sélection d'un membre replié y survivrait. D'où la même file que le reclassement.
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (!_disposed) ReconcileWithView();
+        }));
+    }
+
+    partial void OnGroupByApplicationChanged(bool value)
+    {
+        if (!_initialized) return;
+
+        RebuildAggregates();
+        RefreshFilter();
+        QueueOrder(force: true);
+        Persist();
+    }
+
     // ----- Classement -----
 
     private Comparison<ProcessRowViewModel> BuildComparison()
@@ -755,32 +1098,57 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         return (a, b) =>
         {
-            // Tri par nom : les groupes d'abord, façon Gestionnaire des tâches. Le rang de groupe est
-            // comparé hors du sens du tri — inverser le tri doit retourner les noms DANS chaque groupe,
-            // pas remonter les processus Windows au-dessus des applications.
-            if (column == "name" && a.GroupRank != b.GroupRank) return a.GroupRank.CompareTo(b.GroupRank);
+            // Le classement porte d'abord sur les GROUPES : un membre est comparé par son agrégat, jamais
+            // par lui-même. Sans cela, trier par mémoire éparpillerait les vingt processus d'un navigateur
+            // aux quatre coins de la liste, loin de la ligne qui les totalise.
+            ProcessRowViewModel aSubject = a.SortSubject;
+            ProcessRowViewModel bSubject = b.SortSubject;
 
-            int result = column switch
+            if (!ReferenceEquals(aSubject, bSubject))
             {
-                "name" => string.Compare(a.DisplayName, b.DisplayName, StringComparison.CurrentCultureIgnoreCase),
-                "pid" => a.Pid.CompareTo(b.Pid),
-                "kind" => string.Compare(a.KindLabel, b.KindLabel, StringComparison.CurrentCultureIgnoreCase),
-                "memory" => CompareNullable(a.MemoryBytes, b.MemoryBytes, direction),
-                "io" => CompareNullable(a.IoBytesPerSecond, b.IoBytesPerSecond, direction),
-                "threads" => a.ThreadCount.CompareTo(b.ThreadCount),
-                "user" => string.Compare(a.UserName, b.UserName, StringComparison.CurrentCultureIgnoreCase),
-                "publisher" => string.Compare(a.Publisher, b.Publisher, StringComparison.CurrentCultureIgnoreCase),
-                // Le tri suit la moyenne lissée, jamais la valeur instantanée affichée.
-                _ => a.CpuSortKey.CompareTo(b.CpuSortKey),
-            };
+                return CompareRows(aSubject, bSubject, column, direction);
+            }
 
-            if (result != 0) return result * direction;
+            // Même groupe : l'agrégat en tête, puis ses membres classés entre eux.
+            if (a.IsAggregate != b.IsAggregate) return a.IsAggregate ? -1 : 1;
 
-            // Ordre total obligatoire : sans départage, List.Sort permute les ex æquo d'un relevé à l'autre
-            // et les lignes sauteraient malgré tout le reste. Vingt chrome.exe à 0 % sont un cas courant.
-            result = string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
-            return result != 0 ? result : a.Pid.CompareTo(b.Pid);
+            return CompareRows(a, b, column, direction);
         };
+    }
+
+    private static int CompareRows(ProcessRowViewModel a, ProcessRowViewModel b, string column, int direction)
+    {
+        // Tri par nom : les familles d'abord, façon Gestionnaire des tâches. Le rang de famille est
+        // comparé hors du sens du tri — inverser le tri doit retourner les noms DANS chaque famille,
+        // pas remonter les processus Windows au-dessus des applications.
+        if (column == "name" && a.GroupRank != b.GroupRank) return a.GroupRank.CompareTo(b.GroupRank);
+
+        int result = column switch
+        {
+            "name" => string.Compare(a.DisplayName, b.DisplayName, StringComparison.CurrentCultureIgnoreCase),
+            "pid" => a.Pid.CompareTo(b.Pid),
+            "kind" => string.Compare(a.KindLabel, b.KindLabel, StringComparison.CurrentCultureIgnoreCase),
+            "memory" => CompareNullable(a.MemoryBytes, b.MemoryBytes, direction),
+            "io" => CompareNullable(a.IoBytesPerSecond, b.IoBytesPerSecond, direction),
+            "threads" => a.ThreadCount.CompareTo(b.ThreadCount),
+            "user" => string.Compare(a.UserName, b.UserName, StringComparison.CurrentCultureIgnoreCase),
+            "publisher" => string.Compare(a.Publisher, b.Publisher, StringComparison.CurrentCultureIgnoreCase),
+            // Le tri suit la moyenne lissée, jamais la valeur instantanée affichée.
+            _ => a.CpuSortKey.CompareTo(b.CpuSortKey),
+        };
+
+        if (result != 0) return result * direction;
+
+        // Ordre total obligatoire : sans départage, List.Sort permute les ex æquo d'un relevé à l'autre
+        // et les lignes sauteraient malgré tout le reste. Vingt chrome.exe à 0 % sont un cas courant.
+        // La clé de groupe fait partie du départage : deux agrégats homonymes — la même application sous
+        // deux comptes — ont le même nom et le même PID nul, et l'ordre ne serait alors pas total, ce qui
+        // laisserait leurs membres s'entremêler.
+        result = string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+        if (result != 0) return result;
+
+        result = string.CompareOrdinal(a.GroupKey, b.GroupKey);
+        return result != 0 ? result : a.Pid.CompareTo(b.Pid);
     }
 
     /// <summary>Compare deux valeurs éventuellement absentes en gardant les absentes en dernier, quel que
@@ -891,7 +1259,19 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         {
             ProcessRowViewModel? selected = SelectedRow;
             Rows.ReplaceAll(_ordered);
-            SelectedRow = selected;
+
+            // La sélection est reposée APRÈS que la vue a traité le Reset, pas juste ici : la vue filtrée
+            // diffère ce traitement en priorité DataBind, et remettait donc SelectedItem — donc SelectedRow
+            // — à null une fraction de seconde après cette ligne. Le panneau de détail disparaissait alors
+            // au moindre clic d'en-tête, sans que rien ne l'explique.
+            if (selected is not null)
+            {
+                _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    if (_disposed || !_rowsView.Contains(selected)) return;
+                    SelectedRow = selected;
+                }));
+            }
             return;
         }
 
@@ -992,27 +1372,73 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     private bool PassesFilter(ProcessRowViewModel row)
     {
+        // Un agrégat retombé sous deux membres, ou resté là après une désactivation du regroupement, quitte
+        // la liste par le filtre — le seul chemin qui ne décale rien sous le curseur.
+        if (row.IsAggregate && (!GroupByApplication || row.MemberCount < MinimumGroupSize)) return false;
+
         ProcessKindFilter kind = SelectedKind?.Value ?? ProcessKindFilter.All;
+        // La famille comparée est celle du groupe : filtrer sur « Applications » doit montrer un navigateur
+        // entier, processus de rendu compris, et non l'amputer de tout ce qui n'a pas de fenêtre.
         bool kindOk = kind switch
         {
-            ProcessKindFilter.Applications => row.Kind == ProcessKind.Application,
-            ProcessKindFilter.Background => row.Kind == ProcessKind.Background,
-            ProcessKindFilter.Windows => row.Kind == ProcessKind.Windows,
+            ProcessKindFilter.Applications => row.EffectiveKind == ProcessKind.Application,
+            ProcessKindFilter.Background => row.EffectiveKind == ProcessKind.Background,
+            ProcessKindFilter.Windows => row.EffectiveKind == ProcessKind.Windows,
             _ => true,
         };
         if (!kindOk) return false;
 
-        if (SearchText.Length == 0) return true;
+        if (SearchText.Length == 0)
+        {
+            // Sans recherche, les membres d'un groupe replié sont masqués. Une recherche, elle, doit pouvoir
+            // trouver un processus où qu'il soit : elle ouvre donc tous les groupes le temps de sa durée.
+            return row.Parent is not { IsExpanded: false };
+        }
 
-        return TextSearch.Contains(row.DisplayName, SearchText)
-               || TextSearch.Contains(row.Name, SearchText)
-               || TextSearch.Contains(row.Publisher, SearchText)
-               || TextSearch.Contains(row.ExecutablePath, SearchText)
-               || TextSearch.Contains(row.WindowTitle, SearchText)
-               || row.Pid.ToString(CultureInfo.InvariantCulture).Contains(SearchText, StringComparison.Ordinal);
+        if (Matches(row)) return true;
+
+        // Un membre trouvé par la recherche remonte avec son en-tête, et un groupe dont le nom correspond
+        // montre tous ses processus : c'est ce que fait le Gestionnaire des tâches.
+        if (row.Parent is { } parent && Matches(parent)) return true;
+        if (row.IsAggregate
+            && _byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members)
+            && members.Any(Matches))
+        {
+            return true;
+        }
+
+        return false;
     }
 
-    partial void OnSearchTextChanged(string value) => RefreshFilter();
+    private bool Matches(ProcessRowViewModel row)
+        => TextSearch.Contains(row.DisplayName, SearchText)
+           || TextSearch.Contains(row.Name, SearchText)
+           || TextSearch.Contains(row.Publisher, SearchText)
+           || TextSearch.Contains(row.ExecutablePath, SearchText)
+           || TextSearch.Contains(row.WindowTitle, SearchText)
+           || (!row.IsAggregate
+               && row.Pid.ToString(CultureInfo.InvariantCulture).Contains(SearchText, StringComparison.Ordinal));
+
+    partial void OnSearchTextChanged(string value)
+    {
+        // Une recherche doit pouvoir trouver un processus où qu'il soit, y compris dans un groupe replié :
+        // elle déplie donc tout, comme le fait le Gestionnaire des tâches. Le repliage manuel est perdu, ce
+        // qui vaut mieux qu'un chevron qui annonce « replié » au-dessus de membres bien visibles.
+        if (value.Length > 0 && _aggregates.Count > 0)
+        {
+            _bulkExpanding = true;
+            try
+            {
+                foreach (ProcessRowViewModel aggregate in _aggregates.Values) aggregate.IsExpanded = true;
+            }
+            finally
+            {
+                _bulkExpanding = false;
+            }
+        }
+
+        RefreshFilter();
+    }
 
     partial void OnSelectedKindChanged(ProcessKindOption? value)
     {
@@ -1176,6 +1602,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         // filtre, et l'on ne termine jamais un processus que l'utilisateur ne voit pas.
         List<ProcessRowViewModel> targets = Rows
             .Where(r => r.IsSelected && !r.IsGone && _rowsView.Contains(r))
+            .SelectMany(ExpandAggregate)
+            .Distinct()
             .ToList();
         if (targets.Count == 0) return;
         if (targets.Count == 1)
@@ -1183,6 +1611,16 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             await TerminateAsync(targets[0]);
             return;
         }
+
+        await TerminateManyAsync(targets);
+    }
+
+    /// <summary>Termine un lot de processus, garde-fous compris. Partagé par la sélection multiple et par
+    /// l'action sur une ligne d'agrégat : le second cas ne doit surtout pas contourner les vérifications du
+    /// premier.</summary>
+    private async Task TerminateManyAsync(List<ProcessRowViewModel> targets)
+    {
+        if (IsTerminating) return;
 
         var refused = new List<string>();
         var allowed = new List<ProcessRowViewModel>();
@@ -1194,7 +1632,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         if (allowed.Count == 0)
         {
-            ShowMessage("Aucun des processus sélectionnés ne peut être terminé :\n\n"
+            ShowMessage("Aucun des processus visés ne peut être terminé :\n\n"
                         + string.Join("\n\n", refused), MessageBoxImage.Information);
             return;
         }
@@ -1215,7 +1653,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             $"Terminer {allowed.Count} processus ?\n\n{names}\n\n"
             + "Ils sont arrêtés net : tout travail non enregistré est perdu, et c'est irréversible.\n"
             + (warnings.Count > 0 ? "\n" + string.Join("\n", warnings) + "\n" : "")
-            + (refused.Count > 0 ? $"\n{refused.Count} processus de la sélection seront ignorés (protégés).\n" : ""),
+            + (refused.Count > 0 ? $"\n{refused.Count} processus seront ignorés (protégés par Windows).\n" : ""),
             MessageBoxImage.Warning, MessageBoxButton.YesNo, MessageBoxResult.No);
         if (answer != MessageBoxResult.Yes) return;
 
@@ -1250,9 +1688,38 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         await RefreshAsync();
     }
 
+    /// <summary>Les processus réellement visés par une action sur cette ligne : elle-même pour un processus,
+    /// tous ses membres pour un agrégat — qui n'est pas un processus et ne peut donc pas être terminé.
+    /// Un agrégat replié cache ses membres, mais l'action porte bien sur tous, comme dans le Gestionnaire
+    /// des tâches : le nombre est annoncé dans la demande de confirmation.</summary>
+    private IEnumerable<ProcessRowViewModel> ExpandAggregate(ProcessRowViewModel row)
+    {
+        if (!row.IsAggregate) return new[] { row };
+
+        return _byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members)
+            ? members.Where(m => !m.IsGone).ToList()
+            : Array.Empty<ProcessRowViewModel>();
+    }
+
     internal async Task TerminateAsync(ProcessRowViewModel row)
     {
         if (IsTerminating) return;
+
+        // Un agrégat n'a pas de PID à terminer : l'action se répercute sur ses membres, par le même chemin
+        // que la sélection multiple — garde-fous, avertissements et revérification d'identité compris.
+        if (row.IsAggregate)
+        {
+            List<ProcessRowViewModel> members = ExpandAggregate(row).ToList();
+            if (members.Count == 0) return;
+            if (members.Count == 1)
+            {
+                await TerminateAsync(members[0]);
+                return;
+            }
+
+            await TerminateManyAsync(members);
+            return;
+        }
 
         ProcessInfo info = row.ToInfo();
         if (ProcessTerminationGuard.GetRefusalReason(info) is { } refusal)
@@ -1417,6 +1884,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         settings.Processes.VisibleColumnIds = Columns.VisibleIds;
         settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
         settings.Processes.ShowDetails = ShowDetails;
+        settings.Processes.GroupByApplication = GroupByApplication;
         AppSettingsStore.Save(settings);
     }
 

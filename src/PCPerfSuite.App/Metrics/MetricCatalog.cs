@@ -133,6 +133,22 @@ public static class MetricCatalog
         "Aucune sonde carte mère lisible sur ce PC : c'est le cas de la plupart des portables et de certaines cartes mères " +
         "récentes. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
 
+    /// <summary>L'utilisation de la mémoire vient d'abord de LibreHardwareMonitor, puis de la même API que
+    /// le Gestionnaire des tâches (GlobalMemoryStatusEx) : voir la ligne « Mémoire » de Paramètres ›
+    /// Compatibilité de ce PC, qui nomme la source ayant répondu. En pratique, sous Windows, elle répond
+    /// toujours — d'où un message qui invite à signaler le cas plutôt qu'à s'en accommoder.</summary>
+    internal const string RamHint =
+        "Aucune source n'a renvoyé cette valeur, ce qui ne devrait pas arriver sous Windows : PCPerfSuite la lit " +
+        "d'abord auprès de LibreHardwareMonitor, puis auprès de Windows lui-même, la même source que le Gestionnaire " +
+        "des tâches. Merci de signaler ce PC avec le rapport de Paramètres › Compatibilité de ce PC.";
+
+    /// <summary>Type, fréquence et barrettes viennent de la table SMBIOS remplie par le BIOS. Beaucoup de
+    /// mini-PC et de portables à mémoire soudée la laissent vide : c'est une limite de la machine, pas de
+    /// l'app, et l'utilisation de la mémoire reste mesurée normalement.</summary>
+    internal const string RamModulesHint =
+        "Le BIOS de ce PC ne décrit pas ses barrettes (mémoire soudée sur la carte, ou table SMBIOS incomplète). " +
+        "L'utilisation de la mémoire, elle, reste mesurée normalement. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+
     private const string GameHint =
         "Les FPS viennent de RTSS (RivaTuner Statistics Server) : RTSS doit être lancé et un jeu au premier plan.";
 
@@ -164,10 +180,13 @@ public static class MetricCatalog
         Numeric("gpu.fan.rpm", Gpu, "Ventilateur (RPM)", "ventilo", "RPM", "0", s => s.Hardware.Gpu?.FanRpm, hint: FanHint),
         Numeric("gpu.fan.percent", Gpu, "Ventilateur (%)", "ventilo", "%", "0", s => s.Hardware.Gpu?.FanPercent, hint: FanPercentHint),
 
-        Numeric("ram.load", Ram, "Charge", "charge", "%", "0", s => s.Hardware.Memory.LoadPercent),
-        Numeric("ram.used", Ram, "Utilisée", "util", "Go", "0.0", s => s.Hardware.Memory.UsedGb),
-        Numeric("ram.available", Ram, "Disponible", "dispo", "Go", "0.0", s => s.Hardware.Memory.AvailableGb),
-        Numeric("ram.virtual.used", Ram, "Mémoire virtuelle utilisée", "virt", "Go", "0.0", s => s.Hardware.Memory.VirtualUsedGb),
+        Numeric("ram.load", Ram, "Charge", "charge", "%", "0", s => s.Hardware.Memory.LoadPercent, hint: RamHint),
+        Numeric("ram.used", Ram, "Utilisée", "util", "Go", "0.0", s => s.Hardware.Memory.UsedGb, hint: RamHint),
+        Numeric("ram.available", Ram, "Disponible", "dispo", "Go", "0.0", s => s.Hardware.Memory.AvailableGb, hint: RamHint),
+        Numeric("ram.total", Ram, "Totale", "total", "Go", "0.0", s => s.Hardware.Memory.TotalGb, hint: RamHint),
+        Numeric("ram.virtual.used", Ram, "Mémoire virtuelle utilisée", "virt", "Go", "0.0", s => s.Hardware.Memory.VirtualUsedGb, hint: RamHint),
+        Numeric("ram.clock", Ram, "Fréquence", "freq", "MHz", "0", s => s.Hardware.Memory.SpeedMhz, hint: RamModulesHint),
+        Numeric("ram.temp.max", Ram, "Température barrette max", "temp", "°C", "0", s => MaxModuleTemperature(s.Hardware.Memory), hint: "Seules certaines barrettes portent une sonde thermique lisible (courant en DDR5, rare en DDR4, jamais sur mémoire soudée sans SPD). Ce n'est pas un dysfonctionnement de PCPerfSuite."),
 
         Numeric("mb.temp.system", Motherboard, "Température système", "temp", "°C", "0", s => s.Hardware.Motherboard.SystemTempC, hint: MotherboardHint),
         Numeric("mb.temp.vrm", Motherboard, "Température VRM", "vrm", "°C", "0", s => s.Hardware.Motherboard.VrmTempC, hint: MotherboardHint),
@@ -285,6 +304,18 @@ public static class MetricCatalog
 
     private static double? VramPercent(GpuSnapshot? gpu)
         => gpu is { VramUsedMb: { } used, VramTotalMb: { } total } && total > 0 ? used / total * 100 : null;
+
+    /// <summary>La plus chaude des barrettes, quand au moins une porte une sonde lisible. Une seule valeur
+    /// suffit à la tuile : c'est la barrette la plus chaude qui dit s'il y a un problème.</summary>
+    private static double? MaxModuleTemperature(MemorySnapshot memory)
+    {
+        double? max = null;
+        foreach (MemoryModuleInfo module in memory.Modules)
+        {
+            if (module.TemperatureC is { } value && (max is null || value > max)) max = value;
+        }
+        return max;
+    }
 
     private static double? SumOrNull(IEnumerable<float?> values)
     {

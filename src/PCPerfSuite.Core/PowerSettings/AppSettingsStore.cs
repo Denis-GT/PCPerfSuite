@@ -93,11 +93,13 @@ public sealed class ProcessesSettings
     /// <summary>Famille affichée : "all", "apps", "background" ou "windows".</summary>
     public string KindFilter { get; set; } = "all";
 
-    /// <summary>Fige le classement tant que le pointeur survole la liste, pour qu'une ligne ne se dérobe pas
-    /// sous le curseur au moment du clic.</summary>
-    public bool FreezeOrderOnHover { get; set; } = true;
+    /// <summary>Regroupe les instances d'une même application sous une ligne qui totalise leurs mesures,
+    /// comme l'onglet « Processus » du Gestionnaire des tâches. Activé par défaut : c'est à ce total que
+    /// l'utilisateur compare ce qu'il voit ailleurs.</summary>
+    public bool GroupByApplication { get; set; } = true;
 
-    public bool ShowDetails { get; set; }
+    /// <summary>Affiche le panneau de détail sous la liste pour le processus sélectionné.</summary>
+    public bool ShowDetails { get; set; } = true;
 }
 
 public sealed class GpuControlSettings
