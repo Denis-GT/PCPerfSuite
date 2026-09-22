@@ -39,7 +39,27 @@ internal sealed class BatteryReader : IDisposable
     /// ne se branche pas en cours de route sur un fixe, inutile de réinterroger SetupAPI à chaque relevé.</summary>
     private DateTime _nextEnumerationUtc = DateTime.MinValue;
 
+    /// <summary>Lecture best-effort : renvoie null plutôt que de lever. Elle est appelée depuis la boucle de
+    /// relevé, et tout ce qu'elle touche — SetupAPI, CreateFile, DeviceIoControl — dépend d'un pilote de
+    /// batterie propre au constructeur. Un pilote qui répond de travers ne doit pas emporter le relevé
+    /// entier, ni les capteurs qui, eux, fonctionnent.</summary>
     public BatterySnapshot? Read()
+    {
+        try
+        {
+            return ReadCore();
+        }
+        catch (Exception)
+        {
+            // Tag périmé, poignée invalidée, marshaling inattendu : on repart d'une énumération complète
+            // au prochain relevé plutôt que de rejouer la même erreur.
+            Close();
+            _nextEnumerationUtc = DateTime.MinValue;
+            return null;
+        }
+    }
+
+    private BatterySnapshot? ReadCore()
     {
         if (_devices is null || _devices.Count == 0)
         {

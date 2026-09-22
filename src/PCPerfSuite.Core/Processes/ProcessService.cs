@@ -104,6 +104,9 @@ public sealed class ProcessService : IDisposable
 
     private long _lastTimestamp;
 
+    /// <summary>Dernier relevé complet, rendu tel quel si le suivant échoue.</summary>
+    private ProcessSnapshot? _lastSnapshot;
+
     /// <summary>PROCESS_MEMORY_COUNTERS_EX2 n'existe qu'à partir des mises à jour cumulatives de septembre
     /// 2023. Au premier échec on bascule définitivement sur la structure EX, disponible depuis Vista, et le
     /// working set privé devient indisponible (colonne masquée plutôt que remplie de « -- »).</summary>
@@ -155,7 +158,18 @@ public sealed class ProcessService : IDisposable
     {
         lock (_gate)
         {
-            return GetSnapshotCore();
+            try
+            {
+                return _lastSnapshot = GetSnapshotCore();
+            }
+            catch (Exception ex) when (ex is not ObjectDisposedException && _lastSnapshot is not null)
+            {
+                // Un processus qui disparaît pendant qu'on le lit, un jeton refusé, une ressource de
+                // version illisible : rien de tout cela ne doit vider la liste entière. Celle du relevé
+                // précédent reste affichée le temps d'un tick. Le service fermé, lui, continue de se
+                // signaler : l'app est alors en train de se fermer et l'appelant le sait.
+                return _lastSnapshot;
+            }
         }
     }
 

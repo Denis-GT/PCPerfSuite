@@ -325,6 +325,11 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
             values[i * 2 + 1] = BitConverter.UInt32BitsToSingle((uint)(table[i] >> 32));
         }
 
+        // On a demandé 16 qwords, mais rien n'oblige le module PawnIO à en rendre autant : lire les
+        // emplacements attendus sans vérifier ce qui est réellement arrivé ferait sortir du tableau.
+        int needed = _isApu ? 3 : 1;
+        if (values.Length < needed) return null;
+
         // Portable : [0] STAPM, [2] limite rapide, [4] limite lente. Bureau : [0] PPT.
         float sustained = values[0];
         float burst = _isApu ? values[2] : values[0];

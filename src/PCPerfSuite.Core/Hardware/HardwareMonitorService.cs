@@ -52,6 +52,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private float? _lastCpuLoad;
     private RtssFrameStats? _lastGame;
     private BatterySnapshot? _lastBattery;
+
+    /// <summary>Dernier relevé complet, rendu tel quel si le suivant échoue.</summary>
+    private HardwareSnapshot? _lastSnapshot;
     private IReadOnlyList<LaptopFanReading> _lastLaptopFans = Array.Empty<LaptopFanReading>();
 
     /// <summary>Marque du GPU piloté par l'onglet GPU. Dans un PC à deux GPU (iGPU + carte dédiée), le
@@ -128,7 +131,19 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return GetSnapshotCore(epoch, tick);
+
+            try
+            {
+                return _lastSnapshot = GetSnapshotCore(epoch, tick);
+            }
+            catch (Exception) when (_lastSnapshot is not null)
+            {
+                // Un capteur qui lève — pilote rechargé, matériel retiré à chaud — ne doit pas priver
+                // l'utilisateur de tous les autres. Les valeurs du relevé précédent restent affichées le
+                // temps d'un tick, ce que le relevé suivant corrigera. Tant qu'il n'y a pas de relevé
+                // précédent à rendre, l'exception part chez l'appelant, qui la journalise.
+                return _lastSnapshot;
+            }
         }
     }
 
