@@ -234,7 +234,7 @@
 
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                             <Button Content="Tout réinitialiser" Style="{StaticResource GhostButton}" Command="{Binding ResetOverclockCommand}"/>
-                            <TextBox Text="{Binding OverclockStatus}" Style="{StaticResource SelectableCaption}" VerticalAlignment="Center"
+                            <TextBox Text="{Binding OverclockStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}" VerticalAlignment="Center"
                                      Margin="14,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
                         </StackPanel>
 

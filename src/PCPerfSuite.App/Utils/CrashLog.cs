@@ -31,9 +31,24 @@ public static class CrashLog
     {
         if (exception is null) return;
 
+        Write($"{exception.GetType().Name} ({origin}) : {exception.Message}", exception.ToString(), origin);
+    }
+
+    /// <summary>Journalise une anomalie qui n'est pas une exception. WPF ne signale la plupart des liaisons
+    /// de données cassées que par une trace silencieuse : sans ce chemin, elles n'atteindraient jamais le
+    /// rapport de bug.</summary>
+    public static void RecordMessage(string message, string origin)
+    {
+        if (message is not { Length: > 0 }) return;
+
+        Write($"{origin} : {message}", message, origin);
+    }
+
+    private static void Write(string summary, string detail, string origin)
+    {
         lock (Gate)
         {
-            LastError = $"{exception.GetType().Name} ({origin}) : {exception.Message}. Détail dans {FilePath}.";
+            LastError = $"{summary}. Détail dans {FilePath}.";
 
             try
             {
@@ -45,7 +60,7 @@ public static class CrashLog
 
                 var text = new StringBuilder();
                 text.AppendLine($"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} — {origin} =====");
-                text.AppendLine(exception.ToString());
+                text.AppendLine(detail);
                 text.AppendLine();
 
                 File.AppendAllText(FilePath, text.ToString(), Encoding.UTF8);

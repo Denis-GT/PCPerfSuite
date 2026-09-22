@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -56,6 +57,12 @@ public partial class App : System.Windows.Application
         Exit += (_, _) => { _instanceMutex?.ReleaseMutex(); _instanceMutex?.Dispose(); };
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+
+        // Les liaisons de données fautives que WPF ne juge pas dignes d'une exception n'apparaissaient
+        // nulle part : la valeur restait vide à l'écran, sans explication ni trace dans le rapport de bug.
+        PresentationTraceSources.Refresh();
+        PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingErrorListener());
+        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
 
         // Le thread d'interface n'est pas le seul à travailler : la boucle de relevé a le sien, et les
         // ViewModels partent en Task.Run. Une exception y passait jusqu'ici sans laisser la moindre trace.

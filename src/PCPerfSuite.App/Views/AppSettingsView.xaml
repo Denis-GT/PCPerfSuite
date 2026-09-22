@@ -224,7 +224,7 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBox Text="{Binding CopyStatus}" Style="{StaticResource SelectableCaption}" Margin="0,0,0,12"
+                        <TextBox Text="{Binding CopyStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,0,0,12"
                                  Visibility="{Binding CopyStatus, Converter={StaticResource NullToVisibility}}"/>
                     </StackPanel>
                 </Border>

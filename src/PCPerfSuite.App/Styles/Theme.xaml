@@ -186,7 +186,12 @@
          par un champ en lecture seule dépouillé de tout ce qui le ferait passer pour une saisie (cadre,
          fond, marge intérieure, curseur de saisie, tabulation). À réserver aux textes qu'on veut pouvoir
          copier — explications, statuts, chemins, rapport de compatibilité — et surtout pas aux valeurs
-         des tuiles, qui doivent rester de simples TextBlock. -->
+         des tuiles, qui doivent rester de simples TextBlock.
+
+         TOUJOURS lier le Text en Mode=OneWay. TextBox.Text se lie en TwoWay par défaut, et WPF lève dès
+         qu'il s'attache à une propriété sans setter : une propriété calculée — le cas le plus naturel pour
+         une étiquette — faisait donc planter l'app à l'ouverture de l'onglet. Ici rien n'est jamais saisi,
+         le sens inverse n'a aucun usage. -->
     <Style x:Key="SelectableCaption" TargetType="TextBox">
         <Setter Property="IsReadOnly" Value="True"/>
         <Setter Property="IsReadOnlyCaretVisible" Value="False"/>

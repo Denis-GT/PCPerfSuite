@@ -457,7 +457,7 @@
                                     <Run Text="· le plus ancien démarré le"/>
                                     <Run Text="{Binding StartTimeDisplay, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBox Text="{Binding Publisher}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                <TextBox Text="{Binding Publisher, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
                                          Visibility="{Binding Publisher, Converter={StaticResource NullToVisibility}}"/>
                                 <TextBlock Text="{Binding WindowTitle}" Style="{StaticResource Caption}" Margin="0,4,0,0"
                                            TextTrimming="CharacterEllipsis"
@@ -490,7 +490,7 @@
             </ContentControl.ContentTemplate>
         </ContentControl>
 
-        <TextBox Grid.Row="6" Text="{Binding StatusText}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
+        <TextBox Grid.Row="6" Text="{Binding StatusText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
                  TextWrapping="Wrap" Visibility="{Binding StatusText, Converter={StaticResource NullToVisibility}}"/>
     </Grid>
 </UserControl>

@@ -582,52 +582,63 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         }
     }
 
+    /// <summary>Un matériel, ou un capteur, dont le nom parle de mémoire virtuelle ne décrit jamais la RAM
+    /// physique. Selon la version de la bibliothèque, les deux familles vivent sur un seul matériel — les
+    /// capteurs « Memory Used » et « Virtual Memory Used » côte à côte — ou sur deux matériels distincts,
+    /// « Generic Memory » et « Virtual Memory ». D'où les deux niveaux de contrôle.</summary>
+    private static bool NamesVirtualMemory(string name)
+        => name.Contains("Virtual", StringComparison.OrdinalIgnoreCase);
+
     private static MemorySnapshot ReadMemory(IHardware hardware)
     {
-        // Mémoire physique et mémoire virtuelle portent des capteurs de même type : on sépare les deux familles
-        // avant de chercher par nom. Les anciennes versions de la bibliothèque les mettaient sur un seul
-        // matériel, où "Memory Used" est contenu dans "Virtual Memory Used" : le nom du capteur les distingue.
-        // Depuis la 0.9.4, la mémoire virtuelle est un matériel à part, « Virtual Memory », énuméré AVANT
-        // « Total Memory » et dont les capteurs portent les mêmes noms ("Memory Used"…) : seul le nom du
-        // matériel les distingue. Sans ce test, la mémoire engagée (RAM + fichier d'échange) passait pour la
-        // RAM utilisée, au-delà de la RAM installée.
-        bool virtualHardware = hardware.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase);
-        ISensor[] virtualSensors = virtualHardware
-            ? hardware.Sensors
-            : hardware.Sensors.Where(s => s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)).ToArray();
-        ISensor[] physicalSensors = hardware.Sensors.Except(virtualSensors).ToArray();
+        // Le matériel porteur prime sur le nom du capteur. Quand « Virtual Memory » est un matériel à part,
+        // rien n'oblige ses capteurs à porter le mot « Virtual » dans LEUR nom : les trier sur ce seul mot
+        // laissait alors passer de la mémoire virtuelle pour de la RAM physique, et affichait une mémoire
+        // utilisée supérieure à la mémoire installée.
+        bool hardwareIsVirtual = NamesVirtualMemory(hardware.Name)
+                                 || NamesVirtualMemory(hardware.Identifier.ToString());
 
-        // "Memory Used" / "Memory Available" sont les noms de la bibliothèque aujourd'hui. Le repli sur le
-        // premier capteur du bon type reprend ce que fait déjà la lecture de la carte mère : un nom qui
-        // change d'une version à l'autre ne doit pas vider une colonne entière sans explication. Il n'est
-        // tenté que sur un matériel qui porte AUSSI une charge, donc jamais sur une barrette — celle-ci
-        // expose une "Capacity" de type Data, qu'on prendrait sinon pour de la mémoire utilisée.
-        float? load = physicalSensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
-        ISensor[] dataSensors = physicalSensors.Where(s => s.SensorType == SensorType.Data).ToArray();
+        ISensor[] virtualSensors = hardwareIsVirtual
+            ? hardware.Sensors.ToArray()
+            : hardware.Sensors.Where(s => NamesVirtualMemory(s.Name)).ToArray();
 
-        float? used = FindSensor(dataSensors, SensorType.Data, "Memory Used")?.Value;
-        float? available = FindSensor(dataSensors, SensorType.Data, "Memory Available")?.Value;
+        ISensor[] physicalSensors = hardwareIsVirtual
+            ? Array.Empty<ISensor>()
+            : hardware.Sensors.Except(virtualSensors).ToArray();
 
-        if (used is null && available is null && load is not null && dataSensors.Length >= 2)
-        {
-            used = dataSensors[0].Value;
-            available = dataSensors[1].Value;
-        }
+        // Une barrette n'expose qu'une « Capacity » : aucun de ces noms ne lui correspond, elle ne
+        // contribue donc rien. C'est voulu — sa capacité n'est pas de la mémoire utilisée.
+        float? used = PhysicalValue(physicalSensors, SensorType.Data, "Memory Used");
+        float? available = PhysicalValue(physicalSensors, SensorType.Data, "Memory Available");
+        float? load = PhysicalValue(physicalSensors, SensorType.Load, "Memory")
+                      ?? physicalSensors.FirstOrDefault(s => s.SensorType == SensorType.Load)?.Value;
 
-        float? total = used.HasValue && available.HasValue ? used + available : null;
+        float? virtualUsed = ExactSensor(virtualSensors, SensorType.Data, "Virtual Memory Used")?.Value
+                             ?? ExactSensor(virtualSensors, SensorType.Data, "Memory Used")?.Value;
 
         return new MemorySnapshot
         {
             UsedGb = used,
             AvailableGb = available,
-            TotalGb = total,
+
+            // Pas de total déduit de « utilisée + disponible » : les deux peuvent venir de capteurs
+            // différents, et l'addition a affiché 37 Go de RAM installée sur une machine qui en a 16. Le
+            // total vient de Windows, ou à défaut de la somme des barrettes (voir CompleteMemory).
             LoadPercent = load,
-            VirtualUsedGb = FindSensor(virtualSensors, SensorType.Data, "Memory Used")?.Value,
-            Sources = used is not null || load is not null || total is not null
+            VirtualUsedGb = virtualUsed,
+            Sources = used is not null || load is not null || virtualUsed is not null
                 ? MemorySource.LibreHardwareMonitor
                 : MemorySource.None,
         };
     }
+
+    /// <summary>Cherche d'abord le nom exact, puis seulement à défaut par sous-chaîne — un nom qui change
+    /// d'une version de la bibliothèque à l'autre ne doit pas vider une colonne entière. L'ordre compte :
+    /// « Memory Used » est contenu dans « Virtual Memory Used », et la recherche par sous-chaîne seule
+    /// rendait l'un pour l'autre selon l'ordre d'énumération. Le repli est sans danger ici, les capteurs
+    /// virtuels ayant déjà été écartés de <paramref name="physicalSensors"/>.</summary>
+    private static float? PhysicalValue(ISensor[] physicalSensors, SensorType type, string name)
+        => (ExactSensor(physicalSensors, type, name) ?? FindSensor(physicalSensors, type, name))?.Value;
 
     /// <summary>Complète <paramref name="current"/> par <paramref name="addition"/>, champ par champ, sans
     /// jamais écraser une valeur déjà lue : sur une machine où plusieurs matériels mémoire coexistent,
@@ -676,14 +687,20 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         }
     }
 
-    /// <summary>Dernière étape du relevé mémoire : combler ce que LibreHardwareMonitor n'a pas fourni par la
-    /// source de Windows, puis y raccrocher la fiche matérielle. Après cet appel, aucune valeur d'utilisation
-    /// ne doit manquer sur une machine sous Windows.</summary>
+    /// <summary>Dernière étape du relevé mémoire : poser les valeurs de Windows, laisser
+    /// LibreHardwareMonitor combler ce qui manque, puis y raccrocher la fiche matérielle. Après cet appel,
+    /// aucune valeur d'utilisation ne doit manquer sur une machine sous Windows.</summary>
     private static MemorySnapshot CompleteMemory(MemorySnapshot memory, List<float?> temperatures)
     {
+        // Windows EN PREMIER. GlobalMemoryStatusEx est la source du Gestionnaire des tâches : présente sur
+        // tous les PC, sans pilote ni droits d'administrateur, et insensible au nom que LibreHardwareMonitor
+        // donne à ses capteurs. L'ordre inverse — celui d'origine — laissait une valeur fausse de la
+        // bibliothèque verrouiller le champ pour de bon, puisque la fusion ne réécrit jamais par-dessus une
+        // valeur déjà posée : le repli Windows ne pouvait alors corriger que ce qui manquait, jamais ce qui
+        // était faux.
         if (SystemMemoryReader.Read() is { } windows)
         {
-            memory = MergeMemory(memory, new MemorySnapshot
+            memory = MergeMemory(new MemorySnapshot
             {
                 UsedGb = windows.UsedGb,
                 AvailableGb = windows.AvailableGb,
@@ -692,26 +709,54 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 VirtualUsedGb = windows.VirtualUsedGb,
                 VirtualTotalGb = windows.VirtualTotalGb,
                 Sources = MemorySource.Windows,
-            });
+            }, memory);
         }
 
         MemoryModuleReader.Report report = MemoryModuleReader.Current;
+        IReadOnlyList<MemoryModuleInfo> modules = WithTemperatures(report.Modules, temperatures);
+
+        // À défaut de total lu, la somme des barrettes décrites par le BIOS. Elle dépasse un peu ce que
+        // Windows déclare — une part de la mémoire est réservée au matériel — mais elle donne le repère
+        // qui manque pour juger des valeurs d'utilisation.
+        float? total = memory.TotalGb ?? SumCapacity(modules);
+        bool usageCoherent = UsageFitsIn(memory, total);
 
         return new MemorySnapshot
         {
-            UsedGb = memory.UsedGb,
-            AvailableGb = memory.AvailableGb,
-            TotalGb = memory.TotalGb,
+            UsedGb = usageCoherent ? memory.UsedGb : null,
+            AvailableGb = usageCoherent ? memory.AvailableGb : null,
+            TotalGb = total,
             LoadPercent = memory.LoadPercent,
             VirtualUsedGb = memory.VirtualUsedGb,
             VirtualTotalGb = memory.VirtualTotalGb,
-            Modules = WithTemperatures(report.Modules, temperatures),
+            Modules = modules,
             SlotCount = report.SlotCount,
             TypeLabel = CommonValue(report.Modules.Select(m => m.TypeLabel)),
             SpeedMhz = CommonValue(report.Modules.Select(m => m.SpeedMhz)),
             ModulesUnavailableReason = report.UnavailableReason,
             Sources = report.HasModules ? memory.Sources | MemorySource.Wmi : memory.Sources,
         };
+    }
+
+    private static float? SumCapacity(IReadOnlyList<MemoryModuleInfo> modules)
+    {
+        double sum = modules.Sum(module => module.CapacityGb ?? 0);
+        return sum > 0 ? (float)sum : null;
+    }
+
+    /// <summary>Dernier filet : une mémoire utilisée — ou disponible — supérieure à la mémoire installée est
+    /// forcément fausse. C'est ainsi qu'une machine de 16 Go a pu afficher 18,8 Go utilisés, une valeur de
+    /// mémoire virtuelle prise pour de la mémoire physique. Mieux vaut « N/D », que le diagnostic sait
+    /// expliquer et que l'utilisateur peut signaler, qu'un nombre auquel il va croire. Les deux valeurs
+    /// tombent ensemble : elles viennent de la même source, donc de la même erreur.</summary>
+    private static bool UsageFitsIn(MemorySnapshot memory, float? total)
+    {
+        if (total is not { } installed || installed <= 0) return true;
+
+        // Les sources ne datent pas de la même milliseconde, et le total de Windows exclut la mémoire
+        // réservée au matériel : une marge est nécessaire pour ne pas écarter des valeurs justes.
+        float ceiling = installed * 1.05f;
+        return (memory.UsedGb ?? 0) <= ceiling && (memory.AvailableGb ?? 0) <= ceiling;
     }
 
     /// <summary>Raccroche les températures lues par LibreHardwareMonitor aux barrettes décrites par WMI, dans
@@ -977,6 +1022,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         return sensors.FirstOrDefault(s =>
             s.SensorType == type && s.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Correspondance sur le nom entier, pour les familles de capteurs dont les noms se contiennent
+    /// les uns les autres.</summary>
+    private static ISensor? ExactSensor(IEnumerable<ISensor> sensors, SensorType type, string name)
+    {
+        return sensors.FirstOrDefault(s =>
+            s.SensorType == type && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     private static float? AddIfPresent(float? total, float? value)
