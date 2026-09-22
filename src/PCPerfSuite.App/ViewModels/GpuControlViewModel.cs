@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -93,6 +94,18 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
                        "Relance l'app en administrateur.";
 
             MachineInfo machine = MachineInfo.Current;
+
+            // Le refus vient de PCPerfSuite, pas de la carte : sans cette branche, l'utilisateur lisait que
+            // son pilote ne répond pas, le réinstallait, et voyait le même message — le témoin, lui, ne
+            // bouge pas. C'est ici que la règle 3 veut la raison exacte, pas seulement dans le diagnostic.
+            if (AdlxProbeGuard.PreviousAttemptCrashed && DedicatedGpu(machine) == "AMD Radeon")
+            {
+                return "PCPerfSuite ne s'est pas relancée deux fois de suite après avoir interrogé le pilote AMD (ADLX) : " +
+                       "le contrôle GPU n'est donc plus tenté, pour que l'app démarre. Après une mise à jour du pilote " +
+                       $"Adrenalin, supprime le fichier {AdlxProbeGuard.SentinelFilePath} pour lui rendre sa chance " +
+                       "(voir Paramètres › Compatibilité de ce PC).";
+            }
+
             if (DedicatedGpu(machine) is { } vendor)
                 return $"Un GPU {vendor} est présent, mais son pilote ne répond pas (pilote absent, trop ancien, ou GPU désactivé). " +
                        "Installe le dernier pilote du constructeur de la carte.";

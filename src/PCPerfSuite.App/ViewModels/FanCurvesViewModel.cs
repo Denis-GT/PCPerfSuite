@@ -869,8 +869,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
             if (MachineInfo.Current.Chassis == ChassisKind.Unknown)
                 return "Windows n'a pas su dire si ce PC est un portable ou une machine de bureau (le service WMI ne répond pas, et " +
                        "aucune batterie n'a été détectée pour trancher). Comme piloter les ventilateurs d'un portable peut le laisser " +
-                       "sans refroidissement, PCPerfSuite s'en abstient tant que le doute subsiste. Leur vitesse reste lisible dans le " +
-                       "Monitoring. Merci de signaler ce PC avec le rapport de Paramètres › Compatibilité de ce PC.";
+                       "sans refroidissement, PCPerfSuite s'en abstient tant que le doute subsiste. Leur vitesse s'affiche dans le " +
+                       "Monitoring si la carte mère ou la marque du portable l'expose. Merci de signaler ce PC avec le rapport de " +
+                       "Paramètres › Compatibilité de ce PC.";
 
             return "Aucun ventilateur pilotable détecté : la puce de gestion de la carte mère n'est pas reconnue ou n'accepte pas de " +
                    "pilotage logiciel (sur certaines cartes, il faut passer les ventilateurs en mode PWM/DC manuel dans le BIOS). " +

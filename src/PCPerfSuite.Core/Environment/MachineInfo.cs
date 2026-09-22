@@ -85,22 +85,37 @@ public sealed class MachineInfo
         return new MachineInfo(manufacturer, model, ReadChassis(wmiSaysMobile), ReadVideoControllers());
     }
 
-    /// <summary>Croise les trois sources disponibles. Elles ne pèsent pas le même poids : un « oui » suffit
-    /// à conclure au portable — aucune ne se trompe dans ce sens — alors que « PC de bureau » demande un
-    /// accord. L'absence de batterie seule ne suffit pas, un portable dont la batterie a été retirée la
-    /// déclare absente elle aussi ; et WMI seul ne suffit pas, certaines images OEM déclarant un type de
-    /// machine fantaisiste. Sans accord, l'état reste indéterminé.</summary>
+    /// <summary>
+    /// Croise les sources disponibles, dans l'ordre de ce qu'elles savent réellement.
+    ///
+    /// Les deux descripteurs SMBIOS — PCSystemType et le type de châssis — décrivent la machine
+    /// elle-même : quand l'un dit « portable », c'est vrai, et quand ils disent « pas un portable », ils
+    /// priment sur la simple présence d'une batterie. Celle-ci ne prouve rien à elle seule : Windows
+    /// compte AUSSI les onduleurs USB comme des batteries système, et un PC de bureau sur onduleur
+    /// passerait sinon pour un portable — perdant au passage le pilotage de ses ventilateurs.
+    ///
+    /// La batterie garde deux rôles, tous deux prudents : une batterie INTERNE contredit un châssis qui
+    /// se déclare de bureau (quelques barebones de portable déclarent un boîtier de bureau), et quand
+    /// aucun descripteur ne répond, elle est le dernier indice qui reste. Son absence, elle, ne conclut
+    /// jamais : une batterie retirée se déclare absente comme sur un fixe.
+    /// </summary>
     private static ChassisKind ReadChassis(bool? wmiSaysMobile)
     {
+        if (wmiSaysMobile == true) return ChassisKind.Laptop;
+
+        // Interrogé seulement maintenant : c'est une requête WMI complète, inutile quand PCSystemType a
+        // déjà conclu.
         bool? chassisSaysLaptop = HasLaptopChassis();
-        bool? hasBattery = HasBattery();
+        if (chassisSaysLaptop == true) return ChassisKind.Laptop;
 
-        if (wmiSaysMobile == true || chassisSaysLaptop == true || hasBattery == true) return ChassisKind.Laptop;
+        if (wmiSaysMobile is not null || chassisSaysLaptop is not null)
+        {
+            return HasInternalBattery() == true ? ChassisKind.Laptop : ChassisKind.Desktop;
+        }
 
-        bool somethingAnswered = wmiSaysMobile is not null || chassisSaysLaptop is not null;
-        if (hasBattery == false && somethingAnswered) return ChassisKind.Desktop;
-
-        return ChassisKind.Unknown;
+        // Plus aucun descripteur : dépôt WMI cassé, image OEM particulière, droits restreints. Faute de
+        // batterie pour trancher, l'état reste indéterminé — et l'écriture, refusée.
+        return HasBattery() == true ? ChassisKind.Laptop : ChassisKind.Unknown;
     }
 
     private static IReadOnlyList<string> ReadVideoControllers()
@@ -155,6 +170,47 @@ public sealed class MachineInfo
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Présence d'une batterie INTERNE, c'est-à-dire d'un portable et non d'un onduleur.
+    ///
+    /// Windows expose un onduleur USB comme une batterie système : c'est ce qui allume l'icône de batterie
+    /// dans la zone de notification d'un PC de bureau. Les distinguer demande WMI, mais on ne pose la
+    /// question que lorsqu'un descripteur SMBIOS a déjà répondu — donc lorsque WMI fonctionne. Un
+    /// périphérique dont l'identifiant commence par « HID\ » est branché sur un bus externe : c'est un
+    /// onduleur, pas la batterie de la machine.
+    /// </summary>
+    private static bool? HasInternalBattery()
+    {
+        bool? system = HasBattery();
+        if (system != true) return system;
+
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT PNPDeviceID FROM Win32_Battery");
+
+            bool answered = false;
+            bool internalBattery = false;
+            foreach (ManagementBaseObject battery in searcher.Get())
+            {
+                using (battery)
+                {
+                    answered = true;
+                    string id = battery["PNPDeviceID"]?.ToString() ?? "";
+                    if (!id.StartsWith("HID\\", StringComparison.OrdinalIgnoreCase)) internalBattery = true;
+                }
+            }
+
+            if (answered) return internalBattery;
+        }
+        catch
+        {
+            // WMI muet ici : on garde la réponse de Windows, quitte à prendre un onduleur pour une
+            // batterie. Le coût de cette confusion est un refus d'écrire, jamais une écriture de trop.
+        }
+
+        return true;
     }
 
     /// <summary>Présence d'une batterie, via l'API d'alimentation de Windows : aucun privilège, aucun

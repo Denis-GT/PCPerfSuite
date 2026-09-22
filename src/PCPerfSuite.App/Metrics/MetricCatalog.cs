@@ -166,14 +166,18 @@ public static class MetricCatalog
         return $"{baseReason} Ce n'est pas un dysfonctionnement de PCPerfSuite.{suffix}";
     }
 
-    /// <summary>L'utilisation de la mémoire vient d'abord de LibreHardwareMonitor, puis de la même API que
-    /// le Gestionnaire des tâches (GlobalMemoryStatusEx) : voir la ligne « Mémoire » de Paramètres ›
-    /// Compatibilité de ce PC, qui nomme la source ayant répondu. En pratique, sous Windows, elle répond
-    /// toujours — d'où un message qui invite à signaler le cas plutôt qu'à s'en accommoder.</summary>
+    /// <summary>L'utilisation de la mémoire vient d'abord de Windows (GlobalMemoryStatusEx, la source du
+    /// Gestionnaire des tâches), puis de LibreHardwareMonitor pour ce qu'elle ne fournit pas : voir la
+    /// ligne « Mémoire » de Paramètres › Compatibilité de ce PC, qui nomme la source ayant répondu. En
+    /// pratique, sous Windows, elle répond toujours — d'où un message qui invite à signaler le cas plutôt
+    /// qu'à s'en accommoder. Le second cas, lui, est volontaire : une valeur supérieure à la mémoire
+    /// installée est écartée, et il faut le dire pour ne pas envoyer chercher une panne inexistante.</summary>
     internal const string RamHint =
         "Aucune source n'a renvoyé cette valeur, ce qui ne devrait pas arriver sous Windows : PCPerfSuite la lit " +
-        "d'abord auprès de LibreHardwareMonitor, puis auprès de Windows lui-même, la même source que le Gestionnaire " +
-        "des tâches. Merci de signaler ce PC avec le rapport de Paramètres › Compatibilité de ce PC.";
+        "d'abord auprès de Windows lui-même — la source du Gestionnaire des tâches — puis auprès de " +
+        "LibreHardwareMonitor. Elle est aussi écartée volontairement quand elle dépasse la mémoire installée, une " +
+        "valeur fausse étant pire qu'une valeur absente. Merci de signaler ce PC avec le rapport de Paramètres › " +
+        "Compatibilité de ce PC.";
 
     /// <summary>Type, fréquence et barrettes viennent de la table SMBIOS remplie par le BIOS. Beaucoup de
     /// mini-PC et de portables à mémoire soudée la laissent vide : c'est une limite de la machine, pas de

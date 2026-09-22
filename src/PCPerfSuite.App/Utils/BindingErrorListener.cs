@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace PCPerfSuite.App.Utils;
 
@@ -12,11 +13,20 @@ namespace PCPerfSuite.App.Utils;
 /// n'apparaît pas à l'écran, et rien n'explique pourquoi. Sur une app diffusée publiquement, dont le
 /// diagnostic sert de rapport de bug, c'est justement ce qu'il faut pouvoir constater à distance.
 ///
-/// Chaque message n'est journalisé qu'une fois par session : une liaison cassée dans un modèle de liste
-/// se reproduit à chaque ligne et à chaque relevé, et remplirait le journal en quelques secondes.
+/// Chaque liaison fautive n'est journalisée qu'une fois par session : une liaison cassée dans un modèle
+/// de liste se reproduit à chaque ligne et à chaque relevé, et remplirait le journal en quelques secondes.
 /// </summary>
 public sealed class BindingErrorListener : TraceListener
 {
+    /// <summary>WPF nomme l'objet lié par son empreinte — « DataItem='ProcessRowViewModel'
+    /// (HashCode=54637462) » — et elle change à chaque instance. Sans la neutraliser, la MÊME liaison
+    /// cassée paraît neuve à chaque ligne d'une liste, et la déduplication ne dédupliquerait rien.</summary>
+    private static readonly Regex InstanceStamp = new(@"HashCode=-?\d+", RegexOptions.Compiled);
+
+    /// <summary>Plafond de sécurité : au-delà, on cesse de journaliser plutôt que de laisser un motif
+    /// imprévu faire grossir l'ensemble — et le fichier — sans fin.</summary>
+    private const int MaxDistinct = 50;
+
     private readonly HashSet<string> _seen = new();
 
     public override void TraceEvent(TraceEventCache? cache, string source, TraceEventType type, int id, string? message)
@@ -25,10 +35,13 @@ public sealed class BindingErrorListener : TraceListener
 
         lock (_seen)
         {
-            if (!_seen.Add(message)) return;
+            if (_seen.Count >= MaxDistinct) return;
+            if (!_seen.Add(InstanceStamp.Replace(message, "HashCode=*"))) return;
         }
 
-        CrashLog.RecordMessage(message, "liaison de données");
+        // Pas de remontée en « dernière erreur » du diagnostic : une liaison fautive est utile dans le
+        // journal, mais elle ne doit pas masquer le plantage qu'on cherche.
+        CrashLog.RecordMessage(message, "liaison de données", surfaceAsLastError: false);
     }
 
     public override void TraceEvent(TraceEventCache? cache, string source, TraceEventType type, int id,

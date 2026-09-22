@@ -31,24 +31,32 @@ public static class CrashLog
     {
         if (exception is null) return;
 
-        Write($"{exception.GetType().Name} ({origin}) : {exception.Message}", exception.ToString(), origin);
+        Write($"{exception.GetType().Name} ({origin}) : {exception.Message}", exception.ToString(), origin,
+            surfaceAsLastError: true);
     }
 
-    /// <summary>Journalise une anomalie qui n'est pas une exception. WPF ne signale la plupart des liaisons
-    /// de données cassées que par une trace silencieuse : sans ce chemin, elles n'atteindraient jamais le
-    /// rapport de bug.</summary>
-    public static void RecordMessage(string message, string origin)
+    /// <summary>
+    /// Journalise une anomalie qui n'est pas une exception. WPF ne signale la plupart des liaisons de
+    /// données cassées que par une trace silencieuse : sans ce chemin, elles n'atteindraient jamais le
+    /// rapport de bug.
+    ///
+    /// <paramref name="surfaceAsLastError"/> décide si l'anomalie a le droit de devenir la « dernière
+    /// erreur » du diagnostic. Il n'y a qu'un emplacement : une trace de liaison bénigne, arrivée une
+    /// seconde après un vrai plantage, en chasserait le message — précisément celui qu'on demande à
+    /// l'utilisateur de coller dans son signalement.
+    /// </summary>
+    public static void RecordMessage(string message, string origin, bool surfaceAsLastError)
     {
         if (message is not { Length: > 0 }) return;
 
-        Write($"{origin} : {message}", message, origin);
+        Write($"{origin} : {message}", message, origin, surfaceAsLastError);
     }
 
-    private static void Write(string summary, string detail, string origin)
+    private static void Write(string summary, string detail, string origin, bool surfaceAsLastError)
     {
         lock (Gate)
         {
-            LastError = $"{summary}. Détail dans {FilePath}.";
+            if (surfaceAsLastError) LastError = $"{summary}. Détail dans {FilePath}.";
 
             try
             {

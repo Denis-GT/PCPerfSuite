@@ -55,6 +55,15 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     /// <summary>Dernier relevé complet, rendu tel quel si le suivant échoue.</summary>
     private HardwareSnapshot? _lastSnapshot;
+
+    /// <summary>Relevés consécutifs rendus depuis le cache faute de mieux.</summary>
+    private int _staleTicks;
+
+    /// <summary>Au-delà, l'échec n'est plus un accident : l'exception repart chez l'appelant, qui affiche
+    /// le bandeau d'erreur. Resservir indéfiniment le dernier relevé afficherait des valeurs mortes sous
+    /// les traits d'une mesure — une courbe parfaitement plate, aucun message, et un utilisateur qui croit
+    /// son processeur à 42 °C alors que plus rien n'est lu.</summary>
+    private const int MaxStaleTicks = 3;
     private IReadOnlyList<LaptopFanReading> _lastLaptopFans = Array.Empty<LaptopFanReading>();
 
     /// <summary>Marque du GPU piloté par l'onglet GPU. Dans un PC à deux GPU (iGPU + carte dédiée), le
@@ -134,14 +143,17 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
             try
             {
-                return _lastSnapshot = GetSnapshotCore(epoch, tick);
+                HardwareSnapshot snapshot = GetSnapshotCore(epoch, tick);
+                _staleTicks = 0;
+                return _lastSnapshot = snapshot;
             }
-            catch (Exception) when (_lastSnapshot is not null)
+            catch (Exception) when (_lastSnapshot is not null && _staleTicks < MaxStaleTicks)
             {
-                // Un capteur qui lève — pilote rechargé, matériel retiré à chaud — ne doit pas priver
-                // l'utilisateur de tous les autres. Les valeurs du relevé précédent restent affichées le
-                // temps d'un tick, ce que le relevé suivant corrigera. Tant qu'il n'y a pas de relevé
-                // précédent à rendre, l'exception part chez l'appelant, qui la journalise.
+                // Un capteur qui lève au passage — pilote rechargé, matériel retiré à chaud — ne doit pas
+                // priver l'utilisateur de tous les autres : le relevé précédent tient quelques ticks, le
+                // temps que la cause disparaisse. Si elle ne disparaît pas, l'exception repart chez
+                // l'appelant, qui affiche et journalise : une valeur qu'on ne sait plus lire doit se dire.
+                _staleTicks++;
                 return _lastSnapshot;
             }
         }
@@ -736,12 +748,17 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         float? total = memory.TotalGb ?? SumCapacity(modules);
         bool usageCoherent = UsageFitsIn(memory, total);
 
+        // Utilisation, disponibilité ET charge viennent du même matériel : elles tombent ensemble, sinon
+        // l'app affiche « N/D » d'un côté et une charge de 118 % de l'autre. Et la source écartée cesse
+        // d'être annoncée comme ayant répondu, sans quoi le rapport de bug désigne un coupable innocent.
+        MemorySource sources = usageCoherent ? memory.Sources : memory.Sources & ~MemorySource.LibreHardwareMonitor;
+
         return new MemorySnapshot
         {
             UsedGb = usageCoherent ? memory.UsedGb : null,
             AvailableGb = usageCoherent ? memory.AvailableGb : null,
             TotalGb = total,
-            LoadPercent = memory.LoadPercent,
+            LoadPercent = usageCoherent ? memory.LoadPercent : null,
             VirtualUsedGb = memory.VirtualUsedGb,
             VirtualTotalGb = memory.VirtualTotalGb,
             Modules = modules,
@@ -749,7 +766,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             TypeLabel = CommonValue(report.Modules.Select(m => m.TypeLabel)),
             SpeedMhz = CommonValue(report.Modules.Select(m => m.SpeedMhz)),
             ModulesUnavailableReason = report.UnavailableReason,
-            Sources = report.HasModules ? memory.Sources | MemorySource.Wmi : memory.Sources,
+            Sources = report.HasModules ? sources | MemorySource.Wmi : sources,
         };
     }
 
@@ -759,11 +776,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         return sum > 0 ? (float)sum : null;
     }
 
-    /// <summary>Dernier filet : une mémoire utilisée — ou disponible — supérieure à la mémoire installée est
-    /// forcément fausse. C'est ainsi qu'une machine de 16 Go a pu afficher 18,8 Go utilisés, une valeur de
-    /// mémoire virtuelle prise pour de la mémoire physique. Mieux vaut « N/D », que le diagnostic sait
-    /// expliquer et que l'utilisateur peut signaler, qu'un nombre auquel il va croire. Les deux valeurs
-    /// tombent ensemble : elles viennent de la même source, donc de la même erreur.</summary>
+    /// <summary>
+    /// Dernier filet : une mémoire utilisée — ou disponible — supérieure à la mémoire installée est
+    /// forcément fausse. Mieux vaut « N/D », que le diagnostic sait expliquer et que l'utilisateur peut
+    /// signaler, qu'un nombre auquel il va croire.
+    ///
+    /// Ce n'est pas ce filet qui corrige les 18,8 Go affichés sur une machine de 16 Go : dès que Windows
+    /// répond, utilisée, disponible et totale viennent toutes de lui et sont cohérentes par construction,
+    /// et c'est l'ordre des sources qui fait le travail. Le filet ne sert que dans l'angle mort qui reste —
+    /// GlobalMemoryStatusEx muet, total déduit des barrettes, valeurs d'utilisation venues d'ailleurs.
+    /// </summary>
     private static bool UsageFitsIn(MemorySnapshot memory, float? total)
     {
         if (total is not { } installed || installed <= 0) return true;

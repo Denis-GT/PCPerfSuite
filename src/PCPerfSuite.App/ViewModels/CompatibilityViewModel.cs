@@ -173,11 +173,12 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         // n'apprendrait rien. Quand elle apparaît, elle explique une absence qui serait sinon inexplicable.
         if (AdlxProbeGuard.PreviousAttemptCrashed)
         {
-            yield return new CompatibilityRow("Contrôle GPU AMD (ADLX)", "Désactivé après un plantage",
-                "La dernière interrogation du pilote AMD n'est pas revenue : elle a emporté PCPerfSuite avec elle. "
-                + "Le contrôle GPU AMD n'est plus tenté, pour que l'app démarre. Après une mise à jour du pilote "
-                + $"Adrenalin, supprimer le fichier {AdlxProbeGuard.SentinelFilePath} autorise une nouvelle tentative. "
-                + "Merci de signaler ce PC avec ce rapport.", false);
+            yield return new CompatibilityRow("Contrôle GPU AMD (ADLX)", "Désactivé par précaution",
+                "PCPerfSuite ne s'est pas relancée deux fois de suite après avoir interrogé le pilote AMD. La cause "
+                + "la plus probable est que cette interrogation emporte l'app avec elle, ce qu'aucun filet ne peut "
+                + "rattraper : le contrôle GPU AMD n'est donc plus tenté, pour que l'app démarre. Après une mise à "
+                + $"jour du pilote Adrenalin, supprimer le fichier {AdlxProbeGuard.SentinelFilePath} lui rend sa "
+                + "chance. Merci de signaler ce PC avec ce rapport.", false);
         }
 
         yield return FanReadingRow(machine, snapshot);

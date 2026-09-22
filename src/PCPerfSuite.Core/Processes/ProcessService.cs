@@ -107,6 +107,13 @@ public sealed class ProcessService : IDisposable
     /// <summary>Dernier relevé complet, rendu tel quel si le suivant échoue.</summary>
     private ProcessSnapshot? _lastSnapshot;
 
+    /// <summary>Relevés consécutifs rendus depuis le cache faute de mieux.</summary>
+    private int _staleTicks;
+
+    /// <summary>Au-delà, l'exception repart chez l'appelant, qui affiche l'échec. Une liste de processus
+    /// figée ressemble trop à une liste de processus calme pour qu'on la serve indéfiniment sans le dire.</summary>
+    private const int MaxStaleTicks = 3;
+
     /// <summary>PROCESS_MEMORY_COUNTERS_EX2 n'existe qu'à partir des mises à jour cumulatives de septembre
     /// 2023. Au premier échec on bascule définitivement sur la structure EX, disponible depuis Vista, et le
     /// working set privé devient indisponible (colonne masquée plutôt que remplie de « -- »).</summary>
@@ -160,14 +167,18 @@ public sealed class ProcessService : IDisposable
         {
             try
             {
-                return _lastSnapshot = GetSnapshotCore();
+                ProcessSnapshot snapshot = GetSnapshotCore();
+                _staleTicks = 0;
+                return _lastSnapshot = snapshot;
             }
-            catch (Exception ex) when (ex is not ObjectDisposedException && _lastSnapshot is not null)
+            catch (Exception ex) when (ex is not ObjectDisposedException
+                                       && _lastSnapshot is not null && _staleTicks < MaxStaleTicks)
             {
                 // Un processus qui disparaît pendant qu'on le lit, un jeton refusé, une ressource de
                 // version illisible : rien de tout cela ne doit vider la liste entière. Celle du relevé
-                // précédent reste affichée le temps d'un tick. Le service fermé, lui, continue de se
-                // signaler : l'app est alors en train de se fermer et l'appelant le sait.
+                // précédent tient quelques ticks — pas davantage, sinon l'échec devient invisible. Le
+                // service fermé, lui, continue de se signaler : l'app se ferme, et l'appelant le sait.
+                _staleTicks++;
                 return _lastSnapshot;
             }
         }

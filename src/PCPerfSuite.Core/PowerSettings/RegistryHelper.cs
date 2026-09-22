@@ -5,9 +5,15 @@ namespace PCPerfSuite.Core.PowerSettings;
 
 internal static class RegistryHelper
 {
-    /// <summary>Lecture best-effort : une clé absente, verrouillée par une stratégie de groupe ou illisible
-    /// rend <paramref name="defaultValue"/>. Les deux cas sont indiscernables pour l'appelant, qui affiche
-    /// déjà « N/D » quand il n'a rien.</summary>
+    /// <summary>
+    /// Lecture best-effort pour une clé absente ou illisible : rend alors <paramref name="defaultValue"/>.
+    ///
+    /// Une lecture REFUSÉE fait exception et continue de lever. Les appelants ne traitent pas l'absence
+    /// comme une inconnue : plusieurs traduisent null en un état affirmé — « ce réglage est désactivé ».
+    /// Sur un poste où une stratégie de groupe verrouille la clé, avaler le refus afficherait un
+    /// interrupteur sur « off » pour un réglage en réalité actif, et l'utilisateur découvrirait le
+    /// problème en essayant de le changer. L'exception, elle, fait afficher « état inconnu » et sa cause.
+    /// </summary>
     public static int? ReadDword(RegistryHive hive, string subKey, string valueName, int? defaultValue = null)
     {
         try
@@ -17,6 +23,12 @@ internal static class RegistryHelper
             object? value = key?.GetValue(valueName);
             if (value is int i) return i;
             return defaultValue;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException)
+        {
+            throw new InvalidOperationException(
+                $"Lecture refusée dans {subKey}. Cette clé est probablement verrouillée par une stratégie de "
+                + "groupe ou un antivirus : l'état réel de ce réglage ne peut pas être lu.", ex);
         }
         catch (Exception)
         {

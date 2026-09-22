@@ -37,7 +37,11 @@ public sealed class LaptopFanService : IDisposable
 
     public LaptopFanService(MachineInfo machine)
     {
-        if (!machine.IsLaptop)
+        // Seul un PC de bureau AVÉRÉ est écarté. Sur un châssis indéterminé, tenter le module de la marque
+        // ne coûte rien — ces modules sont en lecture seule, la règle 5 n'est pas en jeu — et c'est la
+        // seule façon de lire les ventilateurs d'un portable que LibreHardwareMonitor ne voit pas. Sans
+        // cela, l'onglet promettait une vitesse « lisible dans le Monitoring » que personne n'allait lire.
+        if (machine.Chassis == ChassisKind.Desktop)
         {
             Support = LaptopFanSupport.NotLaptop;
             return;
