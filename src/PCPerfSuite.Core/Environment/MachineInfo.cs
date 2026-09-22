@@ -4,6 +4,18 @@ using System.Runtime.InteropServices;
 namespace PCPerfSuite.Core.SystemInfo;
 
 /// <summary>
+/// Nature du châssis. L'état <see cref="Unknown"/> existe parce que l'ignorance doit se dire : confondre
+/// « ce n'est pas un portable » avec « je n'ai pas réussi à savoir » revenait à traiter un portable dont
+/// le dépôt WMI est cassé comme un PC de bureau, et donc à s'autoriser à écrire dans ses ventilateurs.
+/// </summary>
+public enum ChassisKind
+{
+    Unknown,
+    Desktop,
+    Laptop,
+}
+
+/// <summary>
 /// Identité de la machine (fabricant, modèle, portable ou non), lue une seule fois via WMI. Sert à choisir
 /// les sources de capteurs propres à une marque et à expliquer à l'utilisateur pourquoi une fonction n'est
 /// pas disponible sur son PC.
@@ -12,25 +24,32 @@ public sealed class MachineInfo
 {
     public string Manufacturer { get; }
     public string Model { get; }
-    public bool IsLaptop { get; }
+    public ChassisKind Chassis { get; }
 
-    /// <summary>Faux quand ni WMI (Win32_ComputerSystem/Win32_SystemEnclosure) ni la présence d'une
-    /// batterie n'ont pu être lus : l'identité de la machine est alors inconnue. Voir
-    /// <see cref="IsLaptop"/>, qui se règle par prudence sur vrai (portable) dans ce cas, pour que le
-    /// contrôleur embarqué des portables (règle 5, lecture seule) ne soit jamais écrit à tort.</summary>
-    public bool IsIdentityKnown { get; }
+    /// <summary>Portable avéré. Un châssis indéterminé répond non : cette propriété sert à décrire la
+    /// machine et à tenter les sources propres aux portables, jamais à autoriser une écriture — pour cela,
+    /// voir <see cref="SoftwareFanControlRefused"/>.</summary>
+    public bool IsLaptop => Chassis == ChassisKind.Laptop;
+
+    /// <summary>
+    /// Règle de compatibilité 5 : le refroidissement d'un portable appartient au contrôleur embarqué du
+    /// constructeur, et une écriture malheureuse peut laisser la machine sans ventilation. La question
+    /// n'est donc pas « est-ce un portable ? » mais « ai-je la certitude que ce n'en est pas un ? » :
+    /// seul un PC de bureau avéré autorise le pilotage logiciel. Un doute coûte une fonctionnalité sur
+    /// une machine mal identifiée ; l'inverse coûterait un processeur.
+    /// </summary>
+    public bool SoftwareFanControlRefused => Chassis != ChassisKind.Desktop;
 
     /// <summary>Cartes graphiques vues par Windows (nom complet), y compris celles qu'aucune API de contrôle ne pilote.</summary>
     public IReadOnlyList<string> VideoControllers { get; }
 
     public bool HasNvidiaGpu => VideoControllers.Any(name => name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase));
 
-    private MachineInfo(string manufacturer, string model, bool isLaptop, bool isIdentityKnown, IReadOnlyList<string> videoControllers)
+    private MachineInfo(string manufacturer, string model, ChassisKind chassis, IReadOnlyList<string> videoControllers)
     {
         Manufacturer = manufacturer;
         Model = model;
-        IsLaptop = isLaptop;
-        IsIdentityKnown = isIdentityKnown;
+        Chassis = chassis;
         VideoControllers = videoControllers;
     }
 
@@ -42,8 +61,7 @@ public sealed class MachineInfo
     {
         string manufacturer = "";
         string model = "";
-        bool isLaptop = false;
-        bool identityKnown = false;
+        bool? wmiSaysMobile = null;
 
         try
         {
@@ -54,9 +72,8 @@ public sealed class MachineInfo
                 {
                     manufacturer = system["Manufacturer"]?.ToString()?.Trim() ?? "";
                     model = system["Model"]?.ToString()?.Trim() ?? "";
-                    // PCSystemType 2 : "Mobile" (portable). Complété par le type de châssis ci-dessous.
-                    isLaptop = system["PCSystemType"] is { } type && Convert.ToInt32(type) == 2;
-                    identityKnown = true;
+                    // PCSystemType 2 : "Mobile" (portable). Complété par le type de châssis et la batterie.
+                    if (system["PCSystemType"] is { } type) wmiSaysMobile = Convert.ToInt32(type) == 2;
                 }
             }
         }
@@ -65,31 +82,25 @@ public sealed class MachineInfo
             // WMI indisponible : identité inconnue par cette voie, on retente les deux autres signaux.
         }
 
-        if (HasLaptopChassis(out bool chassisQuerySucceeded))
-        {
-            isLaptop = true;
-            identityKnown = true;
-        }
-        else if (chassisQuerySucceeded)
-        {
-            identityKnown = true;
-        }
+        return new MachineInfo(manufacturer, model, ReadChassis(wmiSaysMobile), ReadVideoControllers());
+    }
 
-        if (!isLaptop && HasSystemBattery())
-        {
-            // Deuxième signal indépendant de WMI : une batterie système est propre aux portables (et
-            // à quelques tablettes), jamais à un PC de bureau.
-            isLaptop = true;
-            identityKnown = true;
-        }
+    /// <summary>Croise les trois sources disponibles. Elles ne pèsent pas le même poids : un « oui » suffit
+    /// à conclure au portable — aucune ne se trompe dans ce sens — alors que « PC de bureau » demande un
+    /// accord. L'absence de batterie seule ne suffit pas, un portable dont la batterie a été retirée la
+    /// déclare absente elle aussi ; et WMI seul ne suffit pas, certaines images OEM déclarant un type de
+    /// machine fantaisiste. Sans accord, l'état reste indéterminé.</summary>
+    private static ChassisKind ReadChassis(bool? wmiSaysMobile)
+    {
+        bool? chassisSaysLaptop = HasLaptopChassis();
+        bool? hasBattery = HasBattery();
 
-        // Identité inconnue : on refuse par prudence, en la traitant comme un portable, pour que
-        // l'écriture sur un éventuel contrôleur embarqué (ventilateurs, alimentation) reste bloquée
-        // (règle 5). Un PC de bureau mal identifié perd temporairement le contrôle GPU/CPU, ce qui est
-        // sans danger ; l'inverse pourrait laisser une machine sans refroidissement.
-        if (!identityKnown) isLaptop = true;
+        if (wmiSaysMobile == true || chassisSaysLaptop == true || hasBattery == true) return ChassisKind.Laptop;
 
-        return new MachineInfo(manufacturer, model, isLaptop, identityKnown, ReadVideoControllers());
+        bool somethingAnswered = wmiSaysMobile is not null || chassisSaysLaptop is not null;
+        if (hasBattery == false && somethingAnswered) return ChassisKind.Desktop;
+
+        return ChassisKind.Unknown;
     }
 
     private static IReadOnlyList<string> ReadVideoControllers()
@@ -118,45 +129,56 @@ public sealed class MachineInfo
     /// Convertible, Detachable.</summary>
     private static readonly int[] LaptopChassisTypes = { 8, 9, 10, 14, 30, 31, 32 };
 
-    private static bool HasLaptopChassis(out bool querySucceeded)
+    /// <summary>Null quand aucun boîtier n'a répondu — ce qui n'est pas la même chose qu'un boîtier de
+    /// bureau.</summary>
+    private static bool? HasLaptopChassis()
     {
-        querySucceeded = false;
         try
         {
+            bool answered = false;
+
             using var searcher = new ManagementObjectSearcher("SELECT ChassisTypes FROM Win32_SystemEnclosure");
             foreach (ManagementBaseObject enclosure in searcher.Get())
             {
                 using (enclosure)
                 {
-                    querySucceeded = true;
-                    if (enclosure["ChassisTypes"] is ushort[] types && types.Any(t => LaptopChassisTypes.Contains(t))) return true;
+                    if (enclosure["ChassisTypes"] is not ushort[] types) continue;
+
+                    answered = true;
+                    if (types.Any(t => LaptopChassisTypes.Contains(t))) return true;
                 }
             }
+
+            return answered ? false : null;
         }
         catch
         {
-            // Pas de type de châssis disponible par cette voie.
+            return null;
         }
-
-        return false;
     }
 
-    /// <summary>Signal indépendant de WMI : Windows sait si une batterie système est présente même
-    /// quand les requêtes WMI ci-dessus échouent (service WMI pas encore prêt à l'ouverture de
-    /// session, par exemple).</summary>
-    private static bool HasSystemBattery()
+    /// <summary>Présence d'une batterie, via l'API d'alimentation de Windows : aucun privilège, aucun
+    /// pilote, et surtout aucune dépendance à WMI — c'est précisément ce qu'il faut quand le dépôt WMI est
+    /// cassé, le cas où toutes les autres pistes se taisent. Null quand Windows ne sait pas répondre.</summary>
+    private static bool? HasBattery()
     {
         try
         {
-            if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS status)) return false;
-            // 128 = "pas de batterie système" (PC de bureau) ; 255 = statut inconnu.
-            return status.BatteryFlag is not (128 or 255);
+            if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS status)) return null;
+
+            if (status.BatteryFlag == NoSystemBattery) return false;
+            if (status.BatteryFlag == UnknownBatteryStatus) return null;
+            return true;
         }
         catch
         {
-            return false;
+            // DllNotFoundException, EntryPointNotFoundException : l'app ne tourne pas sous Windows.
+            return null;
         }
     }
+
+    private const byte NoSystemBattery = 128;
+    private const byte UnknownBatteryStatus = 255;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SYSTEM_POWER_STATUS
@@ -165,10 +187,11 @@ public sealed class MachineInfo
         public byte BatteryFlag;
         public byte BatteryLifePercent;
         public byte SystemStatusFlag;
-        public int BatteryLifeTime;
-        public int BatteryFullLifeTime;
+        public uint BatteryLifeTime;
+        public uint BatteryFullLifeTime;
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 }

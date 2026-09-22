@@ -51,7 +51,12 @@ internal sealed class AdlxGpuBackend : IGpuTuningBackend
 
     public bool TryAcceptOverclockWaiver() => true;
 
-    public bool TryInitialize()
+    /// <summary>Toute la tentative passe sous témoin : le chargement d'ADLX et les premiers appels par
+    /// emplacement sont le seul endroit de l'app capable de tuer le processus sans laisser de trace, et
+    /// un try/catch n'y peut rien (voir <see cref="AdlxProbeGuard"/>).</summary>
+    public bool TryInitialize() => AdlxProbeGuard.RunGuarded(InitializeCore);
+
+    private bool InitializeCore()
     {
         try
         {

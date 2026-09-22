@@ -1132,8 +1132,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// portables (barebones Clevo/Tongfang, quelques MSI et Gigabyte) embarquent pourtant une puce
     /// Super I/O que LibreHardwareMonitor sait piloter : le garde-fou est donc ici, au plus près de
     /// l'écriture, et pas seulement dans le ViewModel qui remplit la liste.
+    ///
+    /// Le refus couvre aussi le châssis indéterminé. La détection reposait sur WMI seul, qui avale ses
+    /// erreurs : sur un portable au dépôt WMI cassé, la machine passait pour un PC de bureau et l'écriture
+    /// était autorisée — exactement ce que cette méthode existe pour empêcher.
     /// </summary>
-    private static bool LaptopControlRefused() => MachineInfo.Current.IsLaptop;
+    private static bool LaptopControlRefused() => MachineInfo.Current.SoftwareFanControlRefused;
 
     bool IFanController.TrySetPercent(string fanId, float percent) => TrySetFanPercent(fanId, percent);
 

@@ -189,6 +189,10 @@ internal static unsafe class AdlxNative
 
     // --- Appels par emplacement ------------------------------------------------------------------
 
+    /// <summary>Déréférence la table de fonctions de l'objet COM. Sur un pointeur nul, c'est une violation
+    /// d'accès — que .NET ne laisse PAS intercepter, même par un try/catch : le processus entier meurt sans
+    /// un mot. Tout appelant DOIT donc écarter le pointeur nul lui-même ; aucun d'eux ne peut être rattrapé
+    /// après coup.</summary>
     private static void* Slot(IntPtr obj, int index) => (*(void***)obj)[index];
 
     public static void Release(IntPtr obj)
@@ -215,6 +219,8 @@ internal static unsafe class AdlxNative
     /// <summary>f(this, T** out) — getters d'objets (GetGPUs, GetGPUTuningServices, GetFanTuningStates…).</summary>
     public static IntPtr GetObject(IntPtr obj, int slot)
     {
+        if (obj == IntPtr.Zero) return IntPtr.Zero;
+
         IntPtr result = IntPtr.Zero;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)Slot(obj, slot))(obj, &result);
         return Succeeded(status) ? result : IntPtr.Zero;
@@ -223,6 +229,8 @@ internal static unsafe class AdlxNative
     /// <summary>f(this, gpu, T** out) — services de réglage d'un GPU donné.</summary>
     public static IntPtr GetObjectForGpu(IntPtr obj, int slot, IntPtr gpu)
     {
+        if (obj == IntPtr.Zero || gpu == IntPtr.Zero) return IntPtr.Zero;
+
         IntPtr result = IntPtr.Zero;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, IntPtr*, int>)Slot(obj, slot))(obj, gpu, &result);
         return Succeeded(status) ? result : IntPtr.Zero;
@@ -231,6 +239,8 @@ internal static unsafe class AdlxNative
     /// <summary>f(this, gpu, adlx_bool* out) — tests "IsSupported…".</summary>
     public static bool IsSupportedForGpu(IntPtr obj, int slot, IntPtr gpu)
     {
+        if (obj == IntPtr.Zero || gpu == IntPtr.Zero) return false;
+
         byte supported = 0;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, byte*, int>)Slot(obj, slot))(obj, gpu, &supported);
         return Succeeded(status) && supported != 0;
@@ -238,10 +248,14 @@ internal static unsafe class AdlxNative
 
     /// <summary>f(this, gpu) — ResetToFactory.</summary>
     public static bool CallForGpu(IntPtr obj, int slot, IntPtr gpu)
-        => Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(obj, slot))(obj, gpu));
+        => obj != IntPtr.Zero && gpu != IntPtr.Zero
+           && Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(obj, slot))(obj, gpu));
 
     public static bool TryGetInt(IntPtr obj, int slot, out int value)
     {
+        value = 0;
+        if (obj == IntPtr.Zero) return false;
+
         int v = 0;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, int*, int>)Slot(obj, slot))(obj, &v);
         value = v;
@@ -249,10 +263,14 @@ internal static unsafe class AdlxNative
     }
 
     public static bool TrySetInt(IntPtr obj, int slot, int value)
-        => Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, int, int>)Slot(obj, slot))(obj, value));
+        => obj != IntPtr.Zero
+           && Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, int, int>)Slot(obj, slot))(obj, value));
 
     public static bool TryGetRange(IntPtr obj, int slot, out IntRange range)
     {
+        range = default;
+        if (obj == IntPtr.Zero) return false;
+
         IntRange r = default;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, IntRange*, int>)Slot(obj, slot))(obj, &r);
         range = r;
@@ -262,6 +280,10 @@ internal static unsafe class AdlxNative
     /// <summary>GetFanTuningRanges(this, speedRange*, temperatureRange*).</summary>
     public static bool TryGetTwoRanges(IntPtr obj, int slot, out IntRange first, out IntRange second)
     {
+        first = default;
+        second = default;
+        if (obj == IntPtr.Zero) return false;
+
         IntRange a = default, b = default;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, IntRange*, IntRange*, int>)Slot(obj, slot))(obj, &a, &b);
         first = a;
@@ -271,11 +293,13 @@ internal static unsafe class AdlxNative
 
     /// <summary>Size() des listes ADLX : renvoie directement un adlx_uint, pas un ADLX_RESULT.</summary>
     public static uint GetSize(IntPtr list, int slot)
-        => ((delegate* unmanaged[Stdcall]<IntPtr, uint>)Slot(list, slot))(list);
+        => list == IntPtr.Zero ? 0 : ((delegate* unmanaged[Stdcall]<IntPtr, uint>)Slot(list, slot))(list);
 
     /// <summary>At_…(this, index, T** out) — élément d'une liste, avec sa propre référence.</summary>
     public static IntPtr GetAt(IntPtr list, int slot, uint index)
     {
+        if (list == IntPtr.Zero) return IntPtr.Zero;
+
         IntPtr result = IntPtr.Zero;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, int>)Slot(list, slot))(list, index, &result);
         return Succeeded(status) ? result : IntPtr.Zero;
@@ -284,17 +308,22 @@ internal static unsafe class AdlxNative
     /// <summary>IsValidFanTuningStates(this, list, adlx_int* errorIndex).</summary>
     public static bool IsValidWithList(IntPtr obj, int slot, IntPtr list)
     {
+        if (obj == IntPtr.Zero || list == IntPtr.Zero) return false;
+
         int errorIndex = 0;
         return Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int*, int>)Slot(obj, slot))(obj, list, &errorIndex));
     }
 
     /// <summary>SetFanTuningStates(this, list).</summary>
     public static bool CallWithObject(IntPtr obj, int slot, IntPtr arg)
-        => Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(obj, slot))(obj, arg));
+        => obj != IntPtr.Zero && arg != IntPtr.Zero
+           && Succeeded(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(obj, slot))(obj, arg));
 
     /// <summary>Name(this, const char** out) : chaîne possédée par ADLX, copiée aussitôt.</summary>
     public static string? GetString(IntPtr obj, int slot)
     {
+        if (obj == IntPtr.Zero) return null;
+
         sbyte* value = null;
         int status = ((delegate* unmanaged[Stdcall]<IntPtr, sbyte**, int>)Slot(obj, slot))(obj, &value);
         return Succeeded(status) && value is not null ? Marshal.PtrToStringUTF8((IntPtr)value) : null;

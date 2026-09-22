@@ -292,10 +292,11 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public string LocateLabel => IsLocating ? "Repérage…" : "Repérer";
 
-    /// <summary>Jamais sur un portable : le contrôleur embarqué n'est pas écrit par l'app (règle de compatibilité 5). Un
-    /// cooler de carte graphique d'un portable passe par le pilote graphique, mais le repérage n'y est pas proposé non
-    /// plus : il n'a d'intérêt que pour retrouver un ventilateur dans un boîtier de PC de bureau.</summary>
-    public bool CanLocate => !MachineInfo.Current.IsLaptop;
+    /// <summary>Jamais sur un portable ni sur un châssis indéterminé : le contrôleur embarqué n'est pas écrit par l'app
+    /// (règle de compatibilité 5). Un cooler de carte graphique d'un portable passe par le pilote graphique, mais le
+    /// repérage n'y est pas proposé non plus : il n'a d'intérêt que pour retrouver un ventilateur dans un boîtier de
+    /// PC de bureau.</summary>
+    public bool CanLocate => !MachineInfo.Current.SoftwareFanControlRefused;
 
     /// <summary>Fait tourner ce ventilateur à 100 % pendant <see cref="LocateDuration"/> pour le retrouver dans le
     /// boîtier — ou, sur un hub, voir quels ventilateurs suivent ce connecteur — puis le rend à son mode. Sans danger,
@@ -865,6 +866,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
                        "Omen Gaming Hub, MSI Center, PredatorSense…). Par sécurité, PCPerfSuite ne les pilote pas : leur vitesse " +
                        "s'affiche dans le Monitoring quand la marque est prise en charge (voir Paramètres › Compatibilité de ce PC).";
 
+            if (MachineInfo.Current.Chassis == ChassisKind.Unknown)
+                return "Windows n'a pas su dire si ce PC est un portable ou une machine de bureau (le service WMI ne répond pas, et " +
+                       "aucune batterie n'a été détectée pour trancher). Comme piloter les ventilateurs d'un portable peut le laisser " +
+                       "sans refroidissement, PCPerfSuite s'en abstient tant que le doute subsiste. Leur vitesse reste lisible dans le " +
+                       "Monitoring. Merci de signaler ce PC avec le rapport de Paramètres › Compatibilité de ce PC.";
+
             return "Aucun ventilateur pilotable détecté : la puce de gestion de la carte mère n'est pas reconnue ou n'accepte pas de " +
                    "pilotage logiciel (sur certaines cartes, il faut passer les ventilateurs en mode PWM/DC manuel dans le BIOS). " +
                    "Ce n'est pas un dysfonctionnement de PCPerfSuite.";
@@ -1197,9 +1204,11 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
         // embarqué du constructeur, donc on n'expose aucun ventilateur de carte mère ici — même quand
         // LibreHardwareMonitor voit une puce Super I/O pilotable (barebones Clevo/Tongfang, quelques
         // MSI). Sans ce filtre, l'onglet les afficherait comme pilotables et NoFansMessage promettrait
-        // exactement le contraire de ce que l'app ferait. Le ventilateur du GPU, lui, passe par le
-        // pilote graphique (NVAPI/ADLX/IGCL) et reste légitime sur un portable à carte dédiée.
-        List<FanReading> motherboard = MachineInfo.Current.IsLaptop
+        // exactement le contraire de ce que l'app ferait. Même raisonnement quand le châssis n'a pas pu
+        // être identifié : c'est le refus d'écrire qui décide de ce que la liste montre, pas l'inverse.
+        // Le ventilateur du GPU, lui, passe par le pilote graphique (NVAPI/ADLX/IGCL) et reste légitime
+        // sur un portable à carte dédiée.
+        List<FanReading> motherboard = MachineInfo.Current.SoftwareFanControlRefused
             ? new List<FanReading>()
             : snapshot.Fans.Where(f => f.CanControl && !gpuFans.Replaced.Contains(f)).ToList();
         SyncFanList(motherboard, coolerIds);

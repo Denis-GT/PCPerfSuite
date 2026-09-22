@@ -11,6 +11,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
+using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
@@ -108,29 +109,18 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         HardwareSnapshot? snapshot = _lastSample?.Hardware;
 
         string identity = string.Join(" ", new[] { machine.Manufacturer, machine.Model }.Where(s => s.Length > 0));
-        string identityDetail = identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS";
-        if (!machine.IsIdentityKnown)
-        {
-            identityDetail += " — Windows (WMI) n'a pas répondu : traité comme un portable par prudence, " +
-                "pour ne jamais écrire sur un éventuel contrôleur embarqué de ventilateurs.";
-        }
-        yield return new CompatibilityRow("Machine", machine.IsLaptop ? "Portable" : "PC de bureau",
-            identityDetail, machine.IsIdentityKnown);
+        string chassisDetail = identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS";
 
-        if (!_hardware.IsReady)
+        // Un châssis indéterminé n'est pas un détail cosmétique : c'est lui qui interdit le pilotage des
+        // ventilateurs. Le dire ici évite qu'un utilisateur cherche la cause du côté de sa carte mère.
+        yield return machine.Chassis switch
         {
-            // Recensement du matériel toujours en cours (voir HardwareMonitorService.IsReady) : au-delà
-            // de quelques secondes, un autre outil (MSI Afterburner, Armoury Crate...) tient probablement
-            // un mutex partagé (SMBus) que PCPerfSuite attend aussi. Fermer l'autre outil débloque
-            // généralement la situation ; sinon, redémarrer Windows.
-            double seconds = _hardware.InitializingDuration.TotalSeconds;
-            yield return new CompatibilityRow("Capteurs matériel", "Initialisation en cours…",
-                seconds < 10
-                    ? "Le recensement du matériel (LibreHardwareMonitor) démarre : les métriques affichent « -- » le temps qu'il se termine."
-                    : $"Toujours en cours après {seconds:0} s : un autre logiciel de contrôle (MSI Afterburner, Armoury Crate, HWiNFO...) " +
-                      "tient probablement un accès exclusif au matériel (bus SMBus). Fermez-le puis relancez PCPerfSuite si les métriques restent à « -- ».",
-                seconds < 10);
-        }
+            ChassisKind.Laptop => new CompatibilityRow("Machine", "Portable", chassisDetail, true),
+            ChassisKind.Desktop => new CompatibilityRow("Machine", "PC de bureau", chassisDetail, true),
+            _ => new CompatibilityRow("Machine", "Type indéterminé",
+                $"{chassisDetail}. Ni WMI ni la présence d'une batterie n'ont permis de dire si ce PC est un portable : "
+                + "par précaution, le pilotage des ventilateurs de carte mère est désactivé.", false),
+        };
 
         bool elevated = ElevationHelper.IsAdministrator();
         bool pawnIoInstalled = PawnIoDriver.IsInstalled;
@@ -178,6 +168,17 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return _gpu.IsAvailable
             ? new CompatibilityRow("Contrôle GPU (overclocking)", "Disponible", $"Via {_gpu.VendorLabel}.", true)
             : new CompatibilityRow("Contrôle GPU (overclocking)", "Non disponible", _gpu.UnavailableMessage, false);
+
+        // Ligne affichée seulement quand le garde-fou s'est déclenché : sur les autres machines, elle
+        // n'apprendrait rien. Quand elle apparaît, elle explique une absence qui serait sinon inexplicable.
+        if (AdlxProbeGuard.PreviousAttemptCrashed)
+        {
+            yield return new CompatibilityRow("Contrôle GPU AMD (ADLX)", "Désactivé après un plantage",
+                "La dernière interrogation du pilote AMD n'est pas revenue : elle a emporté PCPerfSuite avec elle. "
+                + "Le contrôle GPU AMD n'est plus tenté, pour que l'app démarre. Après une mise à jour du pilote "
+                + $"Adrenalin, supprimer le fichier {AdlxProbeGuard.SentinelFilePath} autorise une nouvelle tentative. "
+                + "Merci de signaler ce PC avec ce rapport.", false);
+        }
 
         yield return FanReadingRow(machine, snapshot);
 
