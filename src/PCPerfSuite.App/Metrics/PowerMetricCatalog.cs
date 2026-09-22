@@ -22,6 +22,18 @@ public static class PowerMetricCatalog
 
     private static readonly MetricReading RelativeUnitsReading = new(null, "non mesuré", "", RelativeUnitsNote);
 
+    /// <summary>Ces métriques ne sont proposées que si la machine a su les mesurer au moins une fois : leur
+    /// absence ensuite parle du pilote de batterie de ce PC, pas d'une limite de son modèle.</summary>
+    private const string BatteryHint =
+        "Le pilote de batterie de ce PC n'a pas répondu au dernier relevé. Sur un portable, ces valeurs reviennent " +
+        "en général au relevé suivant ; après un changement de batterie ou une mise en veille prolongée, il faut " +
+        "parfois relancer l'app. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+
+    private const string TotalPowerHint =
+        "Rien ne mesure la consommation totale sur ce PC. Il y faudrait une alimentation capable de publier sa " +
+        "puissance — rare, et réservé à quelques modèles haut de gamme — ou une batterie en cours de décharge. " +
+        "Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+
     public static IEnumerable<MetricDefinition> FromSnapshot(HardwareSnapshot snapshot)
     {
         BatterySnapshot? battery = snapshot.Battery;
@@ -32,7 +44,7 @@ public static class PowerMetricCatalog
         if (snapshot.PsuPowerWatts is not null || battery?.RateMw is not null || relative)
         {
             yield return Describe(MetricCatalog.Numeric("power.total", MetricCatalog.Power, "Conso totale du PC", "total", "W", "0.0",
-                    s => TotalPowerWatts(s.Hardware)),
+                    s => TotalPowerWatts(s.Hardware), hint: TotalPowerHint),
                 "Puissance consommée par tout le PC. Mesurée par l'alimentation connectée sur un fixe ; sur un portable, " +
                 "c'est la décharge de la batterie, donc mesurable seulement sur batterie (\"secteur\" sinon).",
                 read: s => s.Hardware.PsuPowerWatts is not null ? null
@@ -56,7 +68,7 @@ public static class PowerMetricCatalog
         if (battery.ChargePercent is not null)
         {
             yield return MetricCatalog.Numeric("battery.level", MetricCatalog.Power, "Batterie restante (%)", "batt", "%", "0",
-                s => s.Hardware.Battery?.ChargePercent);
+                s => s.Hardware.Battery?.ChargePercent, hint: BatteryHint);
         }
 
         if (battery.ToMah(battery.FullChargeMWh) is { } fullMah)
@@ -99,6 +111,7 @@ public static class PowerMetricCatalog
             IsSigned = true,
             GraphMinimumScale = minimumScale,
             ReadGroup = SensorGroup.Battery,
+            UnavailableHint = BatteryHint,
             Read = s => RelativeUnits(s) ?? (get(s) is { } v ? Format(v) : MetricReading.Missing),
             FormatNumber = Format,
         };
@@ -121,6 +134,7 @@ public static class PowerMetricCatalog
             Description = "Charge restante / capacité maximale estimée (capacité nominale × état de santé), " +
                           "converties depuis les mWh du pilote à la tension actuelle.",
             ReadGroup = SensorGroup.Battery,
+            UnavailableHint = BatteryHint,
             GraphMaximum = fullMahAtDiscovery is { } full ? Math.Ceiling(full) : null,
             GraphMinimumScale = 100,
             Read = s =>
@@ -155,6 +169,8 @@ public static class PowerMetricCatalog
         GraphMinimumScale = definition.GraphMinimumScale,
         HasGraph = definition.HasGraph,
         ReadGroup = definition.ReadGroup,
+        // Sans cette ligne, la copie repartait sur le message générique et perdait l'explication de l'original.
+        UnavailableHint = definition.UnavailableHint,
         FormatNumber = definition.FormatNumber,
         Read = read is null ? definition.Read : s => read(s) ?? definition.Read(s),
     };

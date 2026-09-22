@@ -79,6 +79,11 @@ public sealed class LaptopFanService : IDisposable
         }
     }
 
+    /// <summary>Marques dont un module de lecture existe, dans l'ordre où <see cref="CreateProvider"/> les
+    /// essaie. Unique source de vérité : les messages affichés à l'utilisateur la lisent au lieu de recopier
+    /// la liste, qui dérivait sinon en silence à chaque marque ajoutée.</summary>
+    public static IReadOnlyList<string> SupportedVendors { get; } = new[] { "ASUS", "Lenovo", "HP", "MSI", "Acer" };
+
     /// <summary>Le module de la marque du portable. Jamais tenté sur un PC de bureau : une carte mère ASUS y
     /// déclare la même interface, mais ses ventilateurs sont déjà lus via la carte mère.</summary>
     private static ILaptopFanProvider? CreateProvider(MachineInfo machine)

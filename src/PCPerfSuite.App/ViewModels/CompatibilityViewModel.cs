@@ -193,6 +193,12 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
         if (snapshot is not null) yield return MemoryRow(snapshot.Memory);
 
+        if (snapshot is not null)
+        {
+            yield return DiskRow(snapshot);
+            yield return BatteryRow(snapshot, machine);
+        }
+
         yield return ProcessCpuScaleRow();
 
         if (snapshot is not null)
@@ -365,6 +371,52 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         return new CompatibilityRow(title, "Lue", string.Join(" · ", description), true);
     }
 
+    /// <summary>Disques : combien sont vus, et lesquels publient une température et une usure. Ces deux
+    /// valeurs dépendent du contrôleur autant que du disque, et c'est la question qui revient dans les
+    /// signalements « ma température disque est vide ».</summary>
+    private static CompatibilityRow DiskRow(HardwareSnapshot snapshot)
+    {
+        const string title = "Disques";
+
+        int count = snapshot.Disks.Count;
+        if (count == 0)
+        {
+            return new CompatibilityRow(title, "Aucun détecté",
+                "Aucun disque n'a été énuméré. C'est inattendu : merci de signaler ce PC avec ce rapport.", false);
+        }
+
+        int withTemperature = snapshot.Disks.Count(d => d.TemperatureC is not null);
+        int withLife = snapshot.Disks.Count(d => d.RemainingLifePercent is not null);
+
+        return new CompatibilityRow(title, $"{count} détecté(s)",
+            $"{withTemperature}/{count} publient une température, {withLife}/{count} une usure SMART. "
+            + "Les disques mécaniques et certains contrôleurs NVMe ou RAID n'exposent ni l'une ni l'autre — "
+            + "c'est une limite de la machine, pas de PCPerfSuite.", true);
+    }
+
+    /// <summary>Batterie. Une absence est normale sur un fixe et anormale sur un portable : la ligne dit
+    /// laquelle des deux, plutôt que de laisser l'utilisateur deviner.</summary>
+    private static CompatibilityRow BatteryRow(HardwareSnapshot snapshot, MachineInfo machine)
+    {
+        const string title = "Batterie";
+
+        if (snapshot.Battery is { } battery)
+        {
+            return new CompatibilityRow(title, "Lue",
+                battery.IsCapacityRelative
+                    ? "Le pilote de cette batterie ne donne que des valeurs relatives : le pourcentage est fiable, "
+                      + "mais ni les watts, ni les mA, ni les mAh ne sont mesurables."
+                    : "Charge, débit et capacité lus via le pilote de batterie de Windows.", true);
+        }
+
+        bool expected = machine.Chassis == ChassisKind.Desktop;
+        return new CompatibilityRow(title, "Aucune",
+            expected
+                ? "Normal sur un PC de bureau sans onduleur."
+                : "Aucune batterie n'a répondu alors que cette machine n'est pas un PC de bureau avéré. Le pilote de "
+                  + "batterie est peut-être non standard : merci de signaler ce PC avec ce rapport.", expected);
+    }
+
     /// <summary>Comment le %CPU de l'onglet Processus est mis à l'échelle. Le temps processeur brut que donne
     /// Windows ne tient pas compte de la fréquence réelle des cœurs, alors que le Gestionnaire des tâches,
     /// qui compte en cycles, si : sans correction les valeurs sont trop basses, et avec une mauvaise
@@ -406,7 +458,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
                 count > 0),
             LaptopFanSupport.UnsupportedVendor => new CompatibilityRow(title, count > 0 ? $"{count} lu(s)" : "Aucun",
                 $"Portable {(machine.Manufacturer.Length > 0 ? machine.Manufacturer : "de marque inconnue")} : marque pas encore prise en " +
-                "charge pour les ventilateurs (ASUS, Lenovo, HP, MSI et Acer le sont).",
+                $"charge pour les ventilateurs ({string.Join(", ", LaptopFanService.SupportedVendors)} le sont).",
                 count > 0),
             _ => new CompatibilityRow(title, count > 0 ? $"{count} lu(s)" : "Aucun",
                 count > 0 ? "Via la carte mère et le GPU." : "La carte mère n'expose pas ses ventilateurs, ou sa puce de gestion n'est pas reconnue.",

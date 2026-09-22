@@ -25,7 +25,7 @@ public static class MonitoringSensorCatalog
         {
             string name = voltage.Name;
             yield return MetricCatalog.Numeric($"mb.volt:{name}", MetricCatalog.Motherboard, $"Tension {name}", "volt", "V", "0.000",
-                s => s.Hardware.Motherboard.Voltages.FirstOrDefault(v => v.Name == name)?.Value);
+                s => s.Hardware.Motherboard.Voltages.FirstOrDefault(v => v.Name == name)?.Value, hint: MetricCatalog.MotherboardHint);
         }
 
         foreach (DiskSnapshot disk in snapshot.Disks)
@@ -34,13 +34,13 @@ public static class MonitoringSensorCatalog
             yield return MetricCatalog.Numeric($"disk:{id}:load", MetricCatalog.Storage, $"{disk.Name} · charge", "charge", "%", "0",
                 s => Disk(s, id)?.ActivityPercent, hint: MetricCatalog.DiskLoadHint);
             yield return MetricCatalog.Rate($"disk:{id}:read", MetricCatalog.Storage, $"{disk.Name} · lecture", "lect",
-                MetricCatalog.DiskRateFloor, s => Disk(s, id)?.ReadRateBytesPerSecond);
+                MetricCatalog.DiskRateFloor, s => Disk(s, id)?.ReadRateBytesPerSecond, hint: MetricCatalog.DiskSensorHint);
             yield return MetricCatalog.Rate($"disk:{id}:write", MetricCatalog.Storage, $"{disk.Name} · écriture", "ecr",
-                MetricCatalog.DiskRateFloor, s => Disk(s, id)?.WriteRateBytesPerSecond);
+                MetricCatalog.DiskRateFloor, s => Disk(s, id)?.WriteRateBytesPerSecond, hint: MetricCatalog.DiskSensorHint);
             yield return MetricCatalog.Numeric($"disk:{id}:temp", MetricCatalog.Storage, $"{disk.Name} · température", "temp", "°C", "0",
-                s => Disk(s, id)?.TemperatureC);
+                s => Disk(s, id)?.TemperatureC, hint: MetricCatalog.DiskSensorHint);
             yield return MetricCatalog.Numeric($"disk:{id}:used", MetricCatalog.Storage, $"{disk.Name} · espace utilisé", "util", "%", "0",
-                s => Disk(s, id)?.UsedPercent);
+                s => Disk(s, id)?.UsedPercent, hint: MetricCatalog.DiskSensorHint);
         }
 
         foreach (FanReading fan in snapshot.Fans)

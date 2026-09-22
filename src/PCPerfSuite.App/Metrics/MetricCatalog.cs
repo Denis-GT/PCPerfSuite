@@ -2,6 +2,7 @@ using System.Globalization;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.App.Metrics;
@@ -136,9 +137,10 @@ public static class MetricCatalog
         "Le pilote de ce GPU n'expose pas cette valeur. Sur un portable, le GPU dédié en veille ne renvoie parfois rien " +
         "tant qu'aucune application ne l'utilise. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
 
-    internal const string FanHint =
+    internal static readonly string FanHint =
         "Ventilateur non lisible sur ce PC. Sur un PC de bureau, il faut que la carte mère expose ses ventilateurs ; sur un " +
-        "portable, que la marque soit prise en charge (ASUS, Lenovo, HP, MSI, Acer) : voir Paramètres › Compatibilité de ce PC.";
+        $"portable, que la marque soit prise en charge ({string.Join(", ", LaptopFanService.SupportedVendors)}) : " +
+        "voir Paramètres › Compatibilité de ce PC.";
 
     private const string FanPercentHint =
         "Le % n'est disponible que si le constructeur fournit la vitesse maximale du ventilateur ; sinon seuls les RPM " +
@@ -183,6 +185,33 @@ public static class MetricCatalog
     private const string GameHint =
         "Les FPS viennent de RTSS (RivaTuner Statistics Server) : RTSS doit être lancé et un jeu au premier plan.";
 
+    /// <summary>La charge totale vient d'un compteur de performance Windows, disponible sans pilote et sans
+    /// droits particuliers : son absence signale un problème de la machine, pas une limite de matériel.</summary>
+    private const string CpuLoadHint =
+        "La charge processeur vient d'un compteur de performance de Windows, qui répond normalement sur toutes les " +
+        "machines. Si elle manque, les compteurs de performance du système sont probablement désactivés ou abîmés " +
+        "(la commande « lodctr /r », en administrateur, les reconstruit). Merci de signaler ce PC avec le rapport de " +
+        "Paramètres › Compatibilité de ce PC.";
+
+    private const string DiskRateHint =
+        "Ce PC ne publie pas le débit de ses disques. C'est le cas derrière certains contrôleurs RAID et sur quelques " +
+        "pilotes NVMe, qui masquent les compteurs par disque. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+
+    private const string DiskTempHint =
+        "Aucun disque de ce PC n'expose de sonde thermique lisible. Les disques durs mécaniques et certains SSD SATA " +
+        "n'en publient pas, et quelques contrôleurs NVMe bloquent l'accès SMART. Ce n'est pas un dysfonctionnement de " +
+        "PCPerfSuite.";
+
+    /// <summary>Les capteurs propres à un disque n'entrent au catalogue que parce que la machine les a publiés
+    /// au moins une fois : leur disparition parle de ce disque-là, pas d'une limite du modèle de PC.</summary>
+    internal const string DiskSensorHint =
+        "Ce disque n'a pas répondu au dernier relevé : il a pu être retiré, mis en veille, ou son contrôleur a cessé " +
+        "de publier ses compteurs. Ce n'est pas un dysfonctionnement de PCPerfSuite.";
+
+    private const string NetworkRateHint =
+        "Aucune interface réseau active n'a été trouvée sur ce PC. Une machine hors ligne, ou dont le trafic passe " +
+        "uniquement par une interface virtuelle (VPN, machine virtuelle), peut ne rien afficher ici.";
+
     /// <summary>Catégories dans l'ordre du catalogue — sert au réglage des couleurs de l'overlay.</summary>
     public static IReadOnlyList<MetricCategory> Categories { get; } = new[]
     {
@@ -191,7 +220,7 @@ public static class MetricCatalog
 
     public static IReadOnlyList<MetricDefinition> All { get; } = new[]
     {
-        Numeric("cpu.load", Cpu, "Charge totale", "charge", "%", "0", s => s.Hardware.Cpu.LoadPercent),
+        Numeric("cpu.load", Cpu, "Charge totale", "charge", "%", "0", s => s.Hardware.Cpu.LoadPercent, hint: CpuLoadHint),
         Numeric("cpu.load.maxcore", Cpu, "Charge du cœur le plus sollicité", "coeur max", "%", "0", s => s.Hardware.Cpu.MaxCoreLoadPercent, hint: CpuSensorHint),
         Numeric("cpu.temp.package", Cpu, "Température package", "temp", "°C", "0", s => s.Hardware.Cpu.PackageTempC, hint: CpuSensorHint),
         Numeric("cpu.temp.maxcore", Cpu, "Température max cœur", "temp coeur", "°C", "0", s => s.Hardware.Cpu.MaxCoreTempC, hint: CpuSensorHint),
@@ -226,12 +255,12 @@ public static class MetricCatalog
         // moyenne qui noierait la copie qui sature un seul disque. Max sur une liste vide donne null (« N/D »).
         Numeric("storage.load", Storage, "Charge disque (le plus sollicité)", "charge", "%", "0",
             s => s.Hardware.Disks.Max(d => d.ActivityPercent), hint: DiskLoadHint),
-        Rate("storage.read", Storage, "Débit lecture total", "lect", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.ReadRateBytesPerSecond))),
-        Rate("storage.write", Storage, "Débit écriture total", "ecr", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.WriteRateBytesPerSecond))),
-        Numeric("storage.temp.max", Storage, "Température disque max", "temp", "°C", "0", s => s.Hardware.Disks.Max(d => d.TemperatureC)),
+        Rate("storage.read", Storage, "Débit lecture total", "lect", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.ReadRateBytesPerSecond)), hint: DiskRateHint),
+        Rate("storage.write", Storage, "Débit écriture total", "ecr", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.WriteRateBytesPerSecond)), hint: DiskRateHint),
+        Numeric("storage.temp.max", Storage, "Température disque max", "temp", "°C", "0", s => s.Hardware.Disks.Max(d => d.TemperatureC), hint: DiskTempHint),
 
-        Rate("net.upload", Network, "Débit montant total", "envoi", NetworkRateFloor, s => s.Hardware.Network.UploadBytesPerSecond),
-        Rate("net.download", Network, "Débit descendant total", "recep", NetworkRateFloor, s => s.Hardware.Network.DownloadBytesPerSecond),
+        Rate("net.upload", Network, "Débit montant total", "envoi", NetworkRateFloor, s => s.Hardware.Network.UploadBytesPerSecond, hint: NetworkRateHint),
+        Rate("net.download", Network, "Débit descendant total", "recep", NetworkRateFloor, s => s.Hardware.Network.DownloadBytesPerSecond, hint: NetworkRateHint),
 
         Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps, hint: GameHint, lineLabel: "FPS"),
         Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps, hint: GameHint, lineLabel: "MOY"),
@@ -310,7 +339,7 @@ public static class MetricCatalog
 
     /// <summary>Débit en octets/seconde, mis à l'échelle (o/s, Ko/s, Mo/s...).</summary>
     internal static MetricDefinition Rate(string id, MetricCategory category, string label, string osdLabel,
-        double graphMinimumScale, Func<MetricSample, double?> getBytesPerSecond)
+        double graphMinimumScale, Func<MetricSample, double?> getBytesPerSecond, string? hint = null)
     {
         MetricReading Format(double bytesPerSecond)
         {
@@ -327,6 +356,7 @@ public static class MetricCatalog
             IsRate = true,
             GraphMinimumScale = graphMinimumScale,
             ReadGroup = GroupFor(id, category),
+            UnavailableHint = hint ?? DefaultUnavailableHint,
             Read = s => getBytesPerSecond(s) is { } v ? Format(v) : Absent(s, GroupFor(id, category), category),
             FormatNumber = Format,
         };
