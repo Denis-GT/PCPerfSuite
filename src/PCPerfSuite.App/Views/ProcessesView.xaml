@@ -81,17 +81,6 @@
                     </Grid>
                 </ToggleButton>
 
-                <!-- Regroupement par application : c'est ce que montre l'onglet « Processus » du
-                     Gestionnaire des tâches, et donc ce à quoi l'utilisateur compare ce qu'il voit ici. -->
-                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding GroupByApplication}"
-                              VerticalAlignment="Center" Margin="10,0,0,0"
-                              ToolTip="Rassemble les instances d'une même application sous une ligne qui additionne leurs mesures, comme le Gestionnaire des tâches. Décoché, chaque processus a sa ligne.">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xF168;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
-                        <TextBlock Text="Regrouper" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </ToggleButton>
-
                 <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding ShowDetails}"
                               VerticalAlignment="Center" Margin="10,0,0,0"
                               ToolTip="Affiche sous la liste le détail du processus sélectionné, avec ses courbes de CPU et de mémoire.">

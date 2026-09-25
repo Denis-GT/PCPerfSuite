@@ -174,8 +174,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     /// fait tourner. Deux utilisateurs connectés n'ont pas « le même » navigateur.</summary>
     public string GroupKey { get; private set; } = "";
 
-    /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce ou si le
-    /// regroupement est désactivé.</summary>
+    /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsMember))]
     private ProcessRowViewModel? parent;
@@ -659,8 +658,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
     private bool showDetails;
 
-    [ObservableProperty] private bool groupByApplication = true;
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
     private ProcessRowViewModel? selectedRow;
@@ -773,7 +770,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         Columns.ApplyVisibility(saved.VisibleColumnIds);
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
-        GroupByApplication = saved.GroupByApplication;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
         // Repli cherché par sa valeur et non par son indice : insérer une cadence dans la liste
         // décalerait un indice et changerait le défaut sans qu'on s'en aperçoive.
@@ -955,25 +951,18 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         foreach (List<ProcessRowViewModel> members in _byGroupKey.Values) members.Clear();
 
-        if (!GroupByApplication)
+        foreach (ProcessRowViewModel row in Rows)
         {
-            foreach (ProcessRowViewModel row in Rows) row.Parent = null;
-        }
-        else
-        {
-            foreach (ProcessRowViewModel row in Rows)
-            {
-                // Un processus disparu ne compte plus dans les totaux : sa ligne grisée n'a plus de mesures,
-                // et le faire peser dans la somme ferait mentir l'agrégat pendant tout son sursis.
-                if (row.IsAggregate || row.IsGone) continue;
+            // Un processus disparu ne compte plus dans les totaux : sa ligne grisée n'a plus de mesures,
+            // et le faire peser dans la somme ferait mentir l'agrégat pendant tout son sursis.
+            if (row.IsAggregate || row.IsGone) continue;
 
-                if (!_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members))
-                {
-                    members = new List<ProcessRowViewModel>();
-                    _byGroupKey[row.GroupKey] = members;
-                }
-                members.Add(row);
+            if (!_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members))
+            {
+                members = new List<ProcessRowViewModel>();
+                _byGroupKey[row.GroupKey] = members;
             }
+            members.Add(row);
         }
 
         foreach ((string key, List<ProcessRowViewModel> members) in _byGroupKey)
@@ -1087,16 +1076,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         {
             if (!_disposed) ReconcileWithView();
         }));
-    }
-
-    partial void OnGroupByApplicationChanged(bool value)
-    {
-        if (!_initialized) return;
-
-        RebuildAggregates();
-        RefreshFilter();
-        QueueOrder(force: true);
-        Persist();
     }
 
     // ----- Classement -----
@@ -1382,9 +1361,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     private bool PassesFilter(ProcessRowViewModel row)
     {
-        // Un agrégat retombé sous deux membres, ou resté là après une désactivation du regroupement, quitte
-        // la liste par le filtre — le seul chemin qui ne décale rien sous le curseur.
-        if (row.IsAggregate && (!GroupByApplication || row.MemberCount < MinimumGroupSize)) return false;
+        // Un agrégat retombé sous deux membres quitte la liste par le filtre — le seul chemin qui ne décale
+        // rien sous le curseur.
+        if (row.IsAggregate && row.MemberCount < MinimumGroupSize) return false;
 
         ProcessKindFilter kind = SelectedKind?.Value ?? ProcessKindFilter.All;
         // La famille comparée est celle du groupe : filtrer sur « Applications » doit montrer un navigateur
@@ -1916,7 +1895,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         settings.Processes.VisibleColumnIds = Columns.VisibleIds;
         settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
         settings.Processes.ShowDetails = ShowDetails;
-        settings.Processes.GroupByApplication = GroupByApplication;
         AppSettingsStore.Save(settings);
     }
 

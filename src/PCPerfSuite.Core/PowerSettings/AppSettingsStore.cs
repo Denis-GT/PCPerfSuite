@@ -93,11 +93,6 @@ public sealed class ProcessesSettings
     /// <summary>Famille affichée : "all", "apps", "background" ou "windows".</summary>
     public string KindFilter { get; set; } = "all";
 
-    /// <summary>Regroupe les instances d'une même application sous une ligne qui totalise leurs mesures,
-    /// comme l'onglet « Processus » du Gestionnaire des tâches. Activé par défaut : c'est à ce total que
-    /// l'utilisateur compare ce qu'il voit ailleurs.</summary>
-    public bool GroupByApplication { get; set; } = true;
-
     /// <summary>Affiche le panneau de détail sous la liste pour le processus sélectionné.</summary>
     public bool ShowDetails { get; set; } = true;
 }
