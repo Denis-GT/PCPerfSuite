@@ -28,8 +28,17 @@ public sealed partial class DiskItemViewModel : ObservableObject
     [ObservableProperty] private DiskHealthStatus? healthStatus;
     [ObservableProperty] private string? healthSummary;
 
+    /// <summary>Lettres et noms Windows des volumes du disque, façon Explorateur : « SSD Jeux (D:) ». Un
+    /// volume sans nom s'appelle « Disque local », comme dans l'Explorateur. Ce texte dit aussi pourquoi il
+    /// manque quand c'est le cas, plutôt que de laisser une ligne vide.</summary>
+    [ObservableProperty] private string volumesDisplay = "";
+
     public string RemainingLifeDisplay => RemainingLifePercent is { } l ? $"{l:0}%" : "--";
     public string TestButtonLabel => IsTesting ? "Test en cours…" : "Tester l'état";
+
+    /// <summary>Avant le premier test, la bande de santé disait rien du tout : on explique ce que fait le bouton.</summary>
+    public string HealthSummaryDisplay
+        => HealthSummary ?? "Pas encore testé — « Tester l'état » interroge Windows Storage Management.";
 
     public DiskItemViewModel(DiskHealthService health, string identifier)
     {
@@ -42,8 +51,21 @@ public sealed partial class DiskItemViewModel : ObservableObject
         Name = s.Name;
         UsedPercent = s.UsedPercent ?? 0;
         RemainingLifePercent = s.RemainingLifePercent;
+        VolumesDisplay = BuildVolumesDisplay(s);
     }
 
+    private static string BuildVolumesDisplay(DiskSnapshot s)
+    {
+        string volumes = s.Volumes.Count > 0
+            ? string.Join(" · ", s.Volumes.Select(v => $"{v.Label ?? "Disque local"} ({v.DriveLetter})"))
+            : "Aucune lettre de lecteur attribuée par Windows";
+
+        return s.NameSource == DiskNameSource.Unknown
+            ? $"{volumes} — modèle non communiqué par le disque ni par Windows"
+            : volumes;
+    }
+
+    partial void OnHealthSummaryChanged(string? value) => OnPropertyChanged(nameof(HealthSummaryDisplay));
     partial void OnRemainingLifePercentChanged(double? value) => OnPropertyChanged(nameof(RemainingLifeDisplay));
     partial void OnIsTestingChanged(bool value) => OnPropertyChanged(nameof(TestButtonLabel));
 

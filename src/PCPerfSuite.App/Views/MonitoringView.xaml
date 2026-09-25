@@ -355,9 +355,15 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock Text="&#xEDA2;" Style="{StaticResource Icon}" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
-                                                           Margin="0,0,10,0"/>
-                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                                           Margin="0,0,10,0" VerticalAlignment="Top"/>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                                    <!-- Lettres et noms de volume définis dans Windows (« SSD Jeux (D:) »). -->
+                                                    <TextBlock Text="{Binding VolumesDisplay}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                                               TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                                               ToolTip="{Binding VolumesDisplay}"/>
+                                                </StackPanel>
                                             </StackPanel>
                                             <!-- Espace utilisé, pas un indicateur de santé : jamais coloré en orange/rouge (voir doc de UseValueColor sur MeterBar). -->
                                             <TextBlock Grid.Column="1" Text="Espace utilisé" Style="{StaticResource Caption}"
@@ -377,7 +383,7 @@
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding HealthSummary}" Style="{StaticResource Caption}"
+                                            <TextBlock Grid.Column="0" Text="{Binding HealthSummaryDisplay}" Style="{StaticResource Caption}"
                                                        VerticalAlignment="Center" TextWrapping="Wrap" Margin="6,6,10,6"
                                                        Foreground="{Binding HealthStatus, Converter={StaticResource DiskHealthBrush}}"/>
                                             <Button Grid.Column="1" Content="{Binding TestButtonLabel}" Style="{StaticResource GhostButton}"

@@ -158,9 +158,27 @@ public sealed class MotherboardSnapshot
     public IReadOnlyList<SensorReading> Voltages { get; init; } = Array.Empty<SensorReading>();
 }
 
+/// <summary>Un volume Windows porté par un disque physique : sa lettre (« C: ») et le nom que l'utilisateur lui
+/// a donné dans Windows (« SSD Jeux »), null quand il n'en a pas — l'Explorateur écrit alors « Disque local ».</summary>
+public sealed record DiskVolume(string DriveLetter, string? Label);
+
+/// <summary>D'où vient le nom de modèle d'un disque, pour le diagnostic de compatibilité.</summary>
+public enum DiskNameSource
+{
+    Unknown,
+    LibreHardwareMonitor,
+    WindowsWmi,
+}
+
 public sealed class DiskSnapshot
 {
     public string Name { get; init; } = "Disque inconnu";
+
+    public DiskNameSource NameSource { get; init; }
+
+    /// <summary>Volumes de ce disque (lettre + nom Windows). Vide si Windows n'en associe aucun — disque sans
+    /// lettre, disque dynamique, Storage Spaces — ou si la lecture WMI a échoué.</summary>
+    public IReadOnlyList<DiskVolume> Volumes { get; init; } = Array.Empty<DiskVolume>();
 
     /// <summary>Identifiant LibreHardwareMonitor, ex. "/nvme/0" : le dernier segment est le même numéro
     /// de disque physique que Windows (\\.\PhysicalDriveN, Win32_DiskDrive.Index).</summary>
