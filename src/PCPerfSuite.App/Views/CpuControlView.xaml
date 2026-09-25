@@ -167,7 +167,7 @@
                                 <TextBlock Grid.Column="0" Text="Limite soutenue" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                 <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                       Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                                      Value="{Binding SustainedWatts}" Unit="W"/>
+                                                      Value="{Binding SustainedWatts}" Unit="W" Note="{Binding SustainedNote}"/>
                             </Grid>
 
                             <Grid Margin="0,12,0,0" Visibility="{Binding HasBurstLimit, Converter={StaticResource BoolToVisibility}}">
@@ -179,7 +179,7 @@
                                 <TextBlock Grid.Column="0" Text="Limite de pointe" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                 <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                       Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                                      Value="{Binding BurstWatts}" Unit="W"/>
+                                                      Value="{Binding BurstWatts}" Unit="W" Note="{Binding BurstNote}"/>
                             </Grid>
 
                             <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>

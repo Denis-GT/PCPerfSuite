@@ -25,6 +25,16 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     /// (le processeur est de toute façon bridé par sa température et son VRM) et cuit le matériel.</summary>
     private const float MaxFactoryMultiplier = 1.5f;
 
+    /// <summary>Au-delà, une limite lue n'en est pas une : le registre RAPL tient sur 15 bits (4095,875 W à 1/8 W
+    /// près) et beaucoup de cartes mères de bureau y écrivent 4095 W pour dire « sans limite », surtout sur la
+    /// limite courte durée. Aucun processeur grand public n'approche 1000 W.</summary>
+    private const float UnlimitedWatts = 1000f;
+
+    /// <summary>Plafond retenu quand la limite d'usine est « sans limite » : le multiple de 4095 W (6142 W)
+    /// n'aurait aucun sens, ni comme borne de saisie ni comme valeur écrite dans le processeur. 400 W couvre
+    /// les réglages usine des plus gros processeurs de bureau (≈ 250-350 W) sans laisser monter plus haut.</summary>
+    private const float UnlimitedCapWatts = 400f;
+
     private readonly PawnIoModule _msr;
     private readonly float _powerUnitWatts;
     private readonly bool _locked;
@@ -107,7 +117,11 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
             if (infoMax > 0) hardwareMax = infoMax;
         }
 
-        float factoryCap = Math.Max(sustained, burst) * MaxFactoryMultiplier;
+        // Une limite d'usine « sans limite » ne donne aucune base de calcul : plafond fixe. Sinon, le multiple
+        // de la limite d'usine, borné par ce que le processeur annonce.
+        float factoryCap = Math.Max(sustained, burst) >= UnlimitedWatts
+            ? UnlimitedCapWatts
+            : Math.Max(sustained, burst) * MaxFactoryMultiplier;
         float maxWatts = Math.Max(hardwareMin + 1f, Math.Min(hardwareMax, factoryCap));
 
         return new IntelPowerLimitBackend(

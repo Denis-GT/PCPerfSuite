@@ -391,8 +391,24 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
     partial void OnRiskAcceptedChanged(bool value) => OnPropertyChanged(nameof(NeedsRiskAcceptance));
 
+    /// <summary>Valeur lue à partir de laquelle une limite est le marqueur « sans limite » de la carte mère
+    /// (4095 W) et non une vraie puissance. Même seuil que <c>IntelPowerLimitBackend.UnlimitedWatts</c>.</summary>
+    private const double UnlimitedWatts = 1000;
+
+    /// <summary>Explique une valeur affichée hors de la plage saisissable (4095 W pour une plage qui s'arrête à
+    /// 400 W) au lieu de la laisser passer pour une erreur. Vide pour une limite ordinaire.</summary>
+    public string SustainedNote => UnlimitedNote(SustainedWatts);
+
+    public string BurstNote => UnlimitedNote(BurstWatts);
+
+    private static string UnlimitedNote(double watts) => watts >= UnlimitedWatts
+        ? $"Pas de limite définie par le BIOS (valeur lue : {watts:0} W)"
+        : "";
+
     partial void OnSustainedWattsChanged(double value)
     {
+        OnPropertyChanged(nameof(SustainedNote));
+
         // La limite de pointe ne peut pas passer sous la limite soutenue : on la pousse avec.
         if (HasBurstLimit && BurstWatts < value)
         {
@@ -403,7 +419,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         Apply();
     }
 
-    partial void OnBurstWattsChanged(double value) => Apply();
+    partial void OnBurstWattsChanged(double value)
+    {
+        OnPropertyChanged(nameof(BurstNote));
+        Apply();
+    }
 
     partial void OnApplyAtStartupChanged(bool value)
     {
