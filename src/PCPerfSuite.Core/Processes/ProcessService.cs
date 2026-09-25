@@ -20,8 +20,9 @@ namespace PCPerfSuite.Core.Processes;
 /// • System.Diagnostics.Process comme socle du relevé : il met ses valeurs en cache (Refresh() obligatoire),
 ///   lève une exception par processus protégé — des dizaines à chaque tick —, détient un handle jetable par
 ///   instance, et n'expose pas le working set privé. Il n'est gardé que pour FileVersionInfo.
-/// • Le débit réseau par processus : aucune API documentée ne le donne sans passer par une session ETW.
-///   GetExtendedTcpTable donne le PID propriétaire d'une connexion, jamais un compteur d'octets.
+/// • Le disque et le réseau par processus : aucun compteur documenté ne les sépare du reste des E/S. Ils
+///   viennent d'une session ETW noyau (<see cref="ProcessIoTracer"/>), démarrée seulement quand l'onglet est
+///   affiché et seulement en administrateur ; sans elle, la colonne retombe sur GetProcessIoCounters.
 /// • Le %GPU par processus : le jeu de compteurs « GPU Engine » qu'utilise le Gestionnaire des tâches n'a
 ///   aucune page de référence chez Microsoft, et la grammaire de ses noms d'instance n'est pas contractuelle.
 ///
@@ -44,6 +45,13 @@ public sealed class ProcessService : IDisposable
         public ulong IoBytes;
 
         public bool HasIo;
+
+        /// <summary>Octets de disque et de réseau cumulés depuis le démarrage de la trace ETW. Valides
+        /// seulement si <see cref="HasTrace"/>.</summary>
+        public ulong DiskBytes;
+
+        public ulong NetworkBytes;
+        public bool HasTrace;
     }
 
     /// <summary>Nombre de relevés gardés par processus. Assez pour remonter d'une seconde à la cadence la plus
@@ -80,6 +88,8 @@ public sealed class ProcessService : IDisposable
     }
 
     private readonly Dictionary<int, Tracked> _tracked = new();
+
+    private readonly ProcessIoTracer _ioTracer = new();
 
     /// <summary>Sérialise tout ce qui touche <see cref="_tracked"/> et les handles qu'il garde ouverts. Le
     /// relevé tourne sur le pool de threads pendant que le thread d'interface peut, lui, appeler
@@ -182,6 +192,27 @@ public sealed class ProcessService : IDisposable
         }
     }
 
+    /// <summary>Démarre la trace ETW du disque et du réseau. À appeler sur un thread d'arrière-plan : ouvrir une
+    /// session prend une centaine de millisecondes. Sans effet, et sans exception, si elle ne peut pas
+    /// démarrer : <see cref="ProcessCapabilities.IoTrace"/> dit alors pourquoi.</summary>
+    public void StartIoTrace()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _ioTracer.Start();
+        }
+    }
+
+    /// <summary>Arrête la trace : elle ne doit tourner que tant que l'onglet est affiché.</summary>
+    public void StopIoTrace()
+    {
+        lock (_gate)
+        {
+            _ioTracer.Stop();
+        }
+    }
+
     /// <summary>Relève tous les processus. Appelé depuis un thread d'arrière-plan : il fait des E/S disque
     /// (ressources de version) à la première apparition d'un exécutable.</summary>
     public ProcessSnapshot GetSnapshot()
@@ -221,6 +252,7 @@ public sealed class ProcessService : IDisposable
         bool isFirstSample = elapsedSeconds <= 0;
 
         double frequencyFactor = UpdateCpuScale(elapsedSeconds);
+        bool traceRunning = _ioTracer.State == IoTraceState.Running;
 
         List<ProcessEntry> entries = EnumerateProcesses();
         Dictionary<int, string> windowTitles = CollectWindowTitles();
@@ -254,6 +286,8 @@ public sealed class ProcessService : IDisposable
             long? privateWorkingSet = null;
             long? committed = null;
             double? ioRate = null;
+            double? diskRate = null;
+            double? networkRate = null;
 
             // Le relevé de référence, celui auquel on compare celui-ci : capturé UNE fois pour toute
             // l'itération et relu par le bloc E/S plus bas. Un processus apparu en cours de session n'en a
@@ -333,6 +367,22 @@ public sealed class ProcessService : IDisposable
                 current.HasIo = true;
             }
 
+            // Disque et réseau : cumulés par la trace depuis son démarrage, donc traités comme les autres
+            // compteurs, par écart avec le relevé de référence. Ce dernier doit venir de la même trace :
+            // une trace redémarrée repart de zéro, et l'écart serait négatif ou absurde.
+            if (recorded && traceRunning && _ioTracer.TryGetTotals(entry.Pid, out ulong disk, out ulong network))
+            {
+                if (hasReference && reference.HasTrace)
+                {
+                    if (disk >= reference.DiskBytes) diskRate = (disk - reference.DiskBytes) / windowSeconds;
+                    if (network >= reference.NetworkBytes) networkRate = (network - reference.NetworkBytes) / windowSeconds;
+                }
+
+                current.DiskBytes = disk;
+                current.NetworkBytes = network;
+                current.HasTrace = true;
+            }
+
             if (recorded) PushSample(tracked, current);
 
             ResolveImmutableData(tracked, entry.Pid, accessible);
@@ -356,6 +406,8 @@ public sealed class ProcessService : IDisposable
                 PrivateWorkingSetBytes = privateWorkingSet,
                 CommittedBytes = committed,
                 IoBytesPerSecond = ioRate,
+                DiskBytesPerSecond = diskRate,
+                NetworkBytesPerSecond = networkRate,
                 ThreadCount = entry.ThreadCount,
                 IsAccessible = accessible,
             });
@@ -373,6 +425,10 @@ public sealed class ProcessService : IDisposable
             {
                 HasPrivateWorkingSet = anyPrivateWorkingSet,
                 HasIoRate = anyIoRate,
+                IoTrace = _ioTracer.State,
+                IoTraceDetail = _ioTracer.Detail,
+                DiskEventCount = _ioTracer.DiskEventCount,
+                NetworkEventCount = _ioTracer.NetworkEventCount,
             },
             ReadDuration = Stopwatch.GetElapsedTime(start),
             InaccessibleCount = inaccessible,
@@ -578,6 +634,7 @@ public sealed class ProcessService : IDisposable
             _tracked.Clear();
             _cpuUtility.Dispose();
             _cpuPerformance.Dispose();
+            _ioTracer.Dispose();
         }
     }
 
@@ -844,6 +901,7 @@ public sealed class ProcessService : IDisposable
 
             CloseIfValid(tracked.Handle);
             tracked.Handle = IntPtr.Zero;
+            _ioTracer.Forget(pid);
             (gone ??= new List<int>()).Add(pid);
         }
 

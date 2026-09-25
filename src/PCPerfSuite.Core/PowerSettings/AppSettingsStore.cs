@@ -128,6 +128,10 @@ public sealed class ProcessesSettings
     /// jeu par défaut s'applique.</summary>
     public List<string>? VisibleColumnIds { get; set; }
 
+    /// <summary>La colonne « Réseau » a été cochée d'office une fois, pour les réglages enregistrés avant son
+    /// arrivée. Passé cela, le choix de l'utilisateur — la décocher — est respecté.</summary>
+    public bool NetworkColumnOffered { get; set; }
+
     /// <summary>Famille affichée : "all", "apps", "background" ou "windows".</summary>
     public string KindFilter { get; set; } = "all";
 

@@ -87,9 +87,17 @@ public sealed class ProcessInfo
     public long? CommittedBytes { get; init; }
 
     /// <summary>Débit d'entrées/sorties, en octets par seconde. Windows compte ici TOUTES les E/S du
-    /// processus — fichiers, réseau, tubes, console — et pas seulement le disque : c'est le même compteur
-    /// que la colonne du Gestionnaire des tâches, d'où le libellé « E/S » et non « Disque ».</summary>
+    /// processus — fichiers (cache compris), réseau, tubes, console — et pas seulement le disque. C'est la
+    /// valeur de repli de la colonne « Disque », utilisée quand la trace ETW n'est pas disponible.</summary>
     public double? IoBytesPerSecond { get; init; }
+
+    /// <summary>Débit du disque physique, en octets par seconde, issu de la trace ETW : ce que compte la
+    /// colonne « Disque » du Gestionnaire des tâches. Null quand la trace ne tourne pas, ou pour un
+    /// processus qu'on n'a pas pu mesurer.</summary>
+    public double? DiskBytesPerSecond { get; init; }
+
+    /// <summary>Débit réseau (TCP et UDP, envoi et réception), en octets par seconde, issu de la même trace.</summary>
+    public double? NetworkBytesPerSecond { get; init; }
 
     public int ThreadCount { get; init; }
 
@@ -107,6 +115,18 @@ public sealed class ProcessCapabilities
     public bool HasPrivateWorkingSet { get; init; }
 
     public bool HasIoRate { get; init; }
+
+    /// <summary>État de la trace ETW qui fournit le disque et le réseau par processus. Quand elle ne tourne
+    /// pas, <see cref="IoTraceDetail"/> dit pourquoi.</summary>
+    public IoTraceState IoTrace { get; init; }
+
+    public string? IoTraceDetail { get; init; }
+
+    public bool HasIoTrace => IoTrace == IoTraceState.Running;
+
+    public long DiskEventCount { get; init; }
+
+    public long NetworkEventCount { get; init; }
 }
 
 /// <summary>D'où vient le facteur qui convertit le temps processeur brut en %CPU affiché. Sert au

@@ -44,7 +44,15 @@ public sealed partial class ProcessColumnViewModel : ObservableObject
     private readonly bool _fills;
 
     public string Id { get; }
-    public string Header { get; }
+
+    /// <summary>Titre de la colonne. Modifiable : « Disque » quand la trace ETW fournit le vrai débit du
+    /// disque, « E/S » quand on doit se rabattre sur le compteur qui inclut aussi réseau et tubes.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeaderDisplay))]
+    private string header = "";
+
+    /// <summary>Ce que la colonne mesure, et pourquoi elle peut différer du Gestionnaire des tâches.</summary>
+    [ObservableProperty] private string? tooltip;
 
     /// <summary>Colonne qu'on ne peut pas masquer (le nom : sans lui la liste n'a plus de sens).</summary>
     public bool IsLocked { get; }
@@ -66,10 +74,11 @@ public sealed partial class ProcessColumnViewModel : ObservableObject
     internal Action? VisibilityChanged;
 
     public ProcessColumnViewModel(string id, string header, double pixels, bool isNumeric,
-        bool fills = false, bool isLocked = false)
+        bool fills = false, bool isLocked = false, string? tooltip = null)
     {
         Id = id;
         Header = header;
+        Tooltip = tooltip;
         _pixels = pixels;
         _fills = fills;
         IsNumeric = isNumeric;
@@ -109,9 +118,21 @@ public sealed class ProcessColumnsViewModel
     public ProcessColumnViewModel Name { get; } = new("name", "Nom", 0, isNumeric: false, fills: true, isLocked: true);
     public ProcessColumnViewModel Pid { get; } = new("pid", "PID", 64, isNumeric: true);
     public ProcessColumnViewModel Kind { get; } = new("kind", "Type", 106, isNumeric: false);
-    public ProcessColumnViewModel Cpu { get; } = new("cpu", "CPU", 76, isNumeric: true);
-    public ProcessColumnViewModel Memory { get; } = new("memory", "Mémoire", 98, isNumeric: true);
+    public ProcessColumnViewModel Cpu { get; } = new("cpu", "CPU", 76, isNumeric: true, tooltip:
+        "Part du processeur de tout le PC, mesurée sur environ une seconde et pondérée par la fréquence réelle "
+        + "des cœurs, comme le Gestionnaire des tâches. Les deux ne mesurent pas exactement les mêmes secondes : un "
+        + "processus qui travaille par à-coups peut afficher quelques points d'écart. Un groupe additionne tous les "
+        + "processus de l'application, celui qui l'a lancée compris.");
+
+    public ProcessColumnViewModel Memory { get; } = new("memory", "Mémoire", 98, isNumeric: true, tooltip:
+        "Jeu de travail privé : la RAM que ce processus occupe à lui seul, sans les pages partagées avec d'autres "
+        + "(bibliothèques Windows, par exemple) — la colonne « Mémoire » du Gestionnaire des tâches. Un groupe "
+        + "additionne tous ses processus : la ligne d'un seul d'entre eux est donc bien plus petite que "
+        + "l'application entière.");
+
+    // Le titre et l'infobulle de ces deux colonnes dépendent de la trace ETW : voir ApplyTraceState.
     public ProcessColumnViewModel Io { get; } = new("io", "E/S", 94, isNumeric: true);
+    public ProcessColumnViewModel Network { get; } = new("network", "Réseau", 104, isNumeric: true);
     public ProcessColumnViewModel Threads { get; } = new("threads", "Threads", 70, isNumeric: true);
     public ProcessColumnViewModel User { get; } = new("user", "Compte", 150, isNumeric: false);
     public ProcessColumnViewModel Publisher { get; } = new("publisher", "Éditeur", 170, isNumeric: false);
@@ -119,11 +140,11 @@ public sealed class ProcessColumnsViewModel
     public IReadOnlyList<ProcessColumnViewModel> All { get; }
 
     /// <summary>Colonnes cochées au premier lancement.</summary>
-    private static readonly string[] DefaultVisible = { "name", "pid", "kind", "cpu", "memory", "io" };
+    private static readonly string[] DefaultVisible = { "name", "pid", "kind", "cpu", "memory", "io", "network" };
 
     public ProcessColumnsViewModel()
     {
-        All = new[] { Name, Pid, Kind, Cpu, Memory, Io, Threads, User, Publisher };
+        All = new[] { Name, Pid, Kind, Cpu, Memory, Io, Network, Threads, User, Publisher };
     }
 
     public void ApplyVisibility(IEnumerable<string>? visibleIds)
@@ -223,7 +244,11 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     [ObservableProperty] private double? cpuPercent;
     [ObservableProperty] private long? memoryBytes;
+    /// <summary>Débit du disque : celui de la trace ETW quand elle tourne, sinon le compteur d'E/S de
+    /// Windows, qui inclut aussi le réseau et les tubes (voir <see cref="ProcessesViewModel.IoTraceActive"/>).</summary>
     [ObservableProperty] private double? ioBytesPerSecond;
+
+    [ObservableProperty] private double? networkBytesPerSecond;
 
     [ObservableProperty] private bool isSelected;
 
@@ -302,13 +327,47 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         ? Math.Clamp(Math.Log10(rate / 1024d) / IoDecades, 0, 1)
         : null;
 
+    public double? NetworkIntensity => NetworkBytesPerSecond is { } rate && rate >= 1
+        ? Math.Clamp(Math.Log10(rate / 1024d) / IoDecades, 0, 1)
+        : null;
+
     public double? ThreadIntensity => ThreadCount > 0
         ? Math.Clamp(Math.Log10(ThreadCount) / ThreadDecades, 0, 1)
         : null;
 
     public string MemoryDisplay => MemoryBytes is { } bytes ? ByteFormatter.Format(bytes) : "--";
 
-    public string IoDisplay => IoBytesPerSecond is { } rate && rate >= 1 ? ByteFormatter.FormatRate(rate) : "--";
+    /// <summary>Un disque au repos affiche « 0 Mo/s » comme dans le Gestionnaire des tâches quand la trace
+    /// mesure vraiment ; avec le compteur de repli, une valeur nulle reste « -- » : elle ne dit pas grand-chose.</summary>
+    public string IoDisplay => IoBytesPerSecond is not { } rate
+        ? "--"
+        : Owner.IoTraceActive
+            ? (rate >= 1 ? ByteFormatter.FormatRate(rate) : "0 Mo/s")
+            : (rate >= 1 ? ByteFormatter.FormatRate(rate) : "--");
+
+    /// <summary>« N/D » quand ce PC ne fournit pas la mesure (trace ETW indisponible), « -- » quand elle n'a
+    /// pas encore pu être lue : les deux ne veulent pas dire la même chose.</summary>
+    public string NetworkDisplay => NetworkBytesPerSecond is { } rate
+        ? FormatMegabits(rate)
+        : Owner.IoTraceActive ? "--" : "N/D";
+
+    /// <summary>En mégabits par seconde, l'unité du Gestionnaire des tâches pour le réseau.</summary>
+    private static string FormatMegabits(double bytesPerSecond)
+    {
+        double megabits = Math.Max(0, bytesPerSecond) * 8 / 1_000_000;
+        if (megabits < 0.05) return "0 Mbits/s";
+        return (megabits < 10
+            ? megabits.ToString("0.0", CultureInfo.CurrentCulture)
+            : megabits.ToString("0", CultureInfo.CurrentCulture)) + " Mbits/s";
+    }
+
+    /// <summary>La trace ETW vient de démarrer ou de s'arrêter : ce que les deux colonnes affichent change de
+    /// sens sans que leur valeur ait changé.</summary>
+    internal void NotifyTraceStateChanged()
+    {
+        OnPropertyChanged(nameof(IoDisplay));
+        OnPropertyChanged(nameof(NetworkDisplay));
+    }
 
     public string ThreadsDisplay => ThreadCount > 0 ? ThreadCount.ToString(CultureInfo.CurrentCulture) : "--";
 
@@ -372,7 +431,8 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
         CpuPercent = info.CpuPercent;
         MemoryBytes = info.PrivateWorkingSetBytes ?? info.WorkingSetBytes;
-        IoBytesPerSecond = info.IoBytesPerSecond;
+        IoBytesPerSecond = Owner.IoTraceActive ? info.DiskBytesPerSecond : info.IoBytesPerSecond;
+        NetworkBytesPerSecond = info.NetworkBytesPerSecond;
 
         CpuHistory.Push(info.CpuPercent);
         MemoryHistory.Push(MemoryBytes);
@@ -418,6 +478,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         CpuPercent = SumOrNull(members, m => m.CpuPercent);
         MemoryBytes = SumOrNull(members, m => (double?)m.MemoryBytes) is { } bytes ? (long)bytes : null;
         IoBytesPerSecond = SumOrNull(members, m => m.IoBytesPerSecond);
+        NetworkBytesPerSecond = SumOrNull(members, m => m.NetworkBytesPerSecond);
         ThreadCount = members.Sum(m => m.ThreadCount);
 
         // La plus ancienne : c'est le démarrage de l'application, pas celui de son dernier processus enfant.
@@ -460,6 +521,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         // et un tri par mémoire classait ce fantôme parmi les plus gros consommateurs.
         MemoryBytes = null;
         IoBytesPerSecond = null;
+        NetworkBytesPerSecond = null;
         // Une ligne morte ne reste pas sélectionnée : le compteur et le bouton rouge « Terminer » resteraient
         // actifs alors que l'action ne ferait plus rien du tout, sans le moindre message.
         IsSelected = false;
@@ -512,6 +574,12 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IoDisplay));
         OnPropertyChanged(nameof(IoIntensity));
+    }
+
+    partial void OnNetworkBytesPerSecondChanged(double? value)
+    {
+        OnPropertyChanged(nameof(NetworkDisplay));
+        OnPropertyChanged(nameof(NetworkIntensity));
     }
 
     partial void OnThreadCountChanged(int value)
@@ -707,6 +775,19 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     public double CpuScaleFactor { get; private set; } = 1.0;
 
     public CpuScaleSource CpuScaleSource { get; private set; }
+
+    /// <summary>La trace ETW tourne : la colonne « Disque » est le vrai débit du disque, et « Réseau » est
+    /// renseignée. Sinon, la première se rabat sur le compteur d'E/S de Windows et la seconde affiche « N/D ».</summary>
+    public bool IoTraceActive { get; private set; }
+
+    /// <summary>État de la trace et raison de son absence, repris tels quels du dernier relevé pour la ligne
+    /// « Disque et réseau par processus » du diagnostic.</summary>
+    public IoTraceState IoTraceState { get; private set; }
+
+    public string? IoTraceDetail { get; private set; }
+    public long DiskEventCount { get; private set; }
+    public long NetworkEventCount { get; private set; }
+
     [ObservableProperty] private string? statusText;
     [ObservableProperty] private string headerSummary = "";
     [ObservableProperty] private string? frozenAtDisplay;
@@ -778,6 +859,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             else
             {
                 _timer.Stop();
+                _ = Task.Run(StopTraceIfIdle);
             }
         }
     }
@@ -801,7 +883,12 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         SortColumnId = Columns.ById(saved.SortColumnId) is null ? "cpu" : saved.SortColumnId;
         SortDescending = saved.SortDescending;
-        Columns.ApplyVisibility(saved.VisibleColumnIds);
+        // Des réglages enregistrés avant l'arrivée de la colonne « Réseau » ne la connaissent pas : on la
+        // propose une fois, sans quoi elle resterait introuvable tant qu'on n'ouvre pas le sélecteur.
+        IEnumerable<string>? visibleIds = saved.VisibleColumnIds is { } savedIds && !saved.NetworkColumnOffered
+            ? savedIds.Append(Columns.Network.Id)
+            : saved.VisibleColumnIds;
+        Columns.ApplyVisibility(visibleIds);
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
@@ -830,6 +917,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         ApplyGrouping();
 
         _initialized = true;
+
+        if (!saved.NetworkColumnOffered) Persist();
     }
 
     // ----- Relevé -----
@@ -844,13 +933,32 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// directement, il figeait la fenêtre entière le temps que tout cela se termine.</summary>
     private async Task ResumeAsync()
     {
-        await Task.Run(_service.ResetCounters);
+        // La trace ETW démarre ici, après la remise à zéro : ses compteurs et ceux du service repartent
+        // ensemble. Elle aussi sur le pool, ouvrir une session prend une centaine de millisecondes.
+        await Task.Run(() =>
+        {
+            _service.ResetCounters();
+            _service.StartIoTrace();
+        });
 
-        // L'utilisateur a pu repartir, figer, ou fermer la fenêtre pendant l'attente.
-        if (_disposed || !IsActive || IsFrozen) return;
+        // L'utilisateur a pu repartir, figer, ou fermer la fenêtre pendant l'attente : la trace qu'on vient
+        // de démarrer ne doit pas rester ouverte pour un onglet qu'on ne regarde plus.
+        if (_disposed || !IsActive || IsFrozen)
+        {
+            if (!_disposed) await Task.Run(_service.StopIoTrace);
+            return;
+        }
 
         _timer.Start();
         await RefreshAsync();
+    }
+
+    /// <summary>Arrête la trace ETW, sauf si l'onglet est redevenu actif entre-temps : une demande d'arrêt en
+    /// file derrière un redémarrage ne doit pas couper la trace qu'on vient de relancer.</summary>
+    private void StopTraceIfIdle()
+    {
+        if (_disposed || IsActive && !IsFrozen) return;
+        _service.StopIoTrace();
     }
 
     private async Task RefreshAsync()
@@ -890,7 +998,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         if (IsFrozen) return;
 
-        Columns.Io.IsAvailable = snapshot.Capabilities.HasIoRate || snapshot.IsFirstSample;
+        ApplyTraceState(snapshot);
 
         _seen.Clear();
         foreach (ProcessInfo info in snapshot.Processes)
@@ -931,6 +1039,46 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         // Reclassement, sélection et compteurs sont remis en file : ils doivent tous passer APRÈS la remise
         // en forme de la vue, que les changements de propriétés ci-dessus viennent de déclencher.
         QueueOrder();
+    }
+
+    /// <summary>Répercute l'état de la trace ETW sur les colonnes Disque et Réseau : titre, infobulle, et sens
+    /// des cellules. Fait AVANT de recopier les valeurs du relevé, qui en dépendent.</summary>
+    private void ApplyTraceState(ProcessSnapshot snapshot)
+    {
+        ProcessCapabilities caps = snapshot.Capabilities;
+        IoTraceState = caps.IoTrace;
+        IoTraceDetail = caps.IoTraceDetail;
+        DiskEventCount = caps.DiskEventCount;
+        NetworkEventCount = caps.NetworkEventCount;
+
+        Columns.Io.IsAvailable = caps.HasIoTrace || caps.HasIoRate || snapshot.IsFirstSample;
+
+        bool active = caps.HasIoTrace;
+        if (active == IoTraceActive && Columns.Io.Tooltip is not null) return;
+
+        IoTraceActive = active;
+
+        if (active)
+        {
+            Columns.Io.Header = "Disque";
+            Columns.Io.Tooltip = "Octets lus et écrits sur le disque physique, relevés par une trace ETW du noyau Windows — "
+                + "la même source que le Gestionnaire des tâches. Ce qui est déjà en cache mémoire n'y compte pas. "
+                + "Un groupe additionne tous ses processus.";
+            Columns.Network.Tooltip = "Octets envoyés et reçus en TCP et UDP, relevés par la même trace ETW, en mégabits par "
+                + "seconde comme le Gestionnaire des tâches. Un groupe additionne tous ses processus.";
+        }
+        else
+        {
+            string why = caps.IoTraceDetail ?? "La trace ETW n'est pas démarrée.";
+            Columns.Io.Header = "E/S";
+            Columns.Io.Tooltip = "Toutes les entrées/sorties du processus — fichiers (cache compris), réseau, tubes : "
+                + "c'est plus que le « Disque » du Gestionnaire des tâches, qui ne compte que le disque physique. "
+                + why;
+            Columns.Network.Tooltip = "Non disponible sur ce lancement : le réseau par processus vient d'une trace ETW du noyau. "
+                + why;
+        }
+
+        foreach (ProcessRowViewModel row in Rows) row.NotifyTraceStateChanged();
     }
 
     /// <summary>Retire les lignes dont le processus a disparu — mais pas sous le curseur : tant que le
@@ -1153,6 +1301,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             "kind" => string.Compare(a.KindLabel, b.KindLabel, StringComparison.CurrentCultureIgnoreCase),
             "memory" => CompareNullable(a.MemoryBytes, b.MemoryBytes, direction),
             "io" => CompareNullable(a.IoBytesPerSecond, b.IoBytesPerSecond, direction),
+            "network" => CompareNullable(a.NetworkBytesPerSecond, b.NetworkBytesPerSecond, direction),
             "threads" => a.ThreadCount.CompareTo(b.ThreadCount),
             "user" => string.Compare(a.UserName, b.UserName, StringComparison.CurrentCultureIgnoreCase),
             "publisher" => string.Compare(a.Publisher, b.Publisher, StringComparison.CurrentCultureIgnoreCase),
@@ -1593,6 +1742,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         if (value)
         {
             _timer.Stop();
+            _ = Task.Run(StopTraceIfIdle);
             return;
         }
 
@@ -1928,6 +2078,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         settings.Processes.SortColumnId = SortColumnId;
         settings.Processes.SortDescending = SortDescending;
         settings.Processes.VisibleColumnIds = Columns.VisibleIds;
+        settings.Processes.NetworkColumnOffered = true;
         settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
         settings.Processes.ShowDetails = ShowDetails;
         AppSettingsStore.Save(settings);

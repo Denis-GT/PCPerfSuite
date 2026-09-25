@@ -149,6 +149,7 @@
                         <ColumnDefinition Width="{Binding Columns.Cpu.Width}"/>
                         <ColumnDefinition Width="{Binding Columns.Memory.Width}"/>
                         <ColumnDefinition Width="{Binding Columns.Io.Width}"/>
+                        <ColumnDefinition Width="{Binding Columns.Network.Width}"/>
                         <ColumnDefinition Width="{Binding Columns.Threads.Width}"/>
                         <ColumnDefinition Width="{Binding Columns.User.Width}"/>
                         <ColumnDefinition Width="{Binding Columns.Publisher.Width}"/>
@@ -165,21 +166,39 @@
                             Command="{Binding SortByCommand}" CommandParameter="kind"/>
                     <Button Grid.Column="3" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Cpu.HeaderDisplay}"
                             Visibility="{Binding Columns.Cpu.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Cpu.ContentAlignment}"
-                            Command="{Binding SortByCommand}" CommandParameter="cpu"/>
+                            Command="{Binding SortByCommand}" CommandParameter="cpu">
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding Columns.Cpu.Tooltip}" MaxWidth="340" TextWrapping="Wrap"/>
+                        </Button.ToolTip>
+                    </Button>
                     <Button Grid.Column="4" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Memory.HeaderDisplay}"
                             Visibility="{Binding Columns.Memory.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Memory.ContentAlignment}"
-                            Command="{Binding SortByCommand}" CommandParameter="memory"/>
+                            Command="{Binding SortByCommand}" CommandParameter="memory">
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding Columns.Memory.Tooltip}" MaxWidth="340" TextWrapping="Wrap"/>
+                        </Button.ToolTip>
+                    </Button>
                     <Button Grid.Column="5" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Io.HeaderDisplay}"
                             Visibility="{Binding Columns.Io.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Io.ContentAlignment}"
-                            Command="{Binding SortByCommand}" CommandParameter="io"
-                            ToolTip="Toutes les entrées/sorties du processus : fichiers, réseau, tubes — comme la colonne du Gestionnaire des tâches"/>
-                    <Button Grid.Column="6" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Threads.HeaderDisplay}"
+                            Command="{Binding SortByCommand}" CommandParameter="io">
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding Columns.Io.Tooltip}" MaxWidth="340" TextWrapping="Wrap"/>
+                        </Button.ToolTip>
+                    </Button>
+                    <Button Grid.Column="6" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Network.HeaderDisplay}"
+                            Visibility="{Binding Columns.Network.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Network.ContentAlignment}"
+                            Command="{Binding SortByCommand}" CommandParameter="network">
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding Columns.Network.Tooltip}" MaxWidth="340" TextWrapping="Wrap"/>
+                        </Button.ToolTip>
+                    </Button>
+                    <Button Grid.Column="7" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Threads.HeaderDisplay}"
                             Visibility="{Binding Columns.Threads.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Threads.ContentAlignment}"
                             Command="{Binding SortByCommand}" CommandParameter="threads"/>
-                    <Button Grid.Column="7" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.User.HeaderDisplay}"
+                    <Button Grid.Column="8" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.User.HeaderDisplay}"
                             Visibility="{Binding Columns.User.CellVisibility}" HorizontalContentAlignment="{Binding Columns.User.ContentAlignment}"
                             Command="{Binding SortByCommand}" CommandParameter="user"/>
-                    <Button Grid.Column="8" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Publisher.HeaderDisplay}"
+                    <Button Grid.Column="9" Style="{StaticResource ColumnHeaderButton}" Content="{Binding Columns.Publisher.HeaderDisplay}"
                             Visibility="{Binding Columns.Publisher.CellVisibility}" HorizontalContentAlignment="{Binding Columns.Publisher.ContentAlignment}"
                             Command="{Binding SortByCommand}" CommandParameter="publisher"/>
                 </Grid>
@@ -263,6 +282,7 @@
                                     <ColumnDefinition Width="{Binding Owner.Columns.Cpu.Width}"/>
                                     <ColumnDefinition Width="{Binding Owner.Columns.Memory.Width}"/>
                                     <ColumnDefinition Width="{Binding Owner.Columns.Io.Width}"/>
+                                    <ColumnDefinition Width="{Binding Owner.Columns.Network.Width}"/>
                                     <ColumnDefinition Width="{Binding Owner.Columns.Threads.Width}"/>
                                     <ColumnDefinition Width="{Binding Owner.Columns.User.Width}"/>
                                     <ColumnDefinition Width="{Binding Owner.Columns.Publisher.Width}"/>
@@ -349,6 +369,14 @@
                                 </Border>
 
                                 <Border Grid.Column="6" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding NetworkIntensity, Converter={StaticResource IntensityBrush}}"
+                                        Visibility="{Binding Owner.Columns.Network.CellVisibility}">
+                                    <TextBlock Text="{Binding NetworkDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Border>
+
+                                <Border Grid.Column="7" CornerRadius="4" Margin="2,2,4,2"
                                         Background="{Binding ThreadIntensity, Converter={StaticResource IntensityBrush}}"
                                         Visibility="{Binding Owner.Columns.Threads.CellVisibility}">
                                     <TextBlock Text="{Binding ThreadsDisplay}" Style="{StaticResource Body}" FontSize="12.5"
@@ -356,11 +384,11 @@
                                                Typography.NumeralAlignment="Tabular"/>
                                 </Border>
 
-                                <TextBlock Grid.Column="7" Text="{Binding UserName}" Style="{StaticResource Caption}" FontSize="12.5"
+                                <TextBlock Grid.Column="8" Text="{Binding UserName}" Style="{StaticResource Caption}" FontSize="12.5"
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.User.CellVisibility}"/>
 
-                                <TextBlock Grid.Column="8" Text="{Binding Publisher}" Style="{StaticResource Caption}" FontSize="12.5"
+                                <TextBlock Grid.Column="9" Text="{Binding Publisher}" Style="{StaticResource Caption}" FontSize="12.5"
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.Publisher.CellVisibility}"/>
                             </Grid>

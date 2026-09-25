@@ -201,6 +201,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         }
 
         yield return ProcessCpuScaleRow();
+        yield return ProcessIoTraceRow();
 
         if (snapshot is not null)
         {
@@ -438,6 +439,35 @@ public sealed partial class CompatibilityViewModel : ObservableObject
                 "Les compteurs de performance Windows n'ont pas répondu : les %CPU sont sous-évalués sur toute machine "
                 + "qui dépasse sa fréquence nominale. Vérifier que le service « Journaux et alertes de performance » n'est pas désactivé.",
                 false),
+        };
+    }
+
+    /// <summary>D'où viennent les colonnes Disque et Réseau de l'onglet Processus. Windows n'offre aucun
+    /// compteur qui isole le disque physique par processus : la source est une trace ETW du noyau, réservée
+    /// aux administrateurs et ouverte seulement quand l'onglet est affiché. Sans elle, « Disque » retombe sur
+    /// un compteur d'E/S plus large et « Réseau » affiche N/D.</summary>
+    private CompatibilityRow ProcessIoTraceRow()
+    {
+        const string title = "Disque et réseau par processus";
+        const string fallback = " La colonne « Disque » retombe alors sur le compteur d'E/S de Windows (fichiers en cache, réseau "
+                                + "et tubes compris), et « Réseau » affiche N/D.";
+
+        return _processes.IoTraceState switch
+        {
+            IoTraceState.Running => new CompatibilityRow(title, "Trace ETW active",
+                $"{_processes.DiskEventCount} événement(s) disque et {_processes.NetworkEventCount} événement(s) réseau reçus depuis "
+                + "l'ouverture de l'onglet Processus."
+                + (_processes.DiskEventCount == 0
+                    ? " Aucun événement disque pour l'instant : si le disque travaille et que la colonne reste à 0, merci de "
+                      + "signaler ce PC avec ce rapport."
+                    : ""),
+                true),
+            IoTraceState.NeedsAdministrator => new CompatibilityRow(title, "Non disponible",
+                _processes.IoTraceDetail + fallback, false),
+            IoTraceState.Failed => new CompatibilityRow(title, "Échec",
+                _processes.IoTraceDetail + fallback, false),
+            _ => new CompatibilityRow(title, "Pas encore mesurée",
+                "La trace ne tourne que lorsque l'onglet Processus est affiché : ouvre-le, puis relance ce diagnostic.", true),
         };
     }
 
