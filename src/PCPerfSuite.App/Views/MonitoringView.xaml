@@ -16,7 +16,8 @@
                         <TextBlock Text="&#xE916;" Style="{StaticResource Icon}" FontSize="14" Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0"/>
                         <TextBlock Text="Actualisation" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
-                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                 controls:NumericInput.IsNumeric="True"
+                                 controls:NumericInput.Minimum="100" controls:NumericInput.Maximum="60000"
                                  ToolTip="{Binding RefreshHint}"
                                  Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
                     </StackPanel>
@@ -81,7 +82,8 @@
                                                 <TextBlock Text="Relu toutes les" Style="{StaticResource Body}" FontSize="12.5"
                                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
                                                 <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
-                                                         controls:TextBoxBehaviors.CommitOnEnter="True"
+                                                         controls:NumericInput.IsNumeric="True"
+                                                         controls:NumericInput.Minimum="100" controls:NumericInput.Maximum="60000"
                                                          ToolTip="{Binding RefreshHint}"
                                                          Text="{Binding ManualMs, UpdateSourceTrigger=LostFocus}"/>
                                             </StackPanel>

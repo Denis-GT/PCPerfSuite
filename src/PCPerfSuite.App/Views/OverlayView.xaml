@@ -116,7 +116,8 @@
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBox Style="{StaticResource UnitTextBox}" Tag="ms"
-                                         controls:TextBoxBehaviors.CommitOnEnter="True"
+                                         controls:NumericInput.IsNumeric="True"
+                                         controls:NumericInput.Minimum="100" controls:NumericInput.Maximum="60000"
                                          ToolTip="{Binding RefreshHint}"
                                          Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
                             </StackPanel>
@@ -167,10 +168,8 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <TextBlock Grid.Column="2" Text="Taille" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="20,0,10,0"/>
-                        <Slider Grid.Column="3" Minimum="10" Maximum="48" IsSnapToTickEnabled="True" TickFrequency="1"
-                                Value="{Binding Appearance.FontSize, Delay=150}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="4" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                   Text="{Binding Appearance.FontSize, StringFormat={}{0:0} px}"/>
+                        <controls:NumberField Grid.Column="3" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              Minimum="10" Maximum="48" Value="{Binding Appearance.FontSize}" Unit="px"/>
                     </Grid>
                     <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
                              Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
@@ -222,10 +221,8 @@
                                     <ColumnDefinition Width="50"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Taille du texte RTSS" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <Slider Grid.Column="1" Minimum="50" Maximum="200" IsSnapToTickEnabled="True" TickFrequency="10"
-                                        Value="{Binding Appearance.RtssSizePercent, Delay=150}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding Appearance.RtssSizePercent, StringFormat={}{0:0}%}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="50" Maximum="200" Value="{Binding Appearance.RtssSizePercent}" Unit="%"/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -269,12 +266,11 @@
                                     </UniformGrid>
                                 </StackPanel>
 
-                                <!-- Les trois curseurs, un par ligne, centrés en face de la grille d'ancrage. -->
+                                <!-- Les trois champs, un par ligne, centrés en face de la grille d'ancrage. -->
                                 <Grid Grid.Column="1" Margin="28,0,0,0" VerticalAlignment="Center">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="50"/>
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
@@ -284,24 +280,18 @@
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Marge X" Style="{StaticResource Body}"
                                                VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                    <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
-                                            Value="{Binding Appearance.MarginX, Delay=150}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                               Text="{Binding Appearance.MarginX, StringFormat={}{0:0} px}"/>
+                                    <controls:NumberField Grid.Row="0" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                          Minimum="0" Maximum="600" Value="{Binding Appearance.MarginX}" Unit="px"/>
 
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Marge Y" Style="{StaticResource Body}"
                                                VerticalAlignment="Center" Margin="0,10,10,0"/>
-                                    <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="400" IsSnapToTickEnabled="True" TickFrequency="4"
-                                            Value="{Binding Appearance.MarginY, Delay=150}" VerticalAlignment="Center" Margin="0,10,0,0"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                               Margin="0,10,0,0" Text="{Binding Appearance.MarginY, StringFormat={}{0:0} px}"/>
+                                    <controls:NumberField Grid.Row="1" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,10,0,0"
+                                                          Minimum="0" Maximum="600" Value="{Binding Appearance.MarginY}" Unit="px"/>
 
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Fond" Style="{StaticResource Body}"
                                                VerticalAlignment="Center" Margin="0,10,10,0"/>
-                                    <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True"
-                                            Value="{Binding Appearance.BackgroundOpacity, Delay=150}" VerticalAlignment="Center" Margin="0,10,0,0"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                               Margin="0,10,0,0" Text="{Binding Appearance.BackgroundOpacity, StringFormat={}{0:P0}}"/>
+                                    <controls:NumberField Grid.Row="2" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,10,0,0"
+                                                          Minimum="0" Maximum="100" Value="{Binding Appearance.BackgroundOpacityPercent}" Unit="%"/>
                                 </Grid>
                             </Grid>
                         </StackPanel>

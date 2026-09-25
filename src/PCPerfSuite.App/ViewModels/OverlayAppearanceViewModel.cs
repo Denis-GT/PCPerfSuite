@@ -194,7 +194,19 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     partial void OnRtssSizePercentChanged(int value) => _onChanged();
     partial void OnUseCategoryColorsChanged(bool value) => _onChanged();
     partial void OnSendColorsToRtssChanged(bool value) => _onChanged();
-    partial void OnBackgroundOpacityChanged(double value) => Changed();
+    partial void OnBackgroundOpacityChanged(double value)
+    {
+        OnPropertyChanged(nameof(BackgroundOpacityPercent));
+        Changed();
+    }
+
+    /// <summary><see cref="BackgroundOpacity"/> (0 à 1) telle qu'on la saisit : de 0 à 100 %. Le fichier de réglages
+    /// et la fenêtre d'overlay gardent la fraction ; seul le champ de saisie parle en pourcentage.</summary>
+    public double BackgroundOpacityPercent
+    {
+        get => Math.Round(BackgroundOpacity * 100);
+        set => BackgroundOpacity = Math.Clamp(value, 0, 100) / 100;
+    }
     partial void OnAnchorChanged(OverlayAnchor value) => Changed();
     partial void OnMarginXChanged(int value) => Changed();
     partial void OnMarginYChanged(int value) => Changed();
