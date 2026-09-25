@@ -42,13 +42,17 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     public double Min => _setting.Min;
     public double Max => _setting.Max;
 
+    /// <summary>Unité du champ de saisie (« % », « MHz »), sans l'espace qui la précède dans le catalogue.</summary>
+    public string UnitLabel => _setting.Unit.Trim();
+
+    /// <summary>« 0 = Illimitée » pour un réglage dont le zéro a un sens particulier, vide sinon : sans curseur,
+    /// rien d'autre ne dit qu'une valeur nulle est permise et ce qu'elle veut dire.</summary>
+    public string ZeroNote => _setting.ZeroLabel is { } zero ? $"0 = {zero}" : "";
+
     [ObservableProperty] private CpuPowerChoice? acChoice;
     [ObservableProperty] private CpuPowerChoice? batteryChoice;
     [ObservableProperty] private double acValue;
     [ObservableProperty] private double batteryValue;
-
-    public string AcText => Format(AcValue);
-    public string BatteryText => Format(BatteryValue);
 
     public CpuPowerSettingViewModel(
         CpuPowerTuningService service, CpuPowerSetting setting, uint onAc, uint onBattery, Action<string> report)
@@ -66,23 +70,16 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
         _suppressWrite = false;
     }
 
+    /// <summary>La valeur telle qu'on l'annonce dans les messages d'état : « Illimitée » plutôt que « 0 MHz ».</summary>
     private string Format(double value)
     {
         if (_setting.ZeroLabel is { } zero && value == 0) return zero;
         return $"{value:0}{_setting.Unit}";
     }
 
-    partial void OnAcValueChanged(double value)
-    {
-        OnPropertyChanged(nameof(AcText));
-        Write();
-    }
+    partial void OnAcValueChanged(double value) => Write();
 
-    partial void OnBatteryValueChanged(double value)
-    {
-        OnPropertyChanged(nameof(BatteryText));
-        Write();
-    }
+    partial void OnBatteryValueChanged(double value) => Write();
 
     partial void OnAcChoiceChanged(CpuPowerChoice? value)
     {

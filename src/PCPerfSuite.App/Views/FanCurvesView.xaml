@@ -58,12 +58,12 @@
                                 <!-- Manuel -->
                                 <Grid Margin="0,14,0,0" Visibility="{Binding Mode, Converter={StaticResource EnumEqualsVisibility}, ConverterParameter=Manual}">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="46"/>
                                     </Grid.ColumnDefinitions>
-                                    <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding ManualPercent, Delay=200}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                               Text="{Binding ManualPercent, StringFormat={}{0:0}%}"/>
+                                    <TextBlock Grid.Column="0" Text="Vitesse" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <controls:NumberField Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                          Minimum="0" Maximum="100" Value="{Binding ManualPercent}" Unit="%"/>
                                 </Grid>
 
                                 <!-- Courbe -->
@@ -104,40 +104,21 @@
 
                                     <!-- Réglages de régulation -->
                                     <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0"/>
-                                    <Grid Margin="0,14,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="56"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="56"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="Vitesse min" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <Slider Grid.Column="1" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="1"
-                                                Value="{Binding MinPercent, Delay=200}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                                   Text="{Binding MinPercent, StringFormat={}{0:0}%}"/>
-                                        <TextBlock Grid.Column="3" Text="Vitesse max" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="20,0,10,0"/>
-                                        <Slider Grid.Column="4" Minimum="0" Maximum="100" IsSnapToTickEnabled="True" TickFrequency="1"
-                                                Value="{Binding MaxPercent, Delay=200}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="5" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                                   Text="{Binding MaxPercent, StringFormat={}{0:0}%}"/>
-                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                        <TextBlock Text="Vitesse min" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100" ShowRange="False"
+                                                              Value="{Binding MinPercent}" Unit="%"/>
+                                        <TextBlock Text="Vitesse max" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="28,0,10,0"/>
+                                        <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100" ShowRange="False"
+                                                              Value="{Binding MaxPercent}" Unit="%"/>
+                                    </StackPanel>
 
-                                    <Grid Margin="0,12,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="56"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="Hystérésis" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <TextBlock Text="Hystérésis" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
                                                    ToolTip="Le ventilateur ne ralentit qu'après cette baisse de température : évite qu'il monte et descende en boucle."/>
-                                        <Slider Grid.Column="1" Minimum="0" Maximum="10" IsSnapToTickEnabled="True" TickFrequency="1"
-                                                Value="{Binding HysteresisC, Delay=200}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                                   Text="{Binding HysteresisC, StringFormat={}{0:0} °C}"/>
-                                    </Grid>
+                                        <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="10"
+                                                              Value="{Binding HysteresisC}" Unit="°C"/>
+                                    </StackPanel>
 
                                     <Grid Margin="0,12,0,0">
                                         <Grid.ColumnDefinitions>
@@ -150,11 +131,9 @@
                                                      Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Slider Width="120" Minimum="20" Maximum="70" IsSnapToTickEnabled="True" TickFrequency="1"
-                                                    Value="{Binding StopBelowTempC, Delay=200}" VerticalAlignment="Center"
-                                                    IsEnabled="{Binding StopWhenCool}"/>
-                                            <TextBlock Style="{StaticResource Body}" Width="56" TextAlignment="Right" VerticalAlignment="Center"
-                                                       Text="{Binding StopBelowTempC, StringFormat={}{0:0} °C}"/>
+                                            <controls:NumberField VerticalAlignment="Center" Minimum="20" Maximum="70" ShowRange="False"
+                                                                  Value="{Binding StopBelowTempC}" Unit="°C"
+                                                                  IsEnabled="{Binding StopWhenCool}"/>
                                             <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding StopWhenCool}"
                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
                                         </StackPanel>

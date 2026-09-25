@@ -56,13 +56,10 @@
                                             <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
                                                       ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
                                                       Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
-                                            <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                                    Value="{Binding AcValue, Delay=400}" VerticalAlignment="Center"
-                                                    Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding AcText}" Style="{StaticResource Body}"
-                                                       TextAlignment="Right" VerticalAlignment="Center"
-                                                       Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                  Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                                  Value="{Binding AcValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
+                                                                  Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
                                         </Grid>
 
                                         <!-- Sur batterie -->
@@ -77,13 +74,10 @@
                                             <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
                                                       ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
                                                       Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
-                                            <Slider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                                    Value="{Binding BatteryValue, Delay=400}" VerticalAlignment="Center"
-                                                    Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding BatteryText}" Style="{StaticResource Body}"
-                                                       TextAlignment="Right" VerticalAlignment="Center"
-                                                       Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                  Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                                  Value="{Binding BatteryValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
+                                                                  Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -171,11 +165,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Limite soutenue" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                        IsSnapToTickEnabled="True" TickFrequency="1"
-                                        Value="{Binding SustainedWatts, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding SustainedWatts, StringFormat={}{0:0} W}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                                      Value="{Binding SustainedWatts}" Unit="W"/>
                             </Grid>
 
                             <Grid Margin="0,12,0,0" Visibility="{Binding HasBurstLimit, Converter={StaticResource BoolToVisibility}}">
@@ -185,11 +177,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Limite de pointe" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                        IsSnapToTickEnabled="True" TickFrequency="1"
-                                        Value="{Binding BurstWatts, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding BurstWatts, StringFormat={}{0:0} W}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                                      Value="{Binding BurstWatts}" Unit="W"/>
                             </Grid>
 
                             <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>

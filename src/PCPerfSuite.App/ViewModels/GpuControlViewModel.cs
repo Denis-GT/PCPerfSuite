@@ -174,6 +174,9 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     /// (tension absolue des Radeon RDNA 1 à 3).</summary>
     [ObservableProperty] private string voltageFormat = "{0:0}%";
 
+    /// <summary>Unité du champ de saisie de la tension : « % » chez NVIDIA, « mV » chez AMD et Intel.</summary>
+    [ObservableProperty] private string voltageUnitLabel = "%";
+
     public string VoltageText => string.Format(CultureInfo.CurrentCulture, VoltageFormat, VoltageValue);
 
     /// <summary>Ce que cette carte n'expose pas, et pourquoi — "N/D" expliqué plutôt qu'un curseur qui
@@ -290,6 +293,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         VoltageMax = snap.VoltageMax;
         _voltageDefault = snap.VoltageDefault;
         _voltageUnit = snap.VoltageUnit;
+        VoltageUnitLabel = snap.VoltageUnit == GpuVoltageUnit.Percent ? "%" : "mV";
         (VoltageLabel, VoltageFormat) = (snap.VoltageUnit, snap.VoltageIsOffset) switch
         {
             (GpuVoltageUnit.Percent, _) => ("Surtension cœur", "{0:0}%"),

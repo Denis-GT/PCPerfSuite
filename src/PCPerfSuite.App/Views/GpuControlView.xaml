@@ -118,7 +118,7 @@
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="Overclocking" Style="{StaticResource H2}"/>
-                        <TextBox Text="Plages annoncées par le pilote. Chaque curseur s'applique quelques instants après avoir été relâché."
+                        <TextBox Text="Plages annoncées par le pilote. Tape une valeur puis valide avec Entrée (ou clique ailleurs) : elle s'applique quelques instants plus tard. Flèches haut/bas pour ajuster."
                                  Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"/>
 
                         <!-- Accord Intel : IGCL refuse tout overclock tant que l'utilisateur n'a pas accepté -->
@@ -145,11 +145,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Limite de puissance" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
-                                        IsSnapToTickEnabled="True" TickFrequency="1"
-                                        Value="{Binding PowerLimitPercent, Delay=250}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding PowerLimitPercent, StringFormat={}{0:0}%}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding PowerLimitMin}" Maximum="{Binding PowerLimitMax}"
+                                                      Value="{Binding PowerLimitPercent}" Unit="%"/>
                             </Grid>
 
                             <!-- Limite de température -->
@@ -160,11 +158,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Limite de température" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding TemperatureLimitMin}" Maximum="{Binding TemperatureLimitMax}"
-                                        IsSnapToTickEnabled="True" TickFrequency="1"
-                                        Value="{Binding TemperatureLimitC, Delay=250}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding TemperatureLimitC, StringFormat={}{0:0} °C}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding TemperatureLimitMin}" Maximum="{Binding TemperatureLimitMax}"
+                                                      Value="{Binding TemperatureLimitC}" Unit="°C"/>
                             </Grid>
 
                             <!-- Décalages d'horloge -->
@@ -175,11 +171,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Horloge cœur" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding CoreOffsetMin}" Maximum="{Binding CoreOffsetMax}"
-                                        IsSnapToTickEnabled="True" TickFrequency="5"
-                                        Value="{Binding CoreOffsetMhz, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding CoreOffsetMhz, StringFormat='{}{0:+0;-0;0} MHz'}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding CoreOffsetMin}" Maximum="{Binding CoreOffsetMax}" Step="5"
+                                                      Value="{Binding CoreOffsetMhz}" Unit="MHz"/>
                             </Grid>
 
                             <Grid Margin="0,12,0,0" Visibility="{Binding IsMemoryOffsetSupported, Converter={StaticResource BoolToVisibility}}">
@@ -189,13 +183,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Horloge mémoire" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding MemoryOffsetMin}" Maximum="{Binding MemoryOffsetMax}"
-                                        IsSnapToTickEnabled="True" TickFrequency="5"
-                                        Value="{Binding MemoryOffsetMhz, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center">
-                                    <Run Text="{Binding MemoryOffsetMhz, StringFormat='{}{0:+0;-0;0}', Mode=OneWay}"/>
-                                    <Run Text="{Binding MemoryOffsetUnit, Mode=OneWay}"/>
-                                </TextBlock>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding MemoryOffsetMin}" Maximum="{Binding MemoryOffsetMax}" Step="5"
+                                                      Value="{Binding MemoryOffsetMhz}" Unit="{Binding MemoryOffsetUnit}"/>
                             </Grid>
 
                             <TextBlock Text="{Binding AppliedOffsetsText}" Style="{StaticResource Caption}" Margin="170,8,0,0" TextWrapping="Wrap"
@@ -209,11 +199,9 @@
                                     <ColumnDefinition Width="90"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="{Binding VoltageLabel}" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <Slider Grid.Column="1" Minimum="{Binding VoltageMin}" Maximum="{Binding VoltageMax}"
-                                        IsSnapToTickEnabled="True" TickFrequency="1"
-                                        Value="{Binding VoltageValue, Delay=400}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="2" Style="{StaticResource Body}" TextAlignment="Right" VerticalAlignment="Center"
-                                           Text="{Binding VoltageText}"/>
+                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                      Minimum="{Binding VoltageMin}" Maximum="{Binding VoltageMax}"
+                                                      Value="{Binding VoltageValue}" Unit="{Binding VoltageUnitLabel}"/>
                             </Grid>
                         </StackPanel>
 

@@ -1,0 +1,23 @@
+<UserControl x:Class="PCPerfSuite.App.Controls.NumberField"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:PCPerfSuite.App.Controls"
+             x:Name="Root">
+
+    <!-- Champ d'entier avec son unité dans le cadre, et la plage autorisée à côté : sans curseur, rien d'autre
+         ne dit entre quelles valeurs on peut aller. Le filtrage des touches, les bornes et la transmission
+         au ViewModel sont dans NumericInput. -->
+    <StackPanel Orientation="Horizontal">
+        <TextBox Style="{StaticResource UnitTextBox}"
+                 Tag="{Binding Unit, ElementName=Root}"
+                 local:NumericInput.IsNumeric="True"
+                 local:NumericInput.Minimum="{Binding Minimum, ElementName=Root}"
+                 local:NumericInput.Maximum="{Binding Maximum, ElementName=Root}"
+                 local:NumericInput.Step="{Binding Step, ElementName=Root}"
+                 Text="{Binding Value, ElementName=Root, UpdateSourceTrigger=LostFocus}"/>
+        <TextBlock Text="{Binding HintText, ElementName=Root}" Style="{StaticResource Caption}"
+                   Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="12,0,0,0"
+                   TextWrapping="NoWrap"
+                   Visibility="{Binding HintText, ElementName=Root, Converter={StaticResource NullToVisibility}}"/>
+    </StackPanel>
+</UserControl>
