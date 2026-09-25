@@ -18,7 +18,7 @@
         </Grid.RowDefinitions>
 
         <controls:PageHeader Grid.Row="0" Title="Processus" Margin="0,0,0,18"
-                             Subtitle="Ce qui tourne vraiment — trié sans que les lignes sautent : le classement suit une moyenne sur quelques secondes et se fige dès que la souris entre dans la liste."/>
+                             Subtitle="Ce qui tourne vraiment — le classement suit les valeurs affichées à chaque relevé. « Figer » l'arrête pour lire ou cliquer tranquillement."/>
 
         <!-- Barre d'outils -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
@@ -30,14 +30,21 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="0" Width="260" Margin="0,0,14,0">
-                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="28,7,8,7"
+                <!-- Le texte commence à 1 (bordure) + 26 (Padding) = 27 px du bord, et l'invite grise est posée
+                     exactement au même endroit, à la même taille : le curseur clignote au début de l'invite au
+                     lieu de flotter plus loin à droite. -->
+                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="26,7,8,7"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"/>
                 <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="9,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
-                <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un. -->
-                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="29,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
-                           Visibility="{Binding SearchText.Length, Converter={StaticResource ZeroCountToVisibility}}"/>
+                           Margin="8,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+                <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un.
+                     Sa visibilité suit le texte du champ lui-même et non SearchText : cette propriété ne se met
+                     à jour qu'après le Delay de 200 ms de la liaison, et l'invite restait affichée par-dessus
+                     les premières lettres tapées. -->
+                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" FontSize="13"
+                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Margin="27,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Visibility="{Binding Text.Length, ElementName=SearchBox, Converter={StaticResource ZeroCountToVisibility}}"/>
             </Grid>
 
             <Border Grid.Column="1" Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center">
@@ -79,17 +86,6 @@
                             <TextBlock Text="Figé" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
-                </ToggleButton>
-
-                <!-- Regroupement par application : c'est ce que montre l'onglet « Processus » du
-                     Gestionnaire des tâches, et donc ce à quoi l'utilisateur compare ce qu'il voit ici. -->
-                <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding GroupByApplication}"
-                              VerticalAlignment="Center" Margin="10,0,0,0"
-                              ToolTip="Rassemble les instances d'une même application sous une ligne qui additionne leurs mesures, comme le Gestionnaire des tâches. Décoché, chaque processus a sa ligne.">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xF168;" Style="{StaticResource Icon}" FontSize="13" Margin="0,0,8,0"/>
-                        <TextBlock Text="Regrouper" VerticalAlignment="Center"/>
-                    </StackPanel>
                 </ToggleButton>
 
                 <ToggleButton Style="{StaticResource ToggleActionButton}" IsChecked="{Binding ShowDetails}"
@@ -325,8 +321,11 @@
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.Kind.CellVisibility}"/>
 
+                                <!-- Les quatre valeurs mesurées sont posées sur une pastille bleue d'autant plus marquée
+                                     qu'elle pèse lourd (voir CpuIntensity & co. dans ProcessRowViewModel) : les gros
+                                     consommateurs se repèrent sans lire les chiffres. -->
                                 <Border Grid.Column="3" CornerRadius="4" Margin="2,2,4,2"
-                                        Background="{Binding CpuPercent, Converter={StaticResource HeatBrush}}"
+                                        Background="{Binding CpuIntensity, Converter={StaticResource IntensityBrush}}"
                                         Visibility="{Binding Owner.Columns.Cpu.CellVisibility}">
                                     <TextBlock Text="{Binding CpuDisplay}" Style="{StaticResource Body}" FontSize="12.5"
                                                TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
@@ -334,21 +333,28 @@
                                 </Border>
 
                                 <Border Grid.Column="4" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding MemoryIntensity, Converter={StaticResource IntensityBrush}}"
                                         Visibility="{Binding Owner.Columns.Memory.CellVisibility}">
                                     <TextBlock Text="{Binding MemoryDisplay}" Style="{StaticResource Body}" FontSize="12.5"
                                                TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
                                                Typography.NumeralAlignment="Tabular"/>
                                 </Border>
 
-                                <TextBlock Grid.Column="5" Text="{Binding IoDisplay}" Style="{StaticResource Caption}" FontSize="12.5"
-                                           TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                           Typography.NumeralAlignment="Tabular"
-                                           Visibility="{Binding Owner.Columns.Io.CellVisibility}"/>
+                                <Border Grid.Column="5" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding IoIntensity, Converter={StaticResource IntensityBrush}}"
+                                        Visibility="{Binding Owner.Columns.Io.CellVisibility}">
+                                    <TextBlock Text="{Binding IoDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Border>
 
-                                <TextBlock Grid.Column="6" Text="{Binding ThreadsDisplay}" Style="{StaticResource Caption}" FontSize="12.5"
-                                           TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                           Typography.NumeralAlignment="Tabular"
-                                           Visibility="{Binding Owner.Columns.Threads.CellVisibility}"/>
+                                <Border Grid.Column="6" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding ThreadIntensity, Converter={StaticResource IntensityBrush}}"
+                                        Visibility="{Binding Owner.Columns.Threads.CellVisibility}">
+                                    <TextBlock Text="{Binding ThreadsDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Border>
 
                                 <TextBlock Grid.Column="7" Text="{Binding UserName}" Style="{StaticResource Caption}" FontSize="12.5"
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"

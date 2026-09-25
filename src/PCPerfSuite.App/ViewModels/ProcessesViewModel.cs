@@ -153,11 +153,6 @@ public sealed class ProcessColumnsViewModel
 /// </summary>
 public sealed partial class ProcessRowViewModel : ObservableObject
 {
-    /// <summary>Poids d'un nouveau relevé dans la clé de tri. Le %CPU instantané d'un processus saute de 0 à
-    /// 8 % d'un relevé à l'autre : trier là-dessus fait danser la liste, et c'est précisément ce qu'on
-    /// reproche au Gestionnaire des tâches. La colonne affiche l'instantané, le tri suit la moyenne.</summary>
-    private const double CpuSmoothing = 0.35;
-
     public ProcessesViewModel Owner { get; }
 
     public ProcessIdentity Identity { get; private set; }
@@ -174,8 +169,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     /// fait tourner. Deux utilisateurs connectés n'ont pas « le même » navigateur.</summary>
     public string GroupKey { get; private set; } = "";
 
-    /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce ou si le
-    /// regroupement est désactivé.</summary>
+    /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsMember))]
     private ProcessRowViewModel? parent;
@@ -193,10 +187,11 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public string MemberCountDisplay => MemberCount > 0 ? $" ({MemberCount})" : "";
 
     /// <summary>Groupe déplié. Replié, ses membres quittent la vue par le filtre — le seul chemin par lequel
-    /// une ligne entre ou sort, pour que rien ne bouge sous le curseur.</summary>
+    /// une ligne entre ou sort, pour que rien ne bouge sous le curseur. Replié par défaut : vingt lignes de
+    /// « chrome.exe » sous chaque navigateur noient la liste, et le chevron est là pour aller y voir.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ExpanderGlyph))]
-    private bool isExpanded = true;
+    private bool isExpanded;
 
     /// <summary>Chevron des agrégats : vers le bas quand le groupe est déplié, vers la droite sinon.</summary>
     public string ExpanderGlyph => IsExpanded ? "" : "";
@@ -245,8 +240,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public SampleHistory CpuHistory { get; } = new(90);
     public SampleHistory MemoryHistory { get; } = new(90);
 
-    public double CpuSortKey { get; private set; }
-
     public string KindLabel => Kind switch
     {
         ProcessKind.Application => "Application",
@@ -278,6 +271,40 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         ? "--"
         : value < 10 ? value.ToString("0.0", CultureInfo.CurrentCulture) + " %"
                      : value.ToString("0", CultureInfo.CurrentCulture) + " %";
+
+    // ----- Intensité du fond bleu -----
+    //
+    // Chaque valeur est posée sur une pastille bleue d'autant plus marquée qu'elle pèse dans la MACHINE, pas
+    // dans la liste : une teinte donnée veut toujours dire la même chose, et ne change pas de sens quand un
+    // autre processus prend la tête. Les échelles sont écrasées (racine, logarithme) parce qu'à l'échelle
+    // linéaire tout sauf trois processus serait transparent : un navigateur à 1,5 Go sur 32 Go, c'est 5 % de la
+    // RAM, et il doit se voir.
+
+    /// <summary>RAM physique visible par Windows, lue une fois : elle ne change pas en cours de session.
+    /// TotalAvailableMemoryBytes est la RAM physique totale de la machine (ou la limite d'un conteneur, qui n'a
+    /// pas de sens ici) ; 0 si le runtime ne la connaît pas, auquel cas la mémoire n'est pas teintée.</summary>
+    private static readonly long TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+
+    /// <summary>Un débit de 1 Ko/s est le pied de l'échelle, 100 Mo/s son sommet : cinq décades.</summary>
+    private static readonly double IoDecades = Math.Log10(100d * 1024);
+
+    /// <summary>Au-delà de mille threads, une ligne est déjà au maximum.</summary>
+    private static readonly double ThreadDecades = Math.Log10(1000);
+
+    /// <summary>De 0 à 1, null si la valeur est absente (la cellule reste sans fond).</summary>
+    public double? CpuIntensity => CpuPercent is { } percent ? Math.Sqrt(Math.Clamp(percent, 0, 100) / 100) : null;
+
+    public double? MemoryIntensity => MemoryBytes is { } bytes && TotalMemoryBytes > 0
+        ? Math.Sqrt(Math.Clamp((double)bytes / TotalMemoryBytes, 0, 1))
+        : null;
+
+    public double? IoIntensity => IoBytesPerSecond is { } rate && rate >= 1
+        ? Math.Clamp(Math.Log10(rate / 1024d) / IoDecades, 0, 1)
+        : null;
+
+    public double? ThreadIntensity => ThreadCount > 0
+        ? Math.Clamp(Math.Log10(ThreadCount) / ThreadDecades, 0, 1)
+        : null;
 
     public string MemoryDisplay => MemoryBytes is { } bytes ? ByteFormatter.Format(bytes) : "--";
 
@@ -311,7 +338,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         Identity = info.Identity;
         Pid = info.Pid;
         Name = info.Name;
-        CpuSortKey = 0;
         Apply(info);
     }
 
@@ -347,8 +373,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         CpuPercent = info.CpuPercent;
         MemoryBytes = info.PrivateWorkingSetBytes ?? info.WorkingSetBytes;
         IoBytesPerSecond = info.IoBytesPerSecond;
-
-        CpuSortKey += CpuSmoothing * ((info.CpuPercent ?? 0) - CpuSortKey);
 
         CpuHistory.Push(info.CpuPercent);
         MemoryHistory.Push(MemoryBytes);
@@ -405,10 +429,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         Identity = new ProcessIdentity(0, started);
         OnPropertyChanged(nameof(StartTimeDisplay));
 
-        // La clé de tri suit la somme des clés lissées de ses membres, et non un nouveau lissage du total :
-        // un agrégat doit bouger dans le classement exactement au même rythme que les lignes qu'il résume.
-        CpuSortKey = members.Sum(m => m.CpuSortKey);
-
         CpuHistory.Push(CpuPercent);
         MemoryHistory.Push(MemoryBytes);
     }
@@ -440,7 +460,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         // et un tri par mémoire classait ce fantôme parmi les plus gros consommateurs.
         MemoryBytes = null;
         IoBytesPerSecond = null;
-        CpuSortKey = 0;
         // Une ligne morte ne reste pas sélectionnée : le compteur et le bouton rouge « Terminer » resteraient
         // actifs alors que l'action ne ferait plus rien du tout, sans le moindre message.
         IsSelected = false;
@@ -477,10 +496,29 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         OnPropertyChanged(nameof(GroupRank));
     }
 
-    partial void OnCpuPercentChanged(double? value) => OnPropertyChanged(nameof(CpuDisplay));
-    partial void OnMemoryBytesChanged(long? value) => OnPropertyChanged(nameof(MemoryDisplay));
-    partial void OnIoBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(IoDisplay));
-    partial void OnThreadCountChanged(int value) => OnPropertyChanged(nameof(ThreadsDisplay));
+    partial void OnCpuPercentChanged(double? value)
+    {
+        OnPropertyChanged(nameof(CpuDisplay));
+        OnPropertyChanged(nameof(CpuIntensity));
+    }
+
+    partial void OnMemoryBytesChanged(long? value)
+    {
+        OnPropertyChanged(nameof(MemoryDisplay));
+        OnPropertyChanged(nameof(MemoryIntensity));
+    }
+
+    partial void OnIoBytesPerSecondChanged(double? value)
+    {
+        OnPropertyChanged(nameof(IoDisplay));
+        OnPropertyChanged(nameof(IoIntensity));
+    }
+
+    partial void OnThreadCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(ThreadsDisplay));
+        OnPropertyChanged(nameof(ThreadIntensity));
+    }
     partial void OnIsSelectedChanged(bool value) => Owner.OnRowSelectionChanged();
 
     partial void OnExecutablePathChanged(string? value)
@@ -563,18 +601,15 @@ public sealed class ProcessRowCollection : ObservableCollection<ProcessRowViewMo
 }
 
 /// <summary>
-/// Onglet « Processus » : la liste de ce qui tourne, en plus lisible que le Gestionnaire des tâches. Le vrai
-/// sujet n'est pas d'afficher des chiffres, c'est que la liste reste cliquable — d'où trois mécanismes
-/// cumulés contre les lignes qui sautent : une clé de tri lissée, un reclassement bien plus lent que les
-/// relevés, et le gel complet du classement dès que le pointeur entre dans la liste.
+/// Onglet « Processus » : la liste de ce qui tourne, en plus lisible que le Gestionnaire des tâches. Le
+/// classement suit toujours les valeurs affichées, relevé après relevé : c'est ce que l'utilisateur lit, donc
+/// c'est ce qui doit être trié. Seul le bouton « Figer » l'arrête. Ce qui protège encore le clic, c'est que
+/// les lignes n'entrent et ne sortent pas de la liste tant que le pointeur est dessus (voir
+/// <c>UpdateFilterMembership</c> et <c>RemoveVanishedRows</c>).
 /// </summary>
 public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 {
     private const string DialogTitle = "PCPerfSuite";
-
-    /// <summary>Le classement n'est recalculé qu'à ce rythme, bien plus lentement que les valeurs : un
-    /// reclassement à chaque relevé rendrait le lissage inutile.</summary>
-    private const int ReorderIntervalMs = 3000;
 
     /// <summary>Cadence de repli quand aucun réglage n'a encore été restauré.</summary>
     private const int DefaultRefreshMs = 2000;
@@ -619,7 +654,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     private bool _isRefreshing;
-    private long _lastReorderTick;
     private bool _initialized;
 
     /// <summary>Le message affiché vient d'un relevé en échec, pas d'une action de l'utilisateur.</summary>
@@ -657,8 +691,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
     private bool showDetails;
-
-    [ObservableProperty] private bool groupByApplication = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDetailVisible))]
@@ -772,7 +804,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         Columns.ApplyVisibility(saved.VisibleColumnIds);
         Columns.SetVisibilityCallback(OnColumnVisibilityChanged);
         ShowDetails = saved.ShowDetails;
-        GroupByApplication = saved.GroupByApplication;
         SelectedKind = KindOptions.FirstOrDefault(k => KindKey(k.Value) == saved.KindFilter) ?? KindOptions[0];
         // Repli cherché par sa valeur et non par son indice : insérer une cadence dans la liste
         // décalerait un indice et changerait le défaut sans qu'on s'en aperçoive.
@@ -954,25 +985,18 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         foreach (List<ProcessRowViewModel> members in _byGroupKey.Values) members.Clear();
 
-        if (!GroupByApplication)
+        foreach (ProcessRowViewModel row in Rows)
         {
-            foreach (ProcessRowViewModel row in Rows) row.Parent = null;
-        }
-        else
-        {
-            foreach (ProcessRowViewModel row in Rows)
-            {
-                // Un processus disparu ne compte plus dans les totaux : sa ligne grisée n'a plus de mesures,
-                // et le faire peser dans la somme ferait mentir l'agrégat pendant tout son sursis.
-                if (row.IsAggregate || row.IsGone) continue;
+            // Un processus disparu ne compte plus dans les totaux : sa ligne grisée n'a plus de mesures,
+            // et le faire peser dans la somme ferait mentir l'agrégat pendant tout son sursis.
+            if (row.IsAggregate || row.IsGone) continue;
 
-                if (!_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members))
-                {
-                    members = new List<ProcessRowViewModel>();
-                    _byGroupKey[row.GroupKey] = members;
-                }
-                members.Add(row);
+            if (!_byGroupKey.TryGetValue(row.GroupKey, out List<ProcessRowViewModel>? members))
+            {
+                members = new List<ProcessRowViewModel>();
+                _byGroupKey[row.GroupKey] = members;
             }
+            members.Add(row);
         }
 
         foreach ((string key, List<ProcessRowViewModel> members) in _byGroupKey)
@@ -1010,6 +1034,15 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
             if (IsListBusy) Rows.Add(aggregate);
             else Rows.Insert(FindInsertIndex(aggregate), aggregate);
+
+            // Un groupe naît replié : ses membres, eux, ont été ajoutés avant qu'on sache qu'ils appartenaient à
+            // un groupe, donc visibles. Sans cette ligne ils resteraient affichés jusqu'au reclassement suivant
+            // — une image entière d'une liste dépliée, à l'ouverture de l'onglet. Pas quand la liste est visée :
+            // rien ne doit alors sortir de sous le curseur, c'est au relâchement que tout se range.
+            if (!IsListBusy)
+            {
+                foreach (ProcessRowViewModel member in members) member.MatchesFilter = PassesFilter(member);
+            }
         }
 
         RemoveUnusedAggregates();
@@ -1079,16 +1112,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }));
     }
 
-    partial void OnGroupByApplicationChanged(bool value)
-    {
-        if (!_initialized) return;
-
-        RebuildAggregates();
-        RefreshFilter();
-        QueueOrder(force: true);
-        Persist();
-    }
-
     // ----- Classement -----
 
     private Comparison<ProcessRowViewModel> BuildComparison()
@@ -1133,8 +1156,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             "threads" => a.ThreadCount.CompareTo(b.ThreadCount),
             "user" => string.Compare(a.UserName, b.UserName, StringComparison.CurrentCultureIgnoreCase),
             "publisher" => string.Compare(a.Publisher, b.Publisher, StringComparison.CurrentCultureIgnoreCase),
-            // Le tri suit la moyenne lissée, jamais la valeur instantanée affichée.
-            _ => a.CpuSortKey.CompareTo(b.CpuSortKey),
+            // Le tri suit la valeur affichée : ce que l'utilisateur lit doit être ce qui est trié.
+            _ => CompareNullable(a.CpuPercent, b.CpuPercent, direction),
         };
 
         if (result != 0) return result * direction;
@@ -1230,13 +1253,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// d'Add perdrait tous les trois.</summary>
     private void ApplyOrder(bool force = false)
     {
-        if (!force)
-        {
-            if (IsFrozen || IsListBusy) return;
-            if (Environment.TickCount64 - _lastReorderTick < ReorderIntervalMs) return;
-        }
-
-        _lastReorderTick = Environment.TickCount64;
+        // Appelé à chaque relevé, pointeur ou pas sur la liste : le classement doit correspondre aux valeurs
+        // qu'on lit au même instant. Seul « Figer » l'arrête.
+        if (!force && IsFrozen) return;
 
         _ordered.Clear();
         _ordered.AddRange(Rows);
@@ -1372,9 +1391,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     private bool PassesFilter(ProcessRowViewModel row)
     {
-        // Un agrégat retombé sous deux membres, ou resté là après une désactivation du regroupement, quitte
-        // la liste par le filtre — le seul chemin qui ne décale rien sous le curseur.
-        if (row.IsAggregate && (!GroupByApplication || row.MemberCount < MinimumGroupSize)) return false;
+        // Un agrégat retombé sous deux membres quitte la liste par le filtre — le seul chemin qui ne décale
+        // rien sous le curseur.
+        if (row.IsAggregate && row.MemberCount < MinimumGroupSize) return false;
 
         ProcessKindFilter kind = SelectedKind?.Value ?? ProcessKindFilter.All;
         // La famille comparée est celle du groupe : filtrer sur « Applications » doit montrer un navigateur
@@ -1419,25 +1438,47 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
            || (!row.IsAggregate
                && row.Pid.ToString(CultureInfo.InvariantCulture).Contains(SearchText, StringComparison.Ordinal));
 
+    /// <summary>Groupes qui étaient dépliés avant que la recherche ne déplie tout (clés de groupe). Null hors
+    /// recherche. Sert à remettre la liste comme l'utilisateur l'avait laissée quand il efface le champ.</summary>
+    private HashSet<string>? _expandedBeforeSearch;
+
     partial void OnSearchTextChanged(string value)
     {
         // Une recherche doit pouvoir trouver un processus où qu'il soit, y compris dans un groupe replié :
-        // elle déplie donc tout, comme le fait le Gestionnaire des tâches. Le repliage manuel est perdu, ce
-        // qui vaut mieux qu'un chevron qui annonce « replié » au-dessus de membres bien visibles.
+        // elle déplie donc tout, comme le fait le Gestionnaire des tâches. Le chevron annonce ainsi « déplié »
+        // au-dessus de membres bien visibles. L'état d'avant est gardé, et rendu à l'effacement du champ :
+        // sans cela, une recherche laisserait tous les groupes dépliés pour de bon.
         if (value.Length > 0 && _aggregates.Count > 0)
         {
-            _bulkExpanding = true;
-            try
-            {
-                foreach (ProcessRowViewModel aggregate in _aggregates.Values) aggregate.IsExpanded = true;
-            }
-            finally
-            {
-                _bulkExpanding = false;
-            }
+            _expandedBeforeSearch ??= _aggregates.Values.Where(a => a.IsExpanded).Select(a => a.GroupKey).ToHashSet();
+            SetGroupsExpanded(expandedKeys: null);
+        }
+        else if (value.Length == 0 && _expandedBeforeSearch is { } before)
+        {
+            _expandedBeforeSearch = null;
+            SetGroupsExpanded(before);
         }
 
         RefreshFilter();
+    }
+
+    /// <summary>Règle l'état de tous les groupes d'un coup : chacun ne doit pas déclencher sa propre
+    /// réévaluation du filtre, l'appelant s'en charge une seule fois à la fin. <paramref name="expandedKeys"/>
+    /// liste les groupes à déplier, les autres sont repliés ; null les déplie tous.</summary>
+    private void SetGroupsExpanded(HashSet<string>? expandedKeys)
+    {
+        _bulkExpanding = true;
+        try
+        {
+            foreach (ProcessRowViewModel aggregate in _aggregates.Values)
+            {
+                aggregate.IsExpanded = expandedKeys is null || expandedKeys.Contains(aggregate.GroupKey);
+            }
+        }
+        finally
+        {
+            _bulkExpanding = false;
+        }
     }
 
     partial void OnSelectedKindChanged(ProcessKindOption? value)
@@ -1884,7 +1925,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         settings.Processes.VisibleColumnIds = Columns.VisibleIds;
         settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
         settings.Processes.ShowDetails = ShowDetails;
-        settings.Processes.GroupByApplication = GroupByApplication;
         AppSettingsStore.Save(settings);
     }
 

@@ -115,33 +115,46 @@ public sealed class StringEqualsToVisibilityConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
-/// <summary>Teinte de fond graduée derrière un pourcentage, pour repérer d'un coup d'œil les gros
-/// consommateurs dans une longue liste. Les pinceaux sont figés une fois pour toutes : ce converter est
-/// appelé pour chaque cellule visible à chaque relevé, y allouer un pinceau serait du gaspillage pur.</summary>
-public sealed class PercentToHeatBrushConverter : IValueConverter
+/// <summary>Fond bleu plus ou moins transparent derrière une valeur, pour repérer d'un coup d'œil les gros
+/// consommateurs dans une longue liste. Reçoit une intensité de 0 à 1 (null si la valeur est absente) et
+/// choisit parmi <see cref="Steps"/> pinceaux figés une fois pour toutes : ce converter est appelé pour chaque
+/// cellule visible à chaque relevé, y allouer un pinceau serait du gaspillage pur. L'échelle (linéaire,
+/// racine, logarithme) est décidée par celui qui fournit l'intensité, pas ici.</summary>
+public sealed class IntensityToBlueBrushConverter : IValueConverter
 {
+    private const int Steps = 16;
+
+    /// <summary>Opacité la plus faible et la plus forte : assez pour se voir dès la première marche, pas assez
+    /// pour gêner la lecture du texte à la dernière.</summary>
+    private const byte MinAlpha = 0x0C;
+    private const byte MaxAlpha = 0x66;
+
     private static readonly SolidColorBrush None = Frozen(Colors.Transparent);
-    private static readonly SolidColorBrush Warm = Frozen(Color.FromArgb(0x1A, 0xFF, 0x9F, 0x0A));
-    private static readonly SolidColorBrush Hot = Frozen(Color.FromArgb(0x2E, 0xFF, 0x9F, 0x0A));
-    private static readonly SolidColorBrush Burning = Frozen(Color.FromArgb(0x33, 0xFF, 0x45, 0x3A));
+    private static readonly SolidColorBrush[] Levels = BuildLevels();
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         // Une valeur absente n'est pas une valeur nulle : rien à teinter.
-        if (value is null) return None;
+        if (value is not double intensity || double.IsNaN(intensity)) return None;
 
-        double percent = PercentToStarConverter.ToPercent(value);
-        return percent switch
-        {
-            >= 85 => Burning,
-            >= 60 => Hot,
-            >= 30 => Warm,
-            _ => None,
-        };
+        int level = (int)Math.Round(Math.Clamp(intensity, 0, 1) * (Steps - 1));
+        return Levels[level];
     }
 
     public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
+
+    private static SolidColorBrush[] BuildLevels()
+    {
+        // Le bleu d'accentuation du thème (AccentColor, #0A84FF), à des opacités croissantes.
+        var levels = new SolidColorBrush[Steps];
+        for (int i = 0; i < Steps; i++)
+        {
+            byte alpha = (byte)(MinAlpha + (MaxAlpha - MinAlpha) * i / (Steps - 1));
+            levels[i] = Frozen(Color.FromArgb(alpha, 0x0A, 0x84, 0xFF));
+        }
+        return levels;
+    }
 
     private static SolidColorBrush Frozen(Color color)
     {
