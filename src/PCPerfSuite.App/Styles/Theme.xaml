@@ -1234,7 +1234,8 @@
         <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="10,6"/>
+        <!-- Marge intérieure serrée : peu d'espace entre le texte et le bord du cadre. -->
+        <Setter Property="Padding" Value="6,3"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
@@ -1269,7 +1270,7 @@
     <Style x:Key="UnitTextBox" TargetType="TextBox" BasedOn="{StaticResource GlassTextBox}">
         <Setter Property="MinWidth" Value="76"/>
         <Setter Property="TextAlignment" Value="Right"/>
-        <Setter Property="Padding" Value="8,5,0,5"/>
+        <Setter Property="Padding" Value="6,3,0,3"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
@@ -1284,7 +1285,7 @@
                                           VerticalAlignment="Center" Focusable="False"
                                           HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
                             <TextBlock x:Name="Unit" Grid.Column="1" Text="{TemplateBinding Tag}" VerticalAlignment="Center"
-                                       Margin="4,0,10,0" FontSize="12" Foreground="{StaticResource TextTertiaryBrush}"
+                                       Margin="3,0,7,0" FontSize="12" Foreground="{StaticResource TextTertiaryBrush}"
                                        RenderOptions.ClearTypeHint="Enabled"/>
                         </Grid>
                     </Border>
