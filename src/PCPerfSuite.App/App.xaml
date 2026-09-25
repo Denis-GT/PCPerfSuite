@@ -31,7 +31,7 @@
             <conv:EnumEqualsVisibilityConverter x:Key="EnumEqualsVisibility"/>
             <conv:RtssStatusConverter x:Key="RtssStatus"/>
             <conv:StringEqualsToVisibilityConverter x:Key="StringEqualsToVisibility"/>
-            <conv:PercentToHeatBrushConverter x:Key="HeatBrush"/>
+            <conv:IntensityToBlueBrushConverter x:Key="IntensityBrush"/>
             <conv:BoolToDimOpacityConverter x:Key="DimOpacity"/>
 
             <Style TargetType="Window">

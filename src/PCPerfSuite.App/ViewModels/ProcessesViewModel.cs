@@ -279,6 +279,40 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         : value < 10 ? value.ToString("0.0", CultureInfo.CurrentCulture) + " %"
                      : value.ToString("0", CultureInfo.CurrentCulture) + " %";
 
+    // ----- Intensité du fond bleu -----
+    //
+    // Chaque valeur est posée sur une pastille bleue d'autant plus marquée qu'elle pèse dans la MACHINE, pas
+    // dans la liste : une teinte donnée veut toujours dire la même chose, et ne change pas de sens quand un
+    // autre processus prend la tête. Les échelles sont écrasées (racine, logarithme) parce qu'à l'échelle
+    // linéaire tout sauf trois processus serait transparent : un navigateur à 1,5 Go sur 32 Go, c'est 5 % de la
+    // RAM, et il doit se voir.
+
+    /// <summary>RAM physique visible par Windows, lue une fois : elle ne change pas en cours de session.
+    /// TotalAvailableMemoryBytes est la RAM physique totale de la machine (ou la limite d'un conteneur, qui n'a
+    /// pas de sens ici) ; 0 si le runtime ne la connaît pas, auquel cas la mémoire n'est pas teintée.</summary>
+    private static readonly long TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+
+    /// <summary>Un débit de 1 Ko/s est le pied de l'échelle, 100 Mo/s son sommet : cinq décades.</summary>
+    private static readonly double IoDecades = Math.Log10(100d * 1024);
+
+    /// <summary>Au-delà de mille threads, une ligne est déjà au maximum.</summary>
+    private static readonly double ThreadDecades = Math.Log10(1000);
+
+    /// <summary>De 0 à 1, null si la valeur est absente (la cellule reste sans fond).</summary>
+    public double? CpuIntensity => CpuPercent is { } percent ? Math.Sqrt(Math.Clamp(percent, 0, 100) / 100) : null;
+
+    public double? MemoryIntensity => MemoryBytes is { } bytes && TotalMemoryBytes > 0
+        ? Math.Sqrt(Math.Clamp((double)bytes / TotalMemoryBytes, 0, 1))
+        : null;
+
+    public double? IoIntensity => IoBytesPerSecond is { } rate && rate >= 1
+        ? Math.Clamp(Math.Log10(rate / 1024d) / IoDecades, 0, 1)
+        : null;
+
+    public double? ThreadIntensity => ThreadCount > 0
+        ? Math.Clamp(Math.Log10(ThreadCount) / ThreadDecades, 0, 1)
+        : null;
+
     public string MemoryDisplay => MemoryBytes is { } bytes ? ByteFormatter.Format(bytes) : "--";
 
     public string IoDisplay => IoBytesPerSecond is { } rate && rate >= 1 ? ByteFormatter.FormatRate(rate) : "--";
@@ -477,10 +511,29 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         OnPropertyChanged(nameof(GroupRank));
     }
 
-    partial void OnCpuPercentChanged(double? value) => OnPropertyChanged(nameof(CpuDisplay));
-    partial void OnMemoryBytesChanged(long? value) => OnPropertyChanged(nameof(MemoryDisplay));
-    partial void OnIoBytesPerSecondChanged(double? value) => OnPropertyChanged(nameof(IoDisplay));
-    partial void OnThreadCountChanged(int value) => OnPropertyChanged(nameof(ThreadsDisplay));
+    partial void OnCpuPercentChanged(double? value)
+    {
+        OnPropertyChanged(nameof(CpuDisplay));
+        OnPropertyChanged(nameof(CpuIntensity));
+    }
+
+    partial void OnMemoryBytesChanged(long? value)
+    {
+        OnPropertyChanged(nameof(MemoryDisplay));
+        OnPropertyChanged(nameof(MemoryIntensity));
+    }
+
+    partial void OnIoBytesPerSecondChanged(double? value)
+    {
+        OnPropertyChanged(nameof(IoDisplay));
+        OnPropertyChanged(nameof(IoIntensity));
+    }
+
+    partial void OnThreadCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(ThreadsDisplay));
+        OnPropertyChanged(nameof(ThreadIntensity));
+    }
     partial void OnIsSelectedChanged(bool value) => Owner.OnRowSelectionChanged();
 
     partial void OnExecutablePathChanged(string? value)

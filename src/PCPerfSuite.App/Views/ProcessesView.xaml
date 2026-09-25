@@ -314,8 +314,11 @@
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Owner.Columns.Kind.CellVisibility}"/>
 
+                                <!-- Les quatre valeurs mesurées sont posées sur une pastille bleue d'autant plus marquée
+                                     qu'elle pèse lourd (voir CpuIntensity & co. dans ProcessRowViewModel) : les gros
+                                     consommateurs se repèrent sans lire les chiffres. -->
                                 <Border Grid.Column="3" CornerRadius="4" Margin="2,2,4,2"
-                                        Background="{Binding CpuPercent, Converter={StaticResource HeatBrush}}"
+                                        Background="{Binding CpuIntensity, Converter={StaticResource IntensityBrush}}"
                                         Visibility="{Binding Owner.Columns.Cpu.CellVisibility}">
                                     <TextBlock Text="{Binding CpuDisplay}" Style="{StaticResource Body}" FontSize="12.5"
                                                TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
@@ -323,21 +326,28 @@
                                 </Border>
 
                                 <Border Grid.Column="4" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding MemoryIntensity, Converter={StaticResource IntensityBrush}}"
                                         Visibility="{Binding Owner.Columns.Memory.CellVisibility}">
                                     <TextBlock Text="{Binding MemoryDisplay}" Style="{StaticResource Body}" FontSize="12.5"
                                                TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
                                                Typography.NumeralAlignment="Tabular"/>
                                 </Border>
 
-                                <TextBlock Grid.Column="5" Text="{Binding IoDisplay}" Style="{StaticResource Caption}" FontSize="12.5"
-                                           TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                           Typography.NumeralAlignment="Tabular"
-                                           Visibility="{Binding Owner.Columns.Io.CellVisibility}"/>
+                                <Border Grid.Column="5" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding IoIntensity, Converter={StaticResource IntensityBrush}}"
+                                        Visibility="{Binding Owner.Columns.Io.CellVisibility}">
+                                    <TextBlock Text="{Binding IoDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Border>
 
-                                <TextBlock Grid.Column="6" Text="{Binding ThreadsDisplay}" Style="{StaticResource Caption}" FontSize="12.5"
-                                           TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                                           Typography.NumeralAlignment="Tabular"
-                                           Visibility="{Binding Owner.Columns.Threads.CellVisibility}"/>
+                                <Border Grid.Column="6" CornerRadius="4" Margin="2,2,4,2"
+                                        Background="{Binding ThreadIntensity, Converter={StaticResource IntensityBrush}}"
+                                        Visibility="{Binding Owner.Columns.Threads.CellVisibility}">
+                                    <TextBlock Text="{Binding ThreadsDisplay}" Style="{StaticResource Body}" FontSize="12.5"
+                                               TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Typography.NumeralAlignment="Tabular"/>
+                                </Border>
 
                                 <TextBlock Grid.Column="7" Text="{Binding UserName}" Style="{StaticResource Caption}" FontSize="12.5"
                                            VerticalAlignment="Center" Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
