@@ -106,7 +106,8 @@ public partial class NumberField : UserControl
         // Bornes pas encore renseignées (maximum au plus bas, ou infini) : pas de plage à annoncer.
         if (ShowRange && double.IsFinite(Maximum) && Maximum > Minimum)
         {
-            parts.Add(string.Format(CultureInfo.CurrentCulture, "de {0:0} à {1:0}", Minimum, Maximum));
+            // Bornes arrondies vers l'intérieur, comme NumericInput : la plage annoncée est celle qu'on peut saisir.
+            parts.Add(string.Format(CultureInfo.CurrentCulture, "de {0:0} à {1:0}", Math.Ceiling(Minimum), Math.Floor(Maximum)));
         }
         if (!string.IsNullOrEmpty(Note)) parts.Add(Note);
 
