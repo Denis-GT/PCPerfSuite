@@ -18,7 +18,7 @@
         </Grid.RowDefinitions>
 
         <controls:PageHeader Grid.Row="0" Title="Processus" Margin="0,0,0,18"
-                             Subtitle="Ce qui tourne vraiment — trié sans que les lignes sautent : le classement suit une moyenne sur quelques secondes et se fige dès que la souris entre dans la liste."/>
+                             Subtitle="Ce qui tourne vraiment — le classement suit les valeurs affichées à chaque relevé. « Figer » l'arrête pour lire ou cliquer tranquillement."/>
 
         <!-- Barre d'outils -->
         <Grid Grid.Row="1" Margin="0,0,0,12">

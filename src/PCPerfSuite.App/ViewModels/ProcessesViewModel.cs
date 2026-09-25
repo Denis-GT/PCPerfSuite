@@ -153,11 +153,6 @@ public sealed class ProcessColumnsViewModel
 /// </summary>
 public sealed partial class ProcessRowViewModel : ObservableObject
 {
-    /// <summary>Poids d'un nouveau relevé dans la clé de tri. Le %CPU instantané d'un processus saute de 0 à
-    /// 8 % d'un relevé à l'autre : trier là-dessus fait danser la liste, et c'est précisément ce qu'on
-    /// reproche au Gestionnaire des tâches. La colonne affiche l'instantané, le tri suit la moyenne.</summary>
-    private const double CpuSmoothing = 0.35;
-
     public ProcessesViewModel Owner { get; }
 
     public ProcessIdentity Identity { get; private set; }
@@ -244,8 +239,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
 
     public SampleHistory CpuHistory { get; } = new(90);
     public SampleHistory MemoryHistory { get; } = new(90);
-
-    public double CpuSortKey { get; private set; }
 
     public string KindLabel => Kind switch
     {
@@ -345,7 +338,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         Identity = info.Identity;
         Pid = info.Pid;
         Name = info.Name;
-        CpuSortKey = 0;
         Apply(info);
     }
 
@@ -381,8 +373,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         CpuPercent = info.CpuPercent;
         MemoryBytes = info.PrivateWorkingSetBytes ?? info.WorkingSetBytes;
         IoBytesPerSecond = info.IoBytesPerSecond;
-
-        CpuSortKey += CpuSmoothing * ((info.CpuPercent ?? 0) - CpuSortKey);
 
         CpuHistory.Push(info.CpuPercent);
         MemoryHistory.Push(MemoryBytes);
@@ -439,10 +429,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         Identity = new ProcessIdentity(0, started);
         OnPropertyChanged(nameof(StartTimeDisplay));
 
-        // La clé de tri suit la somme des clés lissées de ses membres, et non un nouveau lissage du total :
-        // un agrégat doit bouger dans le classement exactement au même rythme que les lignes qu'il résume.
-        CpuSortKey = members.Sum(m => m.CpuSortKey);
-
         CpuHistory.Push(CpuPercent);
         MemoryHistory.Push(MemoryBytes);
     }
@@ -474,7 +460,6 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         // et un tri par mémoire classait ce fantôme parmi les plus gros consommateurs.
         MemoryBytes = null;
         IoBytesPerSecond = null;
-        CpuSortKey = 0;
         // Une ligne morte ne reste pas sélectionnée : le compteur et le bouton rouge « Terminer » resteraient
         // actifs alors que l'action ne ferait plus rien du tout, sans le moindre message.
         IsSelected = false;
@@ -616,18 +601,15 @@ public sealed class ProcessRowCollection : ObservableCollection<ProcessRowViewMo
 }
 
 /// <summary>
-/// Onglet « Processus » : la liste de ce qui tourne, en plus lisible que le Gestionnaire des tâches. Le vrai
-/// sujet n'est pas d'afficher des chiffres, c'est que la liste reste cliquable — d'où trois mécanismes
-/// cumulés contre les lignes qui sautent : une clé de tri lissée, un reclassement bien plus lent que les
-/// relevés, et le gel complet du classement dès que le pointeur entre dans la liste.
+/// Onglet « Processus » : la liste de ce qui tourne, en plus lisible que le Gestionnaire des tâches. Le
+/// classement suit toujours les valeurs affichées, relevé après relevé : c'est ce que l'utilisateur lit, donc
+/// c'est ce qui doit être trié. Seul le bouton « Figer » l'arrête. Ce qui protège encore le clic, c'est que
+/// les lignes n'entrent et ne sortent pas de la liste tant que le pointeur est dessus (voir
+/// <c>UpdateFilterMembership</c> et <c>RemoveVanishedRows</c>).
 /// </summary>
 public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 {
     private const string DialogTitle = "PCPerfSuite";
-
-    /// <summary>Le classement n'est recalculé qu'à ce rythme, bien plus lentement que les valeurs : un
-    /// reclassement à chaque relevé rendrait le lissage inutile.</summary>
-    private const int ReorderIntervalMs = 3000;
 
     /// <summary>Cadence de repli quand aucun réglage n'a encore été restauré.</summary>
     private const int DefaultRefreshMs = 2000;
@@ -672,7 +654,6 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private bool _disposed;
 
     private bool _isRefreshing;
-    private long _lastReorderTick;
     private bool _initialized;
 
     /// <summary>Le message affiché vient d'un relevé en échec, pas d'une action de l'utilisateur.</summary>
@@ -1175,8 +1156,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             "threads" => a.ThreadCount.CompareTo(b.ThreadCount),
             "user" => string.Compare(a.UserName, b.UserName, StringComparison.CurrentCultureIgnoreCase),
             "publisher" => string.Compare(a.Publisher, b.Publisher, StringComparison.CurrentCultureIgnoreCase),
-            // Le tri suit la moyenne lissée, jamais la valeur instantanée affichée.
-            _ => a.CpuSortKey.CompareTo(b.CpuSortKey),
+            // Le tri suit la valeur affichée : ce que l'utilisateur lit doit être ce qui est trié.
+            _ => CompareNullable(a.CpuPercent, b.CpuPercent, direction),
         };
 
         if (result != 0) return result * direction;
@@ -1272,13 +1253,9 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     /// d'Add perdrait tous les trois.</summary>
     private void ApplyOrder(bool force = false)
     {
-        if (!force)
-        {
-            if (IsFrozen || IsListBusy) return;
-            if (Environment.TickCount64 - _lastReorderTick < ReorderIntervalMs) return;
-        }
-
-        _lastReorderTick = Environment.TickCount64;
+        // Appelé à chaque relevé, pointeur ou pas sur la liste : le classement doit correspondre aux valeurs
+        // qu'on lit au même instant. Seul « Figer » l'arrête.
+        if (!force && IsFrozen) return;
 
         _ordered.Clear();
         _ordered.AddRange(Rows);
