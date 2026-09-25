@@ -185,6 +185,10 @@ public sealed class DiskSnapshot
     public string Identifier { get; init; } = "";
 
     public float? UsedPercent { get; init; }
+
+    /// <summary>Charge du disque (temps d'occupation, 0-100 %), null si Windows ne la fournit pas pour ce disque.</summary>
+    public float? ActivityPercent { get; init; }
+
     public float? ReadRateBytesPerSecond { get; init; }
     public float? WriteRateBytesPerSecond { get; init; }
     public float? TemperatureC { get; init; }

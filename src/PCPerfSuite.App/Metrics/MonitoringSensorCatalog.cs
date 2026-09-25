@@ -31,6 +31,8 @@ public static class MonitoringSensorCatalog
         foreach (DiskSnapshot disk in snapshot.Disks)
         {
             string id = disk.Identifier;
+            yield return MetricCatalog.Numeric($"disk:{id}:load", MetricCatalog.Storage, $"{disk.Name} · charge", "charge", "%", "0",
+                s => Disk(s, id)?.ActivityPercent, hint: MetricCatalog.DiskLoadHint);
             yield return MetricCatalog.Rate($"disk:{id}:read", MetricCatalog.Storage, $"{disk.Name} · lecture", "lect",
                 MetricCatalog.DiskRateFloor, s => Disk(s, id)?.ReadRateBytesPerSecond);
             yield return MetricCatalog.Rate($"disk:{id}:write", MetricCatalog.Storage, $"{disk.Name} · écriture", "ecr",

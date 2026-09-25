@@ -131,6 +131,10 @@ public static class MetricCatalog
         "Le % n'est disponible que si le constructeur fournit la vitesse maximale du ventilateur ; sinon seuls les RPM " +
         "sont connus. Voir Paramètres › Compatibilité de ce PC.";
 
+    internal const string DiskLoadHint =
+        "Windows ne publie pas la charge de ce disque (compteur « % Disk Time » indisponible ou désactivé). Ce n'est pas " +
+        "un dysfonctionnement de PCPerfSuite : voir Paramètres › Compatibilité de ce PC.";
+
     internal static readonly string MotherboardHint = BuildLowLevelSensorHint(
         "Aucune sonde carte mère lisible sur ce PC : c'est le cas de la plupart des portables et de certaines cartes mères récentes.");
 
@@ -205,6 +209,10 @@ public static class MetricCatalog
         Numeric("mb.temp.system", Motherboard, "Température système", "temp", "°C", "0", s => s.Hardware.Motherboard.SystemTempC, hint: MotherboardHint),
         Numeric("mb.temp.vrm", Motherboard, "Température VRM", "vrm", "°C", "0", s => s.Hardware.Motherboard.VrmTempC, hint: MotherboardHint),
 
+        // Charge du disque le plus sollicité : comme la colonne « Activité » du Gestionnaire des tâches, et non une
+        // moyenne qui noierait la copie qui sature un seul disque. Max sur une liste vide donne null (« N/D »).
+        Numeric("storage.load", Storage, "Charge disque (le plus sollicité)", "charge", "%", "0",
+            s => s.Hardware.Disks.Max(d => d.ActivityPercent), hint: DiskLoadHint),
         Rate("storage.read", Storage, "Débit lecture total", "lect", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.ReadRateBytesPerSecond))),
         Rate("storage.write", Storage, "Débit écriture total", "ecr", DiskRateFloor, s => SumOrNull(s.Hardware.Disks.Select(d => d.WriteRateBytesPerSecond))),
         Numeric("storage.temp.max", Storage, "Température disque max", "temp", "°C", "0", s => s.Hardware.Disks.Max(d => d.TemperatureC)),
@@ -236,7 +244,7 @@ public static class MetricCatalog
         "gpu.load", "gpu.temp.core", "gpu.power",
         "ram.load",
         "mb.temp.system",
-        "storage.read", "storage.write",
+        "storage.load", "storage.read", "storage.write",
         "net.download", "net.upload",
     };
 
