@@ -75,10 +75,12 @@ public static class NumericInput
         box.LostKeyboardFocus -= OnLostKeyboardFocus;
         box.GotKeyboardFocus -= OnGotKeyboardFocus;
         box.TextChanged -= OnTextChanged;
+        box.PreviewMouseLeftButtonDown -= OnPreviewMouseLeftButtonDown;
         DataObject.RemovePastingHandler(box, OnPasting);
 
         if (e.NewValue is not true) return;
 
+        box.PreviewMouseLeftButtonDown += OnPreviewMouseLeftButtonDown;
         box.PreviewTextInput += OnPreviewTextInput;
         box.PreviewKeyDown += OnPreviewKeyDown;
         box.LostKeyboardFocus += OnLostKeyboardFocus;
@@ -152,6 +154,19 @@ public static class NumericInput
     private static void OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         => ((TextBox)sender).SelectAll();
 
+    /// <summary>Un clic dans un champ qui n'a pas encore le focus le donne SANS poser le curseur : c'est ce qui
+    /// fait qu'un clic sélectionne tout (le SelectAll de <see cref="OnGotKeyboardFocus"/> tient alors), et qu'une
+    /// frappe remplace la valeur. Sans cela, le relâchement du bouton place le curseur et désélectionne aussitôt.
+    /// Les clics suivants, champ déjà actif, placent le curseur normalement.</summary>
+    private static void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var box = (TextBox)sender;
+        if (box.IsKeyboardFocusWithin) return;
+
+        box.Focus();
+        e.Handled = true;
+    }
+
     private static void OnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         => Commit((TextBox)sender);
 
@@ -212,8 +227,10 @@ public static class NumericInput
 
     private static double Clamp(TextBox box, double value)
     {
-        double min = GetMinimum(box);
-        double max = GetMaximum(box);
+        // Le champ ne contient que des entiers : une borne à virgule (6142,5) ne doit pas laisser passer une
+        // valeur à virgule. On prend l'entier le plus proche À L'INTÉRIEUR de la plage.
+        double min = Math.Ceiling(GetMinimum(box));
+        double max = Math.Floor(GetMaximum(box));
 
         // Un maximum inférieur au minimum, c'est des bornes pas encore renseignées : on ne borne pas par en haut.
         if (max >= min) value = Math.Min(value, max);
