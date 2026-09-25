@@ -193,10 +193,11 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public string MemberCountDisplay => MemberCount > 0 ? $" ({MemberCount})" : "";
 
     /// <summary>Groupe déplié. Replié, ses membres quittent la vue par le filtre — le seul chemin par lequel
-    /// une ligne entre ou sort, pour que rien ne bouge sous le curseur.</summary>
+    /// une ligne entre ou sort, pour que rien ne bouge sous le curseur. Replié par défaut : vingt lignes de
+    /// « chrome.exe » sous chaque navigateur noient la liste, et le chevron est là pour aller y voir.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ExpanderGlyph))]
-    private bool isExpanded = true;
+    private bool isExpanded;
 
     /// <summary>Chevron des agrégats : vers le bas quand le groupe est déplié, vers la droite sinon.</summary>
     public string ExpanderGlyph => IsExpanded ? "" : "";
@@ -1010,6 +1011,15 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
             if (IsListBusy) Rows.Add(aggregate);
             else Rows.Insert(FindInsertIndex(aggregate), aggregate);
+
+            // Un groupe naît replié : ses membres, eux, ont été ajoutés avant qu'on sache qu'ils appartenaient à
+            // un groupe, donc visibles. Sans cette ligne ils resteraient affichés jusqu'au reclassement suivant
+            // — une image entière d'une liste dépliée, à l'ouverture de l'onglet. Pas quand la liste est visée :
+            // rien ne doit alors sortir de sous le curseur, c'est au relâchement que tout se range.
+            if (!IsListBusy)
+            {
+                foreach (ProcessRowViewModel member in members) member.MatchesFilter = PassesFilter(member);
+            }
         }
 
         RemoveUnusedAggregates();
@@ -1419,25 +1429,47 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
            || (!row.IsAggregate
                && row.Pid.ToString(CultureInfo.InvariantCulture).Contains(SearchText, StringComparison.Ordinal));
 
+    /// <summary>Groupes qui étaient dépliés avant que la recherche ne déplie tout (clés de groupe). Null hors
+    /// recherche. Sert à remettre la liste comme l'utilisateur l'avait laissée quand il efface le champ.</summary>
+    private HashSet<string>? _expandedBeforeSearch;
+
     partial void OnSearchTextChanged(string value)
     {
         // Une recherche doit pouvoir trouver un processus où qu'il soit, y compris dans un groupe replié :
-        // elle déplie donc tout, comme le fait le Gestionnaire des tâches. Le repliage manuel est perdu, ce
-        // qui vaut mieux qu'un chevron qui annonce « replié » au-dessus de membres bien visibles.
+        // elle déplie donc tout, comme le fait le Gestionnaire des tâches. Le chevron annonce ainsi « déplié »
+        // au-dessus de membres bien visibles. L'état d'avant est gardé, et rendu à l'effacement du champ :
+        // sans cela, une recherche laisserait tous les groupes dépliés pour de bon.
         if (value.Length > 0 && _aggregates.Count > 0)
         {
-            _bulkExpanding = true;
-            try
-            {
-                foreach (ProcessRowViewModel aggregate in _aggregates.Values) aggregate.IsExpanded = true;
-            }
-            finally
-            {
-                _bulkExpanding = false;
-            }
+            _expandedBeforeSearch ??= _aggregates.Values.Where(a => a.IsExpanded).Select(a => a.GroupKey).ToHashSet();
+            SetGroupsExpanded(expandedKeys: null);
+        }
+        else if (value.Length == 0 && _expandedBeforeSearch is { } before)
+        {
+            _expandedBeforeSearch = null;
+            SetGroupsExpanded(before);
         }
 
         RefreshFilter();
+    }
+
+    /// <summary>Règle l'état de tous les groupes d'un coup : chacun ne doit pas déclencher sa propre
+    /// réévaluation du filtre, l'appelant s'en charge une seule fois à la fin. <paramref name="expandedKeys"/>
+    /// liste les groupes à déplier, les autres sont repliés ; null les déplie tous.</summary>
+    private void SetGroupsExpanded(HashSet<string>? expandedKeys)
+    {
+        _bulkExpanding = true;
+        try
+        {
+            foreach (ProcessRowViewModel aggregate in _aggregates.Values)
+            {
+                aggregate.IsExpanded = expandedKeys is null || expandedKeys.Contains(aggregate.GroupKey);
+            }
+        }
+        finally
+        {
+            _bulkExpanding = false;
+        }
     }
 
     partial void OnSelectedKindChanged(ProcessKindOption? value)
