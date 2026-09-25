@@ -30,14 +30,21 @@
             </Grid.ColumnDefinitions>
 
             <Grid Grid.Column="0" Width="260" Margin="0,0,14,0">
-                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="28,7,8,7"
+                <!-- Le texte commence à 1 (bordure) + 26 (Padding) = 27 px du bord, et l'invite grise est posée
+                     exactement au même endroit, à la même taille : le curseur clignote au début de l'invite au
+                     lieu de flotter plus loin à droite. -->
+                <TextBox x:Name="SearchBox" Style="{StaticResource GlassTextBox}" Padding="26,7,8,7"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=200}"/>
                 <TextBlock Text="&#xE721;" Style="{StaticResource Icon}" FontSize="13" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="9,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
-                <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un. -->
-                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
-                           Margin="29,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
-                           Visibility="{Binding SearchText.Length, Converter={StaticResource ZeroCountToVisibility}}"/>
+                           Margin="8,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+                <!-- Faux texte d'invite : un TextBox WPF n'en a pas, et le superposer évite d'en dériver un.
+                     Sa visibilité suit le texte du champ lui-même et non SearchText : cette propriété ne se met
+                     à jour qu'après le Delay de 200 ms de la liaison, et l'invite restait affichée par-dessus
+                     les premières lettres tapées. -->
+                <TextBlock Text="Rechercher un processus (Ctrl+F)" Style="{StaticResource Caption}" FontSize="13"
+                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Margin="27,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Visibility="{Binding Text.Length, ElementName=SearchBox, Converter={StaticResource ZeroCountToVisibility}}"/>
             </Grid>
 
             <Border Grid.Column="1" Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center">
