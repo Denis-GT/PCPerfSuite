@@ -32,19 +32,42 @@ namespace PCPerfSuite.Core.Processes;
 /// </summary>
 public sealed class ProcessService : IDisposable
 {
+    /// <summary>Les compteurs cumulés d'un processus à un relevé donné.</summary>
+    private struct Sample
+    {
+        public long Timestamp;
+
+        /// <summary>Temps processeur cumulé, en unités de 100 ns.</summary>
+        public long CpuTime100ns;
+
+        /// <summary>Octets d'E/S cumulés. Valide seulement si <see cref="HasIo"/>.</summary>
+        public ulong IoBytes;
+
+        public bool HasIo;
+    }
+
+    /// <summary>Nombre de relevés gardés par processus. Assez pour remonter d'une seconde à la cadence la plus
+    /// rapide (0,5 s), et rien de plus.</summary>
+    private const int RingSize = 3;
+
+    /// <summary>Durée sur laquelle on mesure un %CPU ou un débit. Le Gestionnaire des tâches actualise à
+    /// cette cadence : sur un relevé plus court, l'écart de deux relevés consécutifs est trop bruité pour
+    /// être comparé à ce qu'il affiche — un processus qui travaille par à-coups y saute de 0 à 8 %.</summary>
+    private const double WindowSeconds = 1.0;
+
+    /// <summary>Tolérance sur cette durée : un relevé demandé toutes les 0,5 s n'arrive jamais pile à 0,500.</summary>
+    private const double WindowToleranceSeconds = 0.25;
+
     /// <summary>Ce qu'on retient d'un processus entre deux relevés.</summary>
     private sealed class Tracked
     {
         public IntPtr Handle;
         public DateTime? StartTimeUtc;
 
-        /// <summary>Temps processeur cumulé au relevé précédent, en unités de 100 ns.</summary>
-        public long CpuTime100ns;
+        /// <summary>Les derniers relevés, du plus récent (indice 0) au plus ancien.</summary>
+        public readonly Sample[] Ring = new Sample[RingSize];
 
-        /// <summary>Octets d'E/S cumulés au relevé précédent.</summary>
-        public ulong IoBytes;
-
-        public bool HasPrevious;
+        public int RingCount;
 
         // Données immuables pour la vie du processus : résolues une fois, à sa première apparition.
         public bool ResolvedOnce;
@@ -232,12 +255,15 @@ public sealed class ProcessService : IDisposable
             long? committed = null;
             double? ioRate = null;
 
-            // Capturé une fois pour toute l'itération, et relu par le bloc E/S plus bas : « ce processus
-            // avait-il déjà une ligne de base AVANT ce relevé ? ». Interroger tracked.HasPrevious là-bas
-            // donnait toujours vrai, puisque le bloc CPU vient de le lever — un processus apparu en cours de
-            // session affichait alors toutes ses E/S depuis son lancement divisées par un seul intervalle,
-            // soit un pic de plusieurs centaines de Mo/s qui le propulsait en tête du tri.
-            bool hadPrevious = false;
+            // Le relevé de référence, celui auquel on compare celui-ci : capturé UNE fois pour toute
+            // l'itération et relu par le bloc E/S plus bas. Un processus apparu en cours de session n'en a
+            // pas, et ne doit surtout pas afficher toutes ses E/S depuis son lancement divisées par un seul
+            // intervalle : un pic de plusieurs centaines de Mo/s qui le propulsait en tête du tri.
+            Sample reference = default;
+            double windowSeconds = 0;
+            bool hasReference = false;
+            Sample current = default;
+            bool recorded = false;
 
             if (accessible && GetProcessTimes(tracked.Handle, out long creation, out _, out long kernel, out long user))
             {
@@ -245,18 +271,23 @@ public sealed class ProcessService : IDisposable
 
                 // Un PID réattribué se repère à une heure de démarrage différente : sans ce contrôle, l'écart
                 // de temps processeur du défunt serait imputé à son successeur et produirait un pic absurde.
-                if (tracked.HasPrevious && tracked.StartTimeUtc != startTime)
+                if (tracked.RingCount > 0 && tracked.StartTimeUtc != startTime)
                 {
-                    tracked.HasPrevious = false;
+                    tracked.RingCount = 0;
                     tracked.ResolvedOnce = false;
                 }
                 tracked.StartTimeUtc = startTime;
-                hadPrevious = tracked.HasPrevious;
+
+                if (TryPickReference(tracked, start, out reference))
+                {
+                    windowSeconds = Stopwatch.GetElapsedTime(reference.Timestamp, start).TotalSeconds;
+                    hasReference = windowSeconds > 0;
+                }
 
                 long cpuTime = kernel + user;
-                if (hadPrevious && !isFirstSample)
+                if (hasReference)
                 {
-                    long delta = cpuTime - tracked.CpuTime100ns;
+                    long delta = cpuTime - reference.CpuTime100ns;
                     // Le temps processeur ne recule pas : un écart négatif ne peut venir que d'un PID
                     // réattribué qui aurait échappé au contrôle ci-dessus.
                     if (delta > 0)
@@ -266,7 +297,7 @@ public sealed class ProcessService : IDisposable
                         // la machine entière. Le Gestionnaire des tâches compte en cycles, donc en tenant
                         // compte de la fréquence réelle : d'où le facteur d'échelle, mesuré par
                         // UpdateCpuScale plutôt que supposé.
-                        double percent = delta / (elapsedSeconds * _processorCount * 100_000.0) * frequencyFactor;
+                        double percent = delta / (windowSeconds * _processorCount * 100_000.0) * frequencyFactor;
                         cpuPercent = Math.Clamp(percent, 0, 100);
                     }
                     else
@@ -275,12 +306,9 @@ public sealed class ProcessService : IDisposable
                     }
                 }
 
-                tracked.CpuTime100ns = cpuTime;
-                // Vrai dès le premier relevé : la ligne de base vient d'être enregistrée, elle est donc
-                // exploitable au relevé suivant. La condition « !isFirstSample » ci-dessus suffit déjà à
-                // empêcher tout calcul sur un intervalle nul ; l'écrire aussi ici retardait la première
-                // valeur d'un relevé de plus, et la colonne de tri par défaut restait vide deux tours.
-                tracked.HasPrevious = true;
+                // La ligne de base est enregistrée dès le premier relevé : elle sert au suivant.
+                current = new Sample { Timestamp = start, CpuTime100ns = cpuTime };
+                recorded = true;
             }
 
             if (accessible && TryReadMemory(tracked.Handle, out long ws, out long? pws, out long commit))
@@ -294,15 +322,18 @@ public sealed class ProcessService : IDisposable
             if (accessible && GetProcessIoCounters(tracked.Handle, out IO_COUNTERS io))
             {
                 // Toutes les E/S du processus, pas seulement le disque : fichiers, réseau, tubes et console.
-                // C'est ce que compte la colonne du Gestionnaire des tâches, d'où le libellé « E/S ».
+                // Source de repli de la colonne « Disque » quand la trace ETW n'est pas disponible.
                 ulong total = io.ReadTransferCount + io.WriteTransferCount;
-                if (hadPrevious && !isFirstSample && total >= tracked.IoBytes)
+                if (hasReference && reference.HasIo && total >= reference.IoBytes)
                 {
-                    ioRate = (total - tracked.IoBytes) / elapsedSeconds;
+                    ioRate = (total - reference.IoBytes) / windowSeconds;
                     anyIoRate = true;
                 }
-                tracked.IoBytes = total;
+                current.IoBytes = total;
+                current.HasIo = true;
             }
+
+            if (recorded) PushSample(tracked, current);
 
             ResolveImmutableData(tracked, entry.Pid, accessible);
 
@@ -349,6 +380,32 @@ public sealed class ProcessService : IDisposable
             CpuScaleFactor = frequencyFactor,
             CpuScaleSource = _cpuScaleSource,
         };
+    }
+
+    /// <summary>Choisit le relevé auquel comparer celui-ci : le plus ancien qui reste dans la fenêtre d'une
+    /// seconde, et à défaut le plus récent. À 0,5 s de cadence on remonte donc de deux relevés, à 1 s ou plus
+    /// d'un seul — le processus est alors mesuré sur toute la cadence, ce qui est déjà plus long.</summary>
+    private static bool TryPickReference(Tracked tracked, long now, out Sample reference)
+    {
+        reference = default;
+        if (tracked.RingCount == 0) return false;
+
+        reference = tracked.Ring[0];
+        for (int i = 1; i < tracked.RingCount; i++)
+        {
+            double age = Stopwatch.GetElapsedTime(tracked.Ring[i].Timestamp, now).TotalSeconds;
+            if (age > WindowSeconds + WindowToleranceSeconds) break;
+            reference = tracked.Ring[i];
+        }
+
+        return true;
+    }
+
+    private static void PushSample(Tracked tracked, Sample sample)
+    {
+        for (int i = RingSize - 1; i > 0; i--) tracked.Ring[i] = tracked.Ring[i - 1];
+        tracked.Ring[0] = sample;
+        if (tracked.RingCount < RingSize) tracked.RingCount++;
     }
 
     /// <summary>
