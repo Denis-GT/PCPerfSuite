@@ -29,25 +29,45 @@
             </Setter>
         </Style>
 
-        <!-- Une ligne de réglage des couleurs : le nom, puis la palette de pastilles. -->
+        <!-- Une ligne de réglage des couleurs : une seule case (la couleur courante) et le nom. Un clic sur la
+             case ouvre une petite fenêtre : couleurs de base, puis choix précis (carré, teinte, code hex).
+             DataContext : OverlayColorSlotViewModel. -->
         <DataTemplate x:Key="ColorSlotTemplate">
             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                <Border Width="14" Height="14" CornerRadius="7" Background="{Binding Brush}" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="104" Margin="8,0,10,0"
+                <!-- Désactivée pendant que la fenêtre est ouverte : sinon un clic sur la case la ferme (StaysOpen=False,
+                     clic hors de la fenêtre) puis la rouvre aussitôt (bascule du ToggleButton). -->
+                <ToggleButton x:Name="Swatch" Style="{StaticResource ColorSlotButton}" Background="{Binding Brush}"
+                              ToolTip="Changer la couleur"
+                              IsHitTestVisible="{Binding IsOpen, ElementName=ColorPopup, Converter={StaticResource InverseBoolean}}"/>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120" Margin="10,0,0,0"
                            VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                <ItemsControl ItemsSource="{Binding Choices}" VerticalAlignment="Center">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Button Style="{StaticResource ColorSwatch}" Background="{Binding Brush}"
-                                    Command="{Binding SelectCommand}"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+
+                <Popup x:Name="ColorPopup" PlacementTarget="{Binding ElementName=Swatch}" Placement="Bottom"
+                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
+                       IsOpen="{Binding IsChecked, ElementName=Swatch, Mode=TwoWay}">
+                    <Border Background="{StaticResource PopupBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,6,0,0">
+                        <StackPanel Width="200">
+                            <TextBlock Text="Couleurs de base" Style="{StaticResource Eyebrow}" FontSize="11" Margin="0,0,0,8"/>
+                            <ItemsControl ItemsSource="{Binding Choices}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Style="{StaticResource ColorSwatch}" Background="{Binding Brush}"
+                                                Command="{Binding SelectCommand}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="Couleur précise" Style="{StaticResource Eyebrow}" FontSize="11" Margin="0,12,0,8"/>
+                            <controls:ColorPicker ColorHex="{Binding ColorHex, Mode=TwoWay}"/>
+                        </StackPanel>
+                    </Border>
+                </Popup>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>

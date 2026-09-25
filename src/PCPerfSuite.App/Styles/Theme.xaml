@@ -1183,6 +1183,31 @@
         </Setter>
     </Style>
 
+    <!-- Case de couleur d'une ligne (couleurs de l'overlay) : un carré arrondi de la couleur courante, qui ouvre
+         la petite fenêtre de choix. Coché = fenêtre ouverte, d'où l'anneau d'accent. Le fond est posé par la vue. -->
+    <Style x:Key="ColorSlotButton" TargetType="ToggleButton">
+        <Setter Property="Width" Value="26"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd" CornerRadius="7" Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1.5"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource TextSecondaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Sélecteur segmenté (position de l'overlay, famille de processus...) : une ListBox
          horizontale dont l'élément sélectionné prend la couleur d'accent. -->
     <Style x:Key="PillItem" TargetType="ListBoxItem">

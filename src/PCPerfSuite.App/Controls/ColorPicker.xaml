@@ -1,0 +1,86 @@
+<UserControl x:Class="PCPerfSuite.App.Controls.ColorPicker"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Sélecteur de couleur précis : un carré saturation / luminosité sur la teinte choisie, une barre de teinte,
+         et le code #RRGGBB. Dessiné en WPF pur (dégradés superposés), sans dépendance. La couleur n'est transmise
+         à ColorHex qu'au relâchement de la souris : voir ColorPicker.xaml.cs. -->
+    <StackPanel Width="200">
+
+        <!-- Carré : la teinte en fond, un dégradé blanc vers transparent (saturation, de gauche à droite) puis un
+             dégradé transparent vers noir (luminosité, de haut en bas). -->
+        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <Grid x:Name="Plane" Height="130" Background="Transparent" Cursor="Cross"
+                  MouseLeftButtonDown="OnPlaneMouseDown" MouseMove="OnPlaneMouseMove" MouseLeftButtonUp="OnPlaneMouseUp"
+                  SizeChanged="OnLayoutChanged">
+                <Rectangle x:Name="HueFill" IsHitTestVisible="False"/>
+                <Rectangle IsHitTestVisible="False">
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                            <GradientStop Color="#00FFFFFF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <Rectangle IsHitTestVisible="False">
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="#FF000000" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <Canvas IsHitTestVisible="False">
+                    <!-- Contour noir sous le cercle blanc : lisible sur le blanc comme sur le noir. -->
+                    <Ellipse x:Name="PlaneThumb" Width="14" Height="14" Stroke="White" StrokeThickness="2">
+                        <Ellipse.Effect>
+                            <DropShadowEffect ShadowDepth="0" BlurRadius="3" Opacity="0.9"/>
+                        </Ellipse.Effect>
+                    </Ellipse>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <!-- Barre de teinte : tout le tour de la roue des couleurs, du rouge au rouge. -->
+        <Grid x:Name="HueBar" Height="14" Margin="0,10,0,0" Background="Transparent" Cursor="Hand"
+              MouseLeftButtonDown="OnHueMouseDown" MouseMove="OnHueMouseMove" MouseLeftButtonUp="OnHueMouseUp"
+              SizeChanged="OnLayoutChanged">
+            <Rectangle RadiusX="7" RadiusY="7" IsHitTestVisible="False">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#FFFF0000" Offset="0"/>
+                        <GradientStop Color="#FFFFFF00" Offset="0.1667"/>
+                        <GradientStop Color="#FF00FF00" Offset="0.3333"/>
+                        <GradientStop Color="#FF00FFFF" Offset="0.5"/>
+                        <GradientStop Color="#FF0000FF" Offset="0.6667"/>
+                        <GradientStop Color="#FFFF00FF" Offset="0.8333"/>
+                        <GradientStop Color="#FFFF0000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Canvas IsHitTestVisible="False">
+                <Ellipse x:Name="HueThumb" Width="14" Height="14" Stroke="White" StrokeThickness="2">
+                    <Ellipse.Effect>
+                        <DropShadowEffect ShadowDepth="0" BlurRadius="3" Opacity="0.9"/>
+                    </Ellipse.Effect>
+                </Ellipse>
+            </Canvas>
+        </Grid>
+
+        <!-- Aperçu et code hexadécimal. -->
+        <Grid Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="Preview" Width="28" Height="28" CornerRadius="7"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+            <TextBox x:Name="HexBox" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource GlassTextBox}"
+                     MaxLength="7" CharacterCasing="Upper" VerticalContentAlignment="Center"
+                     ToolTip="Code couleur #RRGGBB, validé avec Entrée"
+                     PreviewMouseLeftButtonDown="OnHexMouseDown" GotKeyboardFocus="OnHexGotFocus"
+                     PreviewTextInput="OnHexTextInput" PreviewKeyDown="OnHexKeyDown"
+                     LostKeyboardFocus="OnHexLostFocus"/>
+        </Grid>
+    </StackPanel>
+</UserControl>
