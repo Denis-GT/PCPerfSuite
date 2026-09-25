@@ -181,14 +181,19 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public string Name { get; }
 
     /// <summary>Vrai pour une ligne d'agrégat — « Google Chrome (32) » — qui ne correspond à aucun processus
-    /// mais totalise ceux qui partagent son exécutable, comme l'onglet « Processus » du Gestionnaire des
+    /// mais totalise l'arbre de processus d'une application, comme l'onglet « Processus » du Gestionnaire des
     /// tâches. Elle n'a ni PID, ni heure de démarrage, et ne peut pas être terminée directement : c'est
     /// l'onglet qui répercute l'action sur ses membres.</summary>
     public bool IsAggregate { get; }
 
-    /// <summary>Ce qui rassemble les instances d'une même application : son exécutable et le compte qui la
-    /// fait tourner. Deux utilisateurs connectés n'ont pas « le même » navigateur.</summary>
-    public string GroupKey { get; private set; } = "";
+    /// <summary>Ce qui rassemble un processus et ses descendants : l'identité (PID et heure de démarrage) de
+    /// la racine de leur arbre, posée à chaque relevé par l'onglet. Deux lancements du même navigateur ont
+    /// deux racines, donc deux groupes — comme dans le Gestionnaire des tâches.</summary>
+    public string GroupKey { get; internal set; } = "";
+
+    /// <summary>Ce processus est la racine de son groupe : l'application elle-même, celle dont les autres
+    /// sont les descendants. C'est elle qui donne son nom à l'agrégat.</summary>
+    public bool IsGroupRoot { get; internal set; }
 
     /// <summary>L'agrégat auquel cette ligne appartient, null si elle est seule de son espèce.</summary>
     [ObservableProperty]
@@ -437,12 +442,7 @@ public sealed partial class ProcessRowViewModel : ObservableObject
         CpuHistory.Push(info.CpuPercent);
         MemoryHistory.Push(MemoryBytes);
 
-        // Recalculée à chaque relevé : le chemin de l'exécutable et le compte propriétaire ne sont pas
-        // toujours lisibles à la première apparition d'un processus, et une ligne qui les obtient au relevé
-        // suivant doit rejoindre son groupe.
-        GroupKey = string.Concat(
-            info.ExecutablePath?.ToLowerInvariant() ?? info.Name.ToLowerInvariant(), "\u0000", info.UserName ?? "");
-
+        // Son groupe est décidé après coup, une fois toutes les lignes à jour : voir RebuildAggregates.
         if (IsGone) IsGone = false;
     }
 
@@ -457,9 +457,12 @@ public sealed partial class ProcessRowViewModel : ObservableObject
     public void ApplyAggregate(List<ProcessRowViewModel> members)
     {
         MemberCount = members.Count;
-        // Le nom vient du membre le plus parlant : celui qui a une fenêtre, sinon le premier. Deux processus
-        // du même exécutable portent la même description, mais seul celui qui a une fenêtre porte un titre.
-        ProcessRowViewModel head = members.FirstOrDefault(m => m.Kind == ProcessKind.Application) ?? members[0];
+        // Le nom vient de la racine de l'arbre : c'est l'application, ses descendants n'en sont que les
+        // rouages (un moteur de rendu, un service d'aide). À défaut — racine sortie du groupe le temps d'un
+        // relevé —, le membre qui a une fenêtre, sinon le premier.
+        ProcessRowViewModel head = members.FirstOrDefault(m => m.IsGroupRoot)
+            ?? members.FirstOrDefault(m => m.Kind == ProcessKind.Application)
+            ?? members[0];
 
         DisplayName = head.DisplayName;
         ExecutablePath = head.ExecutablePath;
@@ -706,6 +709,24 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, List<ProcessRowViewModel>> _byGroupKey = new(StringComparer.Ordinal);
 
     private readonly HashSet<ProcessIdentity> _seen = new();
+
+    /// <summary>Lignes créées au relevé en cours, le temps de leur donner leur appartenance définitive au
+    /// filtre une fois leur groupe connu.</summary>
+    private readonly List<ProcessRowViewModel> _addedRows = new();
+
+    /// <summary>Processus vivants par PID, reconstruit à chaque regroupement pour remonter les arbres.</summary>
+    private readonly Dictionary<int, ProcessRowViewModel> _livePids = new();
+
+    /// <summary>Avec le séparateur final : sans lui, « C:\WindowsApps\x.exe » commence par « C:\Windows ».</summary>
+    private static readonly string WindowsDirectory =
+        Environment.GetFolderPath(Environment.SpecialFolder.Windows).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+        + System.IO.Path.DirectorySeparatorChar;
+
+    /// <summary>Profondeur maximale d'une remontée vers la racine. Un enfant démarre toujours après son
+    /// parent, donc une chaîne ne boucle pas ; la borne n'est là que pour qu'un relevé incohérent ne puisse
+    /// jamais figer l'interface.</summary>
+    private const int MaxGroupDepth = 32;
+
     private readonly List<ProcessRowViewModel> _ordered = new();
     private readonly ListCollectionView _rowsView;
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
@@ -1001,6 +1022,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         ApplyTraceState(snapshot);
 
         _seen.Clear();
+        _addedRows.Clear();
         foreach (ProcessInfo info in snapshot.Processes)
         {
             _seen.Add(info.Identity);
@@ -1016,6 +1038,7 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             // collection, et une ligne hors filtre ne doit jamais apparaître, même le temps d'un tour.
             row.MatchesFilter = PassesFilter(row);
             _byIdentity[info.Identity] = row;
+            _addedRows.Add(row);
 
             // Insérer à son rang décale vers le bas tout ce qui suit. Sous le curseur, la ligne visée se
             // déroberait donc au moment même du clic — c'est précisément le défaut que cet onglet corrige.
@@ -1026,6 +1049,17 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
         RemoveVanishedRows();
         RebuildAggregates();
+
+        // Une ligne qui vient d'apparaître ne connaissait pas encore son groupe quand son appartenance au
+        // filtre a été décidée : la voici corrigée avant que la vue ne l'affiche. Sans cela, chaque nouveau
+        // processus d'un groupe replié clignoterait un instant sous son parent. Cela ne concerne que les
+        // lignes créées à ce relevé, que personne n'a encore vues — les autres attendent que la liste ne soit
+        // plus visée.
+        foreach (ProcessRowViewModel added in _addedRows)
+        {
+            bool matches = PassesFilter(added);
+            if (added.MatchesFilter != matches) added.MatchesFilter = matches;
+        }
 
         CpuScaleFactor = snapshot.CpuScaleFactor;
         CpuScaleSource = snapshot.CpuScaleSource;
@@ -1122,16 +1156,18 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     private const int MinimumGroupSize = 2;
 
     /// <summary>
-    /// Refait le regroupement par application : quels processus partagent un exécutable et un compte, et
-    /// quels totaux afficher pour chacun. Appelé à chaque relevé, après que toutes les lignes ont reçu leurs
-    /// valeurs — les totaux n'auraient aucun sens calculés sur des mesures à moitié à jour.
+    /// Refait le regroupement par application : quels processus forment un même arbre, et quels totaux
+    /// afficher pour chacun. Appelé à chaque relevé, après que toutes les lignes ont reçu leurs valeurs — les
+    /// totaux n'auraient aucun sens calculés sur des mesures à moitié à jour.
     ///
-    /// Les lignes d'agrégat entrent et sortent de la collection comme les autres : jamais à leur rang quand
-    /// la liste est visée, pour ne pas décaler ce qui est sous le curseur.
+    /// Les lignes d'agrégat entrent et sortent de la collection comme les autres, mais au rang que donne le
+    /// classement courant : celui-ci suit chaque relevé, il n'y a pas de position d'attente.
     /// </summary>
     private void RebuildAggregates()
     {
         foreach (List<ProcessRowViewModel> members in _byGroupKey.Values) members.Clear();
+
+        AssignGroupKeys();
 
         foreach (ProcessRowViewModel row in Rows)
         {
@@ -1158,7 +1194,8 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             bool isNew = !_aggregates.TryGetValue(key, out ProcessRowViewModel? aggregate);
             if (isNew)
             {
-                aggregate = ProcessRowViewModel.CreateAggregate(this, key, members[0].Name);
+                string name = (members.FirstOrDefault(m => m.IsGroupRoot) ?? members[0]).Name;
+                aggregate = ProcessRowViewModel.CreateAggregate(this, key, name);
                 _aggregates[key] = aggregate;
             }
 
@@ -1194,6 +1231,71 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
         }
 
         RemoveUnusedAggregates();
+    }
+
+    /// <summary>Pose sur chaque processus vivant la clé de son groupe : l'identité de la racine de son arbre.
+    /// Le Gestionnaire des tâches regroupe ainsi une application avec tout ce qu'elle a lancé — Teams et ses
+    /// WebView2 — et non tous les processus qui partagent un exécutable : deux lancements de Chrome sont deux
+    /// applications, deux lignes.</summary>
+    private void AssignGroupKeys()
+    {
+        _livePids.Clear();
+        foreach (ProcessRowViewModel row in Rows)
+        {
+            // Un processus disparu n'est plus dans l'arbre : son PID peut déjà appartenir à un autre.
+            if (row.IsAggregate || row.IsGone) continue;
+            _livePids[row.Pid] = row;
+        }
+
+        foreach (ProcessRowViewModel row in _livePids.Values)
+        {
+            ProcessRowViewModel root = FindGroupRoot(row);
+            row.IsGroupRoot = ReferenceEquals(root, row);
+            row.GroupKey = string.Create(CultureInfo.InvariantCulture, $"{root.Pid}/{root.Identity.StartTimeUtc?.Ticks}");
+        }
+    }
+
+    private ProcessRowViewModel FindGroupRoot(ProcessRowViewModel row)
+    {
+        ProcessRowViewModel current = row;
+        for (int depth = 0; depth < MaxGroupDepth; depth++)
+        {
+            if (!_livePids.TryGetValue(current.ParentPid, out ProcessRowViewModel? parent)
+                || ReferenceEquals(parent, current)
+                || !CanJoinParent(current, parent))
+            {
+                break;
+            }
+
+            current = parent;
+        }
+
+        return current;
+    }
+
+    /// <summary>Un processus rejoint celui qui l'a lancé seulement si c'est bien son parent, et si ce parent
+    /// est une application plutôt qu'un lanceur. Sans ce dernier garde-fou, l'Explorateur — parent de tout ce
+    /// que l'utilisateur ouvre — ferait de tout le bureau un seul groupe.</summary>
+    private static bool CanJoinParent(ProcessRowViewModel child, ProcessRowViewModel parent)
+    {
+        // Windows réattribue les PID : un « parent » né après son « enfant » n'est pas son parent.
+        if (parent.Identity.StartTimeUtc is not { } parentStart
+            || child.Identity.StartTimeUtc is not { } childStart
+            || parentStart > childStart)
+        {
+            return false;
+        }
+
+        // Composants de Windows, shells et terminaux (explorer, services, cmd, conhost…), et processus
+        // protégés dont on ne sait rien : ils lancent des applications, ils n'en sont pas la racine.
+        if (!parent.IsAccessible
+            || parent.ExecutablePath is not { Length: > 0 } path
+            || path.StartsWith(WindowsDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.Equals(parent.UserName, child.UserName, StringComparison.Ordinal);
     }
 
     /// <summary>Retire les agrégats dont l'application ne tourne plus, ou qui sont retombés à un seul
