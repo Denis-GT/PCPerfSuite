@@ -33,6 +33,18 @@ public sealed partial class DiskItemViewModel : ObservableObject
     /// manque quand c'est le cas, plutôt que de laisser une ligne vide.</summary>
     [ObservableProperty] private string volumesDisplay = "";
 
+    /// <summary>Charge du disque (temps d'occupation), null quand Windows ne la fournit pas pour ce disque.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActivityDisplay), nameof(ActivityMeter))]
+    private double? activityPercent;
+
+    /// <summary>« N/D » et non « -- » : le disque est déjà lu, c'est donc ce PC qui ne fournit pas la valeur
+    /// (voir MetricReading.Unavailable) ; la vue l'explique en info-bulle.</summary>
+    public string ActivityDisplay => ActivityPercent is { } a ? $"{a:0}%" : "N/D";
+
+    /// <summary>Valeur de la barre : 0 quand la charge est absente, la barre reste alors vide.</summary>
+    public double ActivityMeter => ActivityPercent ?? 0;
+
     public string RemainingLifeDisplay => RemainingLifePercent is { } l ? $"{l:0}%" : "--";
     public string TestButtonLabel => IsTesting ? "Test en cours…" : "Tester l'état";
 
@@ -50,6 +62,7 @@ public sealed partial class DiskItemViewModel : ObservableObject
     {
         Name = s.Name;
         UsedPercent = s.UsedPercent ?? 0;
+        ActivityPercent = s.ActivityPercent;
         RemainingLifePercent = s.RemainingLifePercent;
         VolumesDisplay = BuildVolumesDisplay(s);
     }

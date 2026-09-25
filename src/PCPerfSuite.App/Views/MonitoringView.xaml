@@ -355,7 +355,11 @@
                                                 <ColumnDefinition Width="50"/>
                                                 <ColumnDefinition Width="130"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <StackPanel Grid.Column="0" Grid.RowSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock Text="&#xEDA2;" Style="{StaticResource Icon}" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
                                                            Margin="0,0,10,0" VerticalAlignment="Top"/>
                                                 <StackPanel>
@@ -377,6 +381,17 @@
                                                 <Run Text="Vie restante :"/>
                                                 <Run Text="{Binding RemainingLifeDisplay, Mode=OneWay}"/>
                                             </TextBlock>
+
+                                            <!-- Charge : temps d'occupation du disque (colonne « Activité » du Gestionnaire des
+                                                 tâches). Pas colorée non plus. « N/D » expliqué en info-bulle quand Windows ne
+                                                 la fournit pas pour ce disque. -->
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Charge" Style="{StaticResource Caption}"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                            <controls:MeterBar Grid.Row="1" Grid.Column="2" Value="{Binding ActivityMeter}"
+                                                               VerticalAlignment="Center" Margin="8,8,8,0"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding ActivityDisplay}" Style="{StaticResource Caption}"
+                                                       TextAlignment="Right" VerticalAlignment="Center" Margin="0,8,0,0"
+                                                       ToolTip="Temps d'occupation du disque. N/D : Windows ne publie pas cette valeur pour ce disque."/>
                                         </Grid>
 
                                         <!-- Santé (Windows Storage Management), visuellement distincte de l'occupation ci-dessus. -->

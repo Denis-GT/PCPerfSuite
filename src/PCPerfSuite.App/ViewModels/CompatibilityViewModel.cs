@@ -177,7 +177,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     /// de savoir laquelle des deux sources a manqué.</summary>
     private static CompatibilityRow DiskNamesRow(IReadOnlyList<DiskSnapshot> disks)
     {
-        const string title = "Noms et lettres des disques";
+        const string title = "Noms, lettres et charge des disques";
 
         int fromLibre = disks.Count(d => d.NameSource == DiskNameSource.LibreHardwareMonitor);
         int fromWindows = disks.Count(d => d.NameSource == DiskNameSource.WindowsWmi);
@@ -188,13 +188,15 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         {
             $"Nom de modèle : {fromLibre} lu(s) par le capteur, {fromWindows} par Windows (repli), {unnamed} introuvable(s).",
             $"Lettres de lecteur : {withLetters} disque(s) sur {disks.Count} en ont.",
+            $"Charge : {disks.Count(d => d.ActivityPercent is not null)} disque(s) sur {disks.Count} la fournissent.",
         };
         if (HardwareMonitorService.DiskVolumesError is { } error)
         {
             detail.Add($"Lecture des lettres impossible : {error}");
         }
 
-        bool ok = unnamed == 0 && HardwareMonitorService.DiskVolumesError is null;
+        bool ok = unnamed == 0 && HardwareMonitorService.DiskVolumesError is null
+                 && disks.All(d => d.ActivityPercent is not null);
         return new CompatibilityRow(title, ok ? "Lus" : "Incomplets", string.Join(" ", detail), ok);
     }
 

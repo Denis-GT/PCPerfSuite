@@ -673,6 +673,13 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     private static DiskSnapshot ReadDisk(IHardware hardware)
     {
         float? usedPercent = FindSensor(hardware, SensorType.Load, "Used Space")?.Value;
+
+        // « Total Activity » : temps d'occupation du disque, l'équivalent de la colonne « Activité » du Gestionnaire
+        // des tâches. LibreHardwareMonitor le tire des compteurs de performance de Windows, donc il ne dépend ni de
+        // la marque ni du type de disque. Borné : un compteur peut brièvement dépasser 100.
+        float? activity = FindSensor(hardware, SensorType.Load, "Total Activity")?.Value;
+        if (activity is { } busy) activity = Math.Clamp(busy, 0, 100);
+
         float? readRate = FindSensor(hardware, SensorType.Throughput, "Read Rate")?.Value;
         float? writeRate = FindSensor(hardware, SensorType.Throughput, "Write Rate")?.Value;
         float? temp = hardware.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature)?.Value;
@@ -705,6 +712,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Volumes = volumes,
             Identifier = hardware.Identifier.ToString(),
             UsedPercent = usedPercent,
+            ActivityPercent = activity,
             ReadRateBytesPerSecond = readRate,
             WriteRateBytesPerSecond = writeRate,
             TemperatureC = temp,
