@@ -35,11 +35,19 @@
                             <TextBlock Text="Espace récupérable estimé" Style="{StaticResource Caption}"/>
                             <TextBlock Text="{Binding TotalReclaimableDisplay}" Style="{StaticResource MetricValue}" FontSize="32"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Content="Ré-analyser" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
-                                    Command="{Binding ScanAllCommand}"/>
-                            <Button Content="Tout nettoyer" Style="{StaticResource AccentButton}"
-                                    Command="{Binding CleanAllCommand}"/>
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="Ré-analyser" Style="{StaticResource GhostButton}" Margin="0,0,10,0"
+                                        Command="{Binding ScanAllCommand}"/>
+                                <Button Content="Tout nettoyer" Style="{StaticResource AccentButton}"
+                                        Command="{Binding CleanAllCommand}"/>
+                            </StackPanel>
+                            <!-- L'option qui change ce que fait « Tout nettoyer » se trouve juste dessous. Case carrée
+                                 (style implicite), pas un interrupteur : c'est un choix qu'on coche, pas un réglage
+                                 qu'on bascule. -->
+                            <CheckBox Content="Vider aussi la corbeille" HorizontalAlignment="Right" Margin="0,10,0,0"
+                                      IsChecked="{Binding IncludeRecycleBinInCleanAll}"
+                                      ToolTip="Décochée, « Tout nettoyer » ne touche pas à la corbeille. Cochée, elle est vidée définitivement avec le reste."/>
                         </StackPanel>
                     </Grid>
                     <ProgressBar IsIndeterminate="True" Margin="0,16,0,0"
@@ -49,7 +57,7 @@
 
             <!-- Corbeille : même gabarit de ligne que les caches, mais à part — ce n'est pas un cache qui se
                  régénère, et son contenu ne se récupère pas une fois vidé. Sa taille n'entre dans le total
-                 que si « Tout nettoyer » la vide (interrupteur en bas de la carte). -->
+                 que si « Tout nettoyer » la vide (case à cocher sous ce bouton, dans la carte de synthèse). -->
             <TextBlock Text="Corbeille" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
             <Border Style="{StaticResource Card}" Padding="20,4" Margin="0,0,0,20" DataContext="{Binding RecycleBin}">
                 <StackPanel>
@@ -92,19 +100,6 @@
                                     Command="{Binding DataContext.EmptyRecycleBinCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                         </StackPanel>
                     </Grid>
-
-                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Vider aussi la corbeille avec « Tout nettoyer »" Style="{StaticResource Body}"
-                                       VerticalAlignment="Center"/>
-                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
-                                      IsChecked="{Binding DataContext.IncludeRecycleBinInCleanAll, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
-                        </Grid>
-                    </Border>
                 </StackPanel>
             </Border>
 
