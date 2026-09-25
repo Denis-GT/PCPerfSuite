@@ -125,17 +125,61 @@ public sealed class CacheCleanerService
         });
     }
 
-    public static void EmptyRecycleBin()
+    /// <summary>Vide toutes les corbeilles du système, sans confirmation ni fenêtre de progression.
+    /// Renvoie faux si Windows a refusé (best-effort : jamais d'exception). Une corbeille déjà vide fait
+    /// échouer l'appel avec S_FALSE, ce qui n'est pas une erreur : le résultat voulu est atteint.</summary>
+    public static bool EmptyRecycleBin()
     {
-        // SHEmptyRecycleBinW : vide toutes les corbeilles du système. Flags: no confirmation, no progress UI, no sound.
         const uint SHERB_NOCONFIRMATION = 0x00000001;
         const uint SHERB_NOPROGRESSUI = 0x00000002;
         const uint SHERB_NOSOUND = 0x00000004;
-        _ = SHEmptyRecycleBinW(IntPtr.Zero, null, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND);
+        const int S_OK = 0;
+        const int S_FALSE = 1;
+        // HRESULT renvoyé quand il n'y a rien à vider selon les versions de Windows.
+        const int E_UNEXPECTED = unchecked((int)0x8000FFFF);
+
+        try
+        {
+            int hr = SHEmptyRecycleBinW(IntPtr.Zero, null, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND);
+            return hr is S_OK or S_FALSE or E_UNEXPECTED;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Taille et nombre d'éléments de toutes les corbeilles du système, ou null si Windows ne
+    /// répond pas (best-effort : la corbeille est alors affichée « N/D » plutôt que 0 octet).</summary>
+    public static RecycleBinInfo? QueryRecycleBin()
+    {
+        try
+        {
+            var info = new SHQUERYRBINFO { cbSize = (uint)Marshal.SizeOf<SHQUERYRBINFO>() };
+            int hr = SHQueryRecycleBinW(null, ref info);
+            if (hr != 0) return null;
+
+            return new RecycleBinInfo(info.i64Size, info.i64NumItems);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct SHQUERYRBINFO
+    {
+        public uint cbSize;
+        public long i64Size;
+        public long i64NumItems;
     }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHEmptyRecycleBinW(IntPtr hwnd, string? pszRootPath, uint dwFlags);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHQueryRecycleBinW(string? pszRootPath, ref SHQUERYRBINFO pSHQueryRBInfo);
 
     private static long GetDirectorySize(string path, CancellationToken ct)
     {

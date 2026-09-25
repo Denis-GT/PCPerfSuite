@@ -38,6 +38,9 @@ public sealed class CacheCleanResult
     public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
 }
 
+/// <summary>Contenu de la corbeille de Windows (toutes les corbeilles, tous les lecteurs).</summary>
+public sealed record RecycleBinInfo(long SizeBytes, long ItemCount);
+
 /// <summary>Catalogue des caches/fichiers temporaires connus sur un PC Windows gaming.</summary>
 public static class KnownCaches
 {

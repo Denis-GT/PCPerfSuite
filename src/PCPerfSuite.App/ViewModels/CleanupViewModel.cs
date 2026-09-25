@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Cache;
+using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -56,11 +57,72 @@ public sealed partial class CacheItemViewModel : ObservableObject
     partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(SizeDisplay));
 }
 
+/// <summary>
+/// La corbeille de Windows, présentée comme une ligne du même gabarit que les caches mais à part : elle ne
+/// compte pas dans les parts des barres (ce n'est pas un cache qui se régénère), et sa taille n'entre dans le
+/// total « récupérable » que si l'utilisateur a demandé que « Tout nettoyer » la vide.
+/// </summary>
+public sealed partial class RecycleBinItemViewModel : ObservableObject
+{
+    [ObservableProperty] private long sizeBytes;
+    [ObservableProperty] private long itemCount;
+
+    /// <summary>Faux tant que Windows n'a pas répondu, ou s'il ne répond pas : la ligne affiche alors « N/D »
+    /// plutôt qu'un zéro qui ferait croire la corbeille vide.</summary>
+    [ObservableProperty] private bool isKnown;
+
+    [ObservableProperty] private bool isBusy;
+    [ObservableProperty] private string? lastResultMessage;
+    [ObservableProperty] private bool lastResultFailed;
+
+    public string Name => "Corbeille";
+
+    public string Description => !IsKnown
+        ? "Windows n'a pas communiqué le contenu de la corbeille."
+        : ItemCount switch
+        {
+            0 => "La corbeille est vide.",
+            1 => "1 élément, tous lecteurs confondus. Vidée définitivement : rien ne permet de le récupérer ensuite.",
+            _ => $"{ItemCount} éléments, tous lecteurs confondus. Vidée définitivement : rien ne permet de les récupérer ensuite.",
+        };
+
+    public string SizeDisplay => IsBusy && !IsKnown ? "Analyse…" : IsKnown ? ByteFormatter.Format(SizeBytes) : "N/D";
+
+    /// <summary>Le bouton n'a rien à faire d'une corbeille déjà vide, ni pendant une opération.</summary>
+    public bool CanEmpty => IsKnown && ItemCount > 0 && !IsBusy;
+
+    public void Apply(RecycleBinInfo? info)
+    {
+        IsKnown = info is not null;
+        SizeBytes = info?.SizeBytes ?? 0;
+        ItemCount = info?.ItemCount ?? 0;
+        Refresh();
+    }
+
+    partial void OnIsBusyChanged(bool value) => Refresh();
+
+    private void Refresh()
+    {
+        OnPropertyChanged(nameof(Description));
+        OnPropertyChanged(nameof(SizeDisplay));
+        OnPropertyChanged(nameof(CanEmpty));
+    }
+}
+
 public sealed partial class CleanupViewModel : ObservableObject
 {
     private readonly CacheCleanerService _service = new();
 
+    /// <summary>Faux pendant la restauration des réglages : la case cochée au démarrage ne doit pas provoquer
+    /// une réécriture du fichier.</summary>
+    private bool _initialized;
+
     public ObservableCollectionEx<CacheItemViewModel> Items { get; } = new();
+
+    public RecycleBinItemViewModel RecycleBin { get; } = new();
+
+    /// <summary>« Tout nettoyer » vide aussi la corbeille.</summary>
+    [ObservableProperty] private bool includeRecycleBinInCleanAll;
 
     [ObservableProperty] private bool isScanning;
     [ObservableProperty] private string totalReclaimableDisplay = "0 o";
@@ -77,7 +139,21 @@ public sealed partial class CleanupViewModel : ObservableObject
         {
             Items.Add(new CacheItemViewModel(category));
         }
+
+        IncludeRecycleBinInCleanAll = AppSettingsStore.Load().Cleanup.IncludeRecycleBinInCleanAll;
+        _initialized = true;
+
         _ = ScanAllAsync();
+    }
+
+    partial void OnIncludeRecycleBinInCleanAllChanged(bool value)
+    {
+        UpdateTotal();
+        if (!_initialized) return;
+
+        AppSettings settings = AppSettingsStore.Load();
+        settings.Cleanup.IncludeRecycleBinInCleanAll = value;
+        AppSettingsStore.Save(settings);
     }
 
     [RelayCommand]
@@ -86,6 +162,8 @@ public sealed partial class CleanupViewModel : ObservableObject
         IsScanning = true;
         try
         {
+            await ScanRecycleBinAsync();
+
             foreach (CacheItemViewModel item in Items)
             {
                 item.IsBusy = true;
@@ -98,6 +176,20 @@ public sealed partial class CleanupViewModel : ObservableObject
         finally
         {
             IsScanning = false;
+        }
+    }
+
+    private async Task ScanRecycleBinAsync()
+    {
+        RecycleBin.IsBusy = true;
+        try
+        {
+            RecycleBin.Apply(await Task.Run(CacheCleanerService.QueryRecycleBin));
+        }
+        finally
+        {
+            RecycleBin.IsBusy = false;
+            UpdateTotal();
         }
     }
 
@@ -135,6 +227,12 @@ public sealed partial class CleanupViewModel : ObservableObject
         {
             await CleanAsync(item);
         }
+
+        // Une corbeille vide n'a rien à libérer : inutile d'écrire « 0 o libérés » sur sa ligne.
+        if (IncludeRecycleBinInCleanAll && RecycleBin.CanEmpty)
+        {
+            await EmptyRecycleBinAsync();
+        }
     }
 
     [RelayCommand]
@@ -146,19 +244,41 @@ public sealed partial class CleanupViewModel : ObservableObject
         }
     }
 
+    /// <summary>Pas de CanExecute : la vue lie IsEnabled à <see cref="RecycleBinItemViewModel.CanEmpty"/>, qui
+    /// se met à jour tout seul, alors qu'un CanExecute demanderait de rappeler NotifyCanExecuteChanged à
+    /// chaque changement de la corbeille.</summary>
     [RelayCommand]
-    private void EmptyRecycleBin()
+    private async Task EmptyRecycleBinAsync()
     {
-        CacheCleanerService.EmptyRecycleBin();
+        long before = RecycleBin.SizeBytes;
+        RecycleBin.IsBusy = true;
+        try
+        {
+            bool done = await Task.Run(CacheCleanerService.EmptyRecycleBin);
+            RecycleBin.LastResultFailed = !done;
+            RecycleBin.LastResultMessage = done
+                ? $"{ByteFormatter.Format(before)} libérés."
+                : "Windows a refusé de vider la corbeille.";
+
+            RecycleBin.Apply(await Task.Run(CacheCleanerService.QueryRecycleBin));
+        }
+        finally
+        {
+            RecycleBin.IsBusy = false;
+            UpdateTotal();
+        }
     }
 
+    /// <summary>La somme des caches, plus la corbeille quand « Tout nettoyer » la vide : le chiffre annonce
+    /// ce que ce bouton va réellement libérer. Les parts des barres, elles, ne portent que sur les caches.</summary>
     private void UpdateTotal()
     {
-        long total = Items.Sum(i => i.SizeBytes);
+        long caches = Items.Sum(i => i.SizeBytes);
+        long total = caches + (IncludeRecycleBinInCleanAll ? RecycleBin.SizeBytes : 0);
         TotalReclaimableDisplay = ByteFormatter.Format(total);
         foreach (CacheItemViewModel item in Items)
         {
-            item.SharePercent = total > 0 ? 100.0 * item.SizeBytes / total : 0;
+            item.SharePercent = caches > 0 ? 100.0 * item.SizeBytes / caches : 0;
         }
     }
 }
