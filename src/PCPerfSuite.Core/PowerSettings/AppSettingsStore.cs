@@ -45,10 +45,21 @@ public sealed class AppSettings
     /// <summary>Comportement de la fenêtre principale de PCPerfSuite.</summary>
     public AppWindowSettings Window { get; set; } = new();
 
+    /// <summary>Réglages de l'onglet Nettoyage.</summary>
+    public CleanupSettings Cleanup { get; set; } = new();
+
     /// <summary>Valeur d'un réglage d'alimentation Windows telle qu'elle était avant que l'app n'y touche,
     /// clé = "guidSousGroupe/guidRéglage". Permet à « décocher » de rendre exactement ce qui était en place
     /// plutôt qu'une valeur par défaut supposée, qui n'est pas forcément celle de ce PC.</summary>
     public Dictionary<string, uint> OriginalPowerValues { get; set; } = new();
+}
+
+/// <summary>Réglages de l'onglet Nettoyage.</summary>
+public sealed class CleanupSettings
+{
+    /// <summary>« Tout nettoyer » vide aussi la corbeille. Désactivé par défaut : contrairement à un cache,
+    /// ce qu'on vide de la corbeille ne se régénère pas, et l'utilisateur doit l'avoir choisi.</summary>
+    public bool IncludeRecycleBinInCleanAll { get; set; }
 }
 
 /// <summary>

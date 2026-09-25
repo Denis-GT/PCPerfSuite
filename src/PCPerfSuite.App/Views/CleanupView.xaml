@@ -7,10 +7,7 @@
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
 
             <controls:PageHeader Title="Nettoyage"
-                                 Subtitle="Caches shaders, fichiers temporaires et autres dossiers qui s'accumulent sans qu'on y pense.">
-                <Button Content="Vider la corbeille" Style="{StaticResource GhostButton}"
-                        Command="{Binding EmptyRecycleBinCommand}"/>
-            </controls:PageHeader>
+                                 Subtitle="Caches shaders, fichiers temporaires et autres dossiers qui s'accumulent sans qu'on y pense."/>
 
             <!-- App lancée sous un autre compte que la session : les caches listés ne sont pas ceux
                  de la personne devant l'écran, et il vaut mieux le dire que d'afficher "0 octet". -->
@@ -47,6 +44,67 @@
                     </Grid>
                     <ProgressBar IsIndeterminate="True" Margin="0,16,0,0"
                                  Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Corbeille : même gabarit de ligne que les caches, mais à part — ce n'est pas un cache qui se
+                 régénère, et son contenu ne se récupère pas une fois vidé. Sa taille n'entre dans le total
+                 que si « Tout nettoyer » la vide (interrupteur en bas de la carte). -->
+            <TextBlock Text="Corbeille" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
+            <Border Style="{StaticResource Card}" Padding="20,4" Margin="0,0,0,20" DataContext="{Binding RecycleBin}">
+                <StackPanel>
+                    <Grid Margin="0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Width="38" Height="38" CornerRadius="10" VerticalAlignment="Top"
+                                Background="{StaticResource HoverBrush}">
+                            <TextBlock Text="&#xE74D;" Style="{StaticResource Icon}" Foreground="{StaticResource AccentBrush2}"
+                                       HorizontalAlignment="Center"/>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Margin="14,0,20,0">
+                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,3,0,0"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding LastResultMessage}" Margin="0,8,0,0"
+                                       Visibility="{Binding LastResultMessage, Converter={StaticResource NullToVisibility}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding LastResultFailed}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding SizeDisplay}" Style="{StaticResource H2}" FontSize="17" HorizontalAlignment="Right"/>
+                            <Button Content="Vider" Style="{StaticResource AccentButton}" Margin="0,8,0,0" HorizontalAlignment="Right"
+                                    IsEnabled="{Binding CanEmpty}"
+                                    Command="{Binding DataContext.EmptyRecycleBinCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Vider aussi la corbeille avec « Tout nettoyer »" Style="{StaticResource Body}"
+                                       VerticalAlignment="Center"/>
+                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                      IsChecked="{Binding DataContext.IncludeRecycleBinInCleanAll, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
