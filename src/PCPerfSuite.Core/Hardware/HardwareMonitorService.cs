@@ -693,9 +693,16 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             if (percentageUsed is { } used) remainingLife = Math.Clamp(100 - used, 0, 100);
         }
 
+        (string name, DiskNameSource nameSource) = ResolveDiskName(hardware);
+        IReadOnlyList<DiskVolume> volumes = DiskIndexOf(hardware) is { } diskIndex
+            ? DiskVolumeReader.ForDisk(diskIndex)
+            : Array.Empty<DiskVolume>();
+
         return new DiskSnapshot
         {
-            Name = ResolveDiskName(hardware),
+            Name = name,
+            NameSource = nameSource,
+            Volumes = volumes,
             Identifier = hardware.Identifier.ToString(),
             UsedPercent = usedPercent,
             ReadRateBytesPerSecond = readRate,
@@ -709,19 +716,55 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// NVMe/ponts dont l'IDENTIFY échoue alors que le reste (SMART, débit...) se lit sans problème :
     /// dans ce cas, on retombe sur Win32_DiskDrive, indexé par le même numéro de disque physique que
     /// LibreHardwareMonitor place en dernier segment de son identifiant ("/nvme/0", "/ssd/2"...).</summary>
-    private static string ResolveDiskName(IHardware hardware)
+    private static (string Name, DiskNameSource Source) ResolveDiskName(IHardware hardware)
     {
-        if (!string.IsNullOrWhiteSpace(hardware.Name)) return hardware.Name;
+        if (CleanDiskName(hardware.Name) is { } name) return (name, DiskNameSource.LibreHardwareMonitor);
 
-        string identifier = hardware.Identifier.ToString();
-        int lastSlash = identifier.LastIndexOf('/');
-        if (lastSlash >= 0 && int.TryParse(identifier[(lastSlash + 1)..], out int index)
-            && DiskModelReader.ModelsByIndex.TryGetValue(index, out string? model))
+        if (DiskIndexOf(hardware) is { } index
+            && DiskModelReader.ModelsByIndex.TryGetValue(index, out string? model)
+            && CleanDiskName(model) is { } wmiName)
         {
-            return model;
+            return (wmiName, DiskNameSource.WindowsWmi);
         }
 
-        return new DiskSnapshot().Name; // "Disque inconnu"
+        return (new DiskSnapshot().Name, DiskNameSource.Unknown); // "Disque inconnu"
+    }
+
+    /// <summary>Raison de l'échec de la dernière lecture WMI des lettres de lecteur, null si elle a réussi
+    /// (ou n'a pas encore eu lieu). Pour le diagnostic de compatibilité.</summary>
+    public static string? DiskVolumesError => DiskVolumeReader.LastError;
+
+    /// <summary>Numéro de disque physique : le dernier segment de l'identifiant LibreHardwareMonitor
+    /// ("/nvme/0" → 0), le même que \\.\PhysicalDriveN et Win32_DiskDrive.Index.</summary>
+    private static int? DiskIndexOf(IHardware hardware)
+    {
+        string identifier = hardware.Identifier.ToString();
+        int lastSlash = identifier.LastIndexOf('/');
+        return lastSlash >= 0 && int.TryParse(identifier[(lastSlash + 1)..], out int index) ? index : null;
+    }
+
+    /// <summary>Le nom lu par LibreHardwareMonitor n'est pas toujours vide quand il est inutilisable : sur
+    /// certains contrôleurs il arrive rempli de caractères nuls ou d'espaces insécables, invisibles à l'écran
+    /// mais qui passent un simple test « vide ou espaces » (char.IsWhiteSpace('\0') est faux). On retire donc
+    /// les caractères de contrôle et de mise en forme, et un nom sans aucune lettre ni chiffre est traité
+    /// comme absent pour que le repli WMI prenne le relais.</summary>
+    internal static string? CleanDiskName(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return null;
+
+        var clean = new System.Text.StringBuilder(raw.Length);
+        foreach (char c in raw)
+        {
+            if (char.IsControl(c)
+                || System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format)
+            {
+                continue;
+            }
+            clean.Append(c);
+        }
+
+        string name = clean.ToString().Trim();
+        return name.Any(char.IsLetterOrDigit) ? name : null;
     }
 
     private static void CollectFans(IHardware hardware, SensorGroup group, List<FanReading> into)

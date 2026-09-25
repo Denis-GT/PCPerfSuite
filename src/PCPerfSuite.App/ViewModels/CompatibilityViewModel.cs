@@ -161,9 +161,41 @@ public sealed partial class CompatibilityViewModel : ObservableObject
                 hasBoardTemps ? snapshot.Motherboard.Name : MetricCatalog.MotherboardHint, hasBoardTemps);
         }
 
+        if (snapshot is not null && snapshot.Disks.Count > 0)
+        {
+            yield return DiskNamesRow(snapshot.Disks);
+        }
+
         bool rtss = IsRtssRunning();
         yield return new CompatibilityRow("RTSS (FPS et overlay en plein écran)", rtss ? "Lancé" : "Non lancé",
             rtss ? "Les FPS sont lus pendant les jeux." : "Installer et lancer RivaTuner Statistics Server (gratuit, guru3d.com) pour les FPS.", rtss);
+    }
+
+    /// <summary>Noms de modèle et lettres des disques, et par qui ils sont fournis : certains contrôleurs NVMe
+    /// ne donnent pas leur nom à LibreHardwareMonitor, qui laisse alors un texte vide ou invisible — le repli
+    /// passe par Windows (WMI). Sans cette ligne, un signalement « mes disques n'ont pas de nom » ne permet pas
+    /// de savoir laquelle des deux sources a manqué.</summary>
+    private static CompatibilityRow DiskNamesRow(IReadOnlyList<DiskSnapshot> disks)
+    {
+        const string title = "Noms et lettres des disques";
+
+        int fromLibre = disks.Count(d => d.NameSource == DiskNameSource.LibreHardwareMonitor);
+        int fromWindows = disks.Count(d => d.NameSource == DiskNameSource.WindowsWmi);
+        int unnamed = disks.Count(d => d.NameSource == DiskNameSource.Unknown);
+        int withLetters = disks.Count(d => d.Volumes.Count > 0);
+
+        var detail = new List<string>
+        {
+            $"Nom de modèle : {fromLibre} lu(s) par le capteur, {fromWindows} par Windows (repli), {unnamed} introuvable(s).",
+            $"Lettres de lecteur : {withLetters} disque(s) sur {disks.Count} en ont.",
+        };
+        if (HardwareMonitorService.DiskVolumesError is { } error)
+        {
+            detail.Add($"Lecture des lettres impossible : {error}");
+        }
+
+        bool ok = unnamed == 0 && HardwareMonitorService.DiskVolumesError is null;
+        return new CompatibilityRow(title, ok ? "Lus" : "Incomplets", string.Join(" ", detail), ok);
     }
 
     /// <summary>Mémoire : ce qui est mesuré, ce qui est décrit, et surtout PAR QUI. Sans ce dernier point, un
