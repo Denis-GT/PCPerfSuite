@@ -16,16 +16,20 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   exacte du relevé visé et son ancienneté (glisser pour le déplacer, clic droit ou Échap pour
   l'enlever) : le repère reste accroché à *son* relevé pendant que la courbe défile, il ne désigne
   pas un endroit de l'écran.
-- **Processus** — un gestionnaire de tâches pensé pour rester *cliquable*. Le défaut de celui
-  de Windows, c'est que les lignes sautent dès qu'on trie par CPU : ici le classement suit une
-  moyenne lissée sur quelques secondes (la colonne, elle, montre bien la valeur instantanée), il
-  n'est recalculé qu'à intervalle lent, et il **se fige complètement dès que la souris entre dans
-  la liste** — la ligne visée ne se dérobe donc jamais sous le curseur. Recherche instantanée
-  (nom, PID, éditeur, chemin, titre de fenêtre, insensible aux accents), filtres Applications /
-  Arrière-plan / Windows, colonnes au choix, sélection multiple pour terminer plusieurs processus
-  d'un coup, mise en évidence des gros consommateurs, et un panneau de détail avec l'historique
-  CPU et mémoire du processus sélectionné. Les processus critiques pour Windows sont affichés mais
-  leur arrêt est refusé, avec l'explication.
+- **Processus** — un gestionnaire de tâches qui reprend les mesures du Gestionnaire des tâches
+  de Windows : mémoire en jeu de travail privé, %CPU sur environ une seconde et pondéré par la
+  fréquence réelle des cœurs, disque et réseau par processus (trace ETW du noyau, en
+  administrateur ; sans elle, « Disque » retombe sur le compteur d'E/S de Windows et « Réseau »
+  affiche N/D, avec la raison en infobulle). Les processus d'une même application sont regroupés
+  **par arbre de processus**, groupes repliés au départ, comme dans le Gestionnaire. Le
+  classement suit **chaque relevé**, sur les valeurs affichées, par déplacements de lignes : la
+  sélection et le défilement ne sont pas perdus (« Figer » arrête tout pour lire tranquillement).
+  Le fond des cellules CPU, Mémoire, Disque et Réseau est d'autant plus soutenu que la part du
+  total du PC est grande (échelle absolue). Recherche instantanée (nom, PID, éditeur, chemin, titre
+  de fenêtre, insensible aux accents), filtres Applications / Arrière-plan / Windows, colonnes au
+  choix, sélection multiple pour terminer plusieurs processus d'un coup, et un panneau de détail
+  avec l'historique CPU et mémoire du processus sélectionné. Les processus critiques pour Windows
+  sont affichés mais leur arrêt est refusé, avec l'explication.
 - **Nettoyage** — cache shaders NVIDIA/AMD/Intel, cache shaders DirectX (D3DSCache), cache
   Steam, fichiers temporaires (%TEMP% et système), Prefetch, cache Windows Update, rapports
   d'erreurs Windows, cache des miniatures, cache Delivery Optimization, + un bouton "Vider
