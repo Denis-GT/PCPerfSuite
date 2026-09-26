@@ -82,6 +82,37 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public ObservableCollection<FanCurvePoint> Points { get; }
 
+    /// <summary>Rang du point sélectionné dans l'éditeur, -1 si aucun. « Retirer le point » agit sur lui.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemovePointCommand))]
+    private int selectedPointIndex = -1;
+
+    public string PointCountText => $"{Points.Count} points (de {FanCurveMath.MinPoints} à {FanCurveMath.MaxPoints})";
+
+    private bool CanAddPoint() => FanCurveMath.TryCreatePoint(Points.ToList()) is not null;
+
+    private bool CanRemovePoint()
+        => FanCurveMath.CanRemovePoint(Points.Count) && SelectedPointIndex >= 0 && SelectedPointIndex < Points.Count;
+
+    /// <summary>Ajoute un point sans changer la forme de la courbe (au milieu du plus grand écart), puis le sélectionne
+    /// pour qu'on n'ait plus qu'à le déplacer. Pour le placer à un endroit précis : double-clic sur la courbe.</summary>
+    [RelayCommand(CanExecute = nameof(CanAddPoint))]
+    private void AddPoint()
+    {
+        if (FanCurveMath.TryCreatePoint(Points.ToList()) is not { } point) return;
+
+        SelectedPointIndex = FanCurveMath.InsertSorted(Points, point);
+        NotifyPointsEdited();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRemovePoint))]
+    private void RemovePoint()
+    {
+        Points.RemoveAt(SelectedPointIndex);
+        SelectedPointIndex = -1;
+        NotifyPointsEdited();
+    }
+
     /// <summary>Null tant qu'aucune vitesse n'a été lue pour ce ventilateur : affiché « -- », jamais « 0 RPM ».</summary>
     [ObservableProperty] private double? rpm;
 
@@ -134,7 +165,16 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             ? chosen
             : detectedCategory;
 
-        Points = new ObservableCollection<FanCurvePoint>(config.Points);
+        // Dans l'ordre des températures : les courbes d'avant l'insertion « à sa place » pouvaient avoir un point
+        // ajouté en fin de liste, et le rang du point sélectionné doit être son rang sur la courbe.
+        Points = new ObservableCollection<FanCurvePoint>(config.Points.OrderBy(p => p.TempC));
+        Points.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(PointCountText));
+            AddPointCommand.NotifyCanExecuteChanged();
+            RemovePointCommand.NotifyCanExecuteChanged();
+        };
+
         mode = config.Mode;
         manualPercent = config.ManualPercent;
         source = config.Source;

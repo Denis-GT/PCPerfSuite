@@ -91,7 +91,50 @@ public static class FanCurveMath
     public const float MinTempGap = 2;
 
     public const int MinPoints = 2;
-    public const int MaxPoints = 12;
+
+    /// <summary>Au-delà, les étiquettes de température se chevauchent dans une carte en demi-largeur.</summary>
+    public const int MaxPoints = 16;
+
+    public static bool CanRemovePoint(int count) => count > MinPoints;
+
+    /// <summary>
+    /// Un nouveau point qui ne change pas la forme de la courbe : au milieu du plus grand écart de température entre
+    /// deux points voisins (ou entre un bout de la plage et le point le plus proche, où la courbe est plate), à la
+    /// hauteur que la courbe y a déjà. Null quand la courbe a atteint <see cref="MaxPoints"/> ou qu'aucun écart ne
+    /// laisse la place d'un point à au moins <see cref="MinTempGap"/> de ses voisins.
+    /// </summary>
+    public static FanCurvePoint? TryCreatePoint(IReadOnlyList<FanCurvePoint> points)
+    {
+        if (points.Count >= MaxPoints || points.Count == 0) return null;
+
+        List<FanCurvePoint> sorted = points.OrderBy(p => p.TempC).ToList();
+
+        // Les intervalles entre voisins, bornes de la plage comprises, du plus large au plus étroit.
+        var gaps = new List<(float From, float To)> { (MinTempC, sorted[0].TempC) };
+        for (int i = 0; i < sorted.Count - 1; i++) gaps.Add((sorted[i].TempC, sorted[i + 1].TempC));
+        gaps.Add((sorted[^1].TempC, MaxTempC));
+
+        foreach ((float from, float to) in gaps.OrderByDescending(g => g.To - g.From))
+        {
+            // Température entière, comme celles que pose l'éditeur : l'arrondi ne doit pas rapprocher le point d'un voisin.
+            float temp = MathF.Round((from + to) / 2);
+            if (temp - from < MinTempGap || to - temp < MinTempGap) continue;
+
+            return new FanCurvePoint { TempC = temp, Percent = MathF.Round(Evaluate(sorted, temp)) };
+        }
+
+        return null;
+    }
+
+    /// <summary>Insère un point à sa place dans l'ordre des températures et renvoie son rang.</summary>
+    public static int InsertSorted(IList<FanCurvePoint> points, FanCurvePoint point)
+    {
+        int index = 0;
+        while (index < points.Count && points[index].TempC <= point.TempC) index++;
+
+        points.Insert(index, point);
+        return index;
+    }
 
     public static float Evaluate(IReadOnlyList<FanCurvePoint> points, float tempC)
     {
