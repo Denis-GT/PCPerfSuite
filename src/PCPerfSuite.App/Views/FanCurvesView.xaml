@@ -43,14 +43,69 @@
                         </StackPanel>
                     </Grid>
 
-                    <Border Style="{StaticResource SegmentedGroup}" Margin="0,14,0,0" HorizontalAlignment="Left">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton Content="Auto" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
-                                         IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Auto}"/>
-                            <RadioButton Content="Manuel" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
-                                         IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Manual}"/>
-                            <RadioButton Content="Courbe" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
-                                         IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Curve}"/>
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{StaticResource SegmentedGroup}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Content="Auto" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Auto}"/>
+                                <RadioButton Content="Manuel" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Manual}"/>
+                                <RadioButton Content="Courbe" Style="{StaticResource SegmentItem}" GroupName="{Binding FanId}"
+                                             IsChecked="{Binding Mode, Converter={StaticResource EnumEquals}, ConverterParameter=Curve}"/>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="{Binding LocateLabel}" Style="{StaticResource GhostButton}" Command="{Binding LocateCommand}"
+                                    Margin="0,0,6,0" IsEnabled="{Binding IsLocating, Converter={StaticResource InverseBoolean}}"
+                                    Visibility="{Binding CanLocate, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="Fait tourner ce ventilateur à 100 % pendant 5 secondes pour le retrouver dans le boîtier, puis le rend à son mode."/>
+                            <Button Content="&#xE70F;" Style="{StaticResource IconButton}" Command="{Binding ToggleIdentityEditingCommand}"
+                                    ToolTip="Renommer ce ventilateur ou changer sa catégorie"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Nom et catégorie : ce que la carte mère ne dit pas, l'utilisateur le sait (« mes 4 ventilateurs de façade »). -->
+                    <Border Style="{StaticResource InsetTile}" Margin="0,12,0,0"
+                            Visibility="{Binding IsEditingIdentity, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Nom" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <TextBox Grid.Column="1" Style="{StaticResource GlassTextBox}" Text="{Binding CustomName, UpdateSourceTrigger=PropertyChanged}"
+                                         MaxLength="40"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Caption}" Margin="72,4,0,0">
+                                <Run Text="Vide : garde le nom détecté, « "/><Run Text="{Binding DetectedName, Mode=OneWay}"/><Run Text=" »."/>
+                            </TextBlock>
+                            <Grid Margin="0,10,0,0" IsEnabled="{Binding CanChangeCategory}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Catégorie" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                <!-- ItemTemplate et non DisplayMemberPath : le gabarit de liste du thème n'applique pas ce dernier
+                                     à l'élément affiché, et la liste montrerait le nom du type au lieu du titre. -->
+                                <ComboBox Grid.Column="1" HorizontalAlignment="Left" MinWidth="180"
+                                          ItemsSource="{Binding CategoryChoices}" SelectedValuePath="Category"
+                                          SelectedValue="{Binding Category}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Title}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </Grid>
+                            <Button Content="Revenir à la détection" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                                    Margin="0,10,0,0" Command="{Binding ResetIdentityCommand}"
+                                    Visibility="{Binding HasCustomIdentity, Converter={StaticResource BoolToVisibility}}"/>
                         </StackPanel>
                     </Border>
 

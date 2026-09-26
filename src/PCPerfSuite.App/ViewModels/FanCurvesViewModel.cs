@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
@@ -21,21 +22,50 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     private readonly Action _persist;
     private readonly Action<FanControlItemViewModel> _copyToAll;
     private readonly Action<FanControlItemViewModel> _autoRestored;
+    private readonly Action<FanControlItemViewModel> _identityChanged;
 
     /// <summary>Dernière consigne effectivement envoyée au ventilateur, pour ne pas la repousser
     /// identique à chaque relevé. Null : rien n'est posé, le ventilateur est au firmware.</summary>
     private float? _lastSentPercent;
 
+    /// <summary>Identifiant stable du ventilateur (voir <see cref="FanIdentityOverride.FanId"/>) : ce à quoi se rattachent
+    /// sa courbe, son nom et sa catégorie enregistrés.</summary>
     public string FanId { get; }
-    public string DisplayName { get; }
+
+    /// <summary>Nom trouvé par la détection (« CPU Fan », « Ventilateur 6 »), avant toute correction de l'utilisateur.</summary>
+    public string DetectedName { get; }
+
+    /// <summary>Catégorie trouvée par la détection, avant toute correction de l'utilisateur.</summary>
+    public FanCategory DetectedCategory { get; }
 
     /// <summary>D'où vient ce ventilateur : le nom lu et la puce qui le porte (« Nom lu : CPU Fan · Nuvoton NCT6798D »),
     /// ou le canal quand la carte mère n'a donné aucun nom. C'est ce qui permet de retrouver le ventilateur dans un
     /// signalement, ou dans le BIOS.</summary>
     public string Subtitle { get; }
 
-    /// <summary>Ce que refroidit ce ventilateur (voir <see cref="FanIdentification"/>).</summary>
-    public FanCategory Category { get; }
+    /// <summary>Nom choisi par l'utilisateur, vide pour garder le nom détecté.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName), nameof(HasCustomIdentity))]
+    private string customName;
+
+    /// <summary>Ce que refroidit ce ventilateur : la catégorie détectée (voir <see cref="FanIdentification"/>), ou celle
+    /// que l'utilisateur a choisie.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity))]
+    private FanCategory category;
+
+    /// <summary>Le panneau de correction du nom et de la catégorie est ouvert.</summary>
+    [ObservableProperty] private bool isEditingIdentity;
+
+    public string DisplayName => string.IsNullOrWhiteSpace(CustomName) ? DetectedName : CustomName.Trim();
+
+    /// <summary>Le nom ou la catégorie ont été corrigés à la main.</summary>
+    public bool HasCustomIdentity => !string.IsNullOrWhiteSpace(CustomName) || Category != DetectedCategory;
+
+    /// <summary>Le cooler d'une carte graphique est un cooler de carte graphique : on peut le renommer, pas le ranger ailleurs.</summary>
+    public bool CanChangeCategory => !FanId.StartsWith(GpuControlService.FanIdPrefix, StringComparison.Ordinal);
+
+    public IReadOnlyList<FanCategoryChoice> CategoryChoices => FanCategoryChoice.All;
 
     public bool IsPump => Category == FanCategory.Pump;
 
@@ -70,26 +100,39 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     [ObservableProperty] private bool stopWhenCool;
     [ObservableProperty] private double stopBelowTempC;
 
+    /// <param name="identity">Nom et catégorie déjà corrigés par l'utilisateur, null si rien n'a été touché.</param>
+    /// <param name="identityChanged">Appelé quand l'utilisateur corrige le nom ou la catégorie : à enregistrer, et à ranger.</param>
     public FanControlItemViewModel(
         FanCurveConfig config,
-        string displayName,
+        string detectedName,
         string subtitle,
-        FanCategory category,
+        FanCategory detectedCategory,
+        FanIdentityOverride? identity,
         IFanController controller,
         Action persist,
         Action<FanControlItemViewModel> copyToAll,
-        Action<FanControlItemViewModel> autoRestored)
+        Action<FanControlItemViewModel> autoRestored,
+        Action<FanControlItemViewModel> identityChanged)
     {
         _config = config;
         _controller = controller;
         _persist = persist;
         _copyToAll = copyToAll;
         _autoRestored = autoRestored;
+        _identityChanged = identityChanged;
 
         FanId = config.ControlSensorId;
-        DisplayName = displayName;
+        DetectedName = detectedName;
+        DetectedCategory = detectedCategory;
         Subtitle = subtitle;
-        Category = category;
+
+        customName = identity?.Name?.Trim() ?? "";
+
+        // Une clé inconnue (fichier édité à la main, version ultérieure) garde la catégorie détectée. Le cooler d'une
+        // carte graphique n'en change jamais, même si le fichier le prétend.
+        category = CanChangeCategory && FanCategoryInfo.TryParseKey(identity?.Category, out FanCategory chosen)
+            ? chosen
+            : detectedCategory;
 
         Points = new ObservableCollection<FanCurvePoint>(config.Points);
         mode = config.Mode;
@@ -101,13 +144,37 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         stopWhenCool = config.StopBelowTempC is not null;
         stopBelowTempC = config.StopBelowTempC ?? 40;
 
-        // Une pompe qui avait reçu un arrêt à froid quand elle n'était pas reconnue (« Ventilateur 6 ») ne s'arrête
-        // plus : le réglage ne se voit plus, il ne doit donc pas continuer à agir.
-        if (IsPump && config.StopBelowTempC is not null)
-        {
-            config.StopBelowTempC = null;
-            stopWhenCool = false;
-        }
+        EnforcePumpRules();
+    }
+
+    /// <summary>Une pompe ne s'arrête jamais. Un arrêt à froid réglé avant qu'elle soit reconnue comme telle (quand
+    /// c'était encore « Ventilateur 6 »), ou avant que l'utilisateur la range en pompe, ne doit plus agir : le réglage
+    /// n'est plus proposé à l'écran, il ne doit pas continuer à s'appliquer sans qu'on puisse le voir.</summary>
+    private void EnforcePumpRules()
+    {
+        if (!IsPump || !StopWhenCool) return;
+
+        // Passe par la propriété : elle efface le seuil de la configuration, remet le régulateur à zéro et enregistre.
+        StopWhenCool = false;
+    }
+
+    partial void OnCustomNameChanged(string value) => _identityChanged(this);
+
+    partial void OnCategoryChanged(FanCategory value)
+    {
+        EnforcePumpRules();
+        _identityChanged(this);
+    }
+
+    [RelayCommand]
+    private void ToggleIdentityEditing() => IsEditingIdentity = !IsEditingIdentity;
+
+    /// <summary>Revient au nom et à la catégorie détectés.</summary>
+    [RelayCommand]
+    private void ResetIdentity()
+    {
+        CustomName = "";
+        Category = DetectedCategory;
     }
 
     /// <summary>Une pompe ne descend jamais sous cette vitesse en mode Manuel ou Courbe. Beaucoup de pompes calent
@@ -119,10 +186,75 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// protection du VBIOS qui joue ce rôle.</summary>
     private const float GpuCriticalTempC = 88f;
 
+    /// <summary>Durée pendant laquelle « Repérer » fait tourner un ventilateur à fond.</summary>
+    public static readonly TimeSpan LocateDuration = TimeSpan.FromSeconds(5);
+
+    private DispatcherTimer? _locateTimer;
+
+    /// <summary>Le ventilateur tourne à 100 % pour qu'on le retrouve : la régulation est suspendue.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LocateLabel))]
+    private bool isLocating;
+
+    public string LocateLabel => IsLocating ? "Repérage…" : "Repérer";
+
+    /// <summary>Jamais sur un portable : le contrôleur embarqué n'est pas écrit par l'app (règle de compatibilité 5). Un
+    /// cooler de carte graphique d'un portable passe par le pilote graphique, mais le repérage n'y est pas proposé non
+    /// plus : il n'a d'intérêt que pour retrouver un ventilateur dans un boîtier de PC de bureau.</summary>
+    public bool CanLocate => !MachineInfo.Current.IsLaptop;
+
+    /// <summary>Fait tourner ce ventilateur à 100 % pendant <see cref="LocateDuration"/> pour le retrouver dans le
+    /// boîtier — ou, sur un hub, voir quels ventilateurs suivent ce connecteur — puis le rend à son mode. Sans danger,
+    /// pompe comprise : c'est la vitesse maximale, jamais un arrêt.</summary>
+    [RelayCommand]
+    private void Locate()
+    {
+        if (IsLocating || !CanLocate) return;
+        if (!_controller.TrySetPercent(FanId, 100)) return;
+
+        IsLocating = true;
+        TargetPercent = 100;
+        _lastSentPercent = null;
+
+        _locateTimer = new DispatcherTimer { Interval = LocateDuration };
+        _locateTimer.Tick += (_, _) => EndLocate();
+        _locateTimer.Start();
+    }
+
+    /// <summary>Fin du repérage. Il a pris la main sur le ventilateur quel que soit son mode : on le rend au firmware, et
+    /// le relevé suivant repose la consigne du mode (Manuel, Courbe) s'il y en a une. Rendre la main plutôt que de
+    /// « reposer l'ancienne valeur » : en mode Courbe sans température lue, il n'y a pas d'ancienne valeur, et le
+    /// ventilateur serait resté à 100 %.</summary>
+    private void EndLocate()
+    {
+        if (!IsLocating) return;
+
+        CancelLocate();
+        _controller.TrySetAuto(FanId);
+        _autoRestored(this);
+        _lastSentPercent = null;
+        TargetPercent = null;
+    }
+
+    /// <summary>Arrête le minuteur sans toucher au ventilateur : l'appelant s'en charge.</summary>
+    private void CancelLocate()
+    {
+        _locateTimer?.Stop();
+        _locateTimer = null;
+        IsLocating = false;
+    }
+
     /// <summary>Applique le mode courant au ventilateur pour ce relevé.</summary>
     public void Apply(float? tempC)
     {
         SourceTempC = tempC;
+
+        // Pendant le repérage, la régulation est suspendue : elle repartirait sur la consigne du mode avant la fin.
+        if (IsLocating)
+        {
+            TargetPercent = 100;
+            return;
+        }
 
         float? target = Mode switch
         {
@@ -159,7 +291,11 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public void RestoreAuto()
     {
-        if (Mode == FanControlMode.Auto) return;
+        // Un repérage en cours a posé 100 % même sur un ventilateur en Auto : il faut le rendre aussi.
+        bool wasLocating = IsLocating;
+        CancelLocate();
+
+        if (Mode == FanControlMode.Auto && !wasLocating) return;
         _controller.TrySetAuto(FanId);
         _lastSentPercent = null;
     }
@@ -184,6 +320,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     partial void OnModeChanged(FanControlMode value)
     {
+        // Choisir un mode reprend la main sur le repérage ; la suite (Auto rend le ventilateur, les autres modes
+        // reposent leur consigne) fait le reste.
+        CancelLocate();
+
         _config.Mode = value;
         if (value == FanControlMode.Auto)
         {
@@ -271,6 +411,16 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     }
 }
 
+/// <summary>Une catégorie proposée dans la liste déroulante du panneau de correction.</summary>
+public sealed record FanCategoryChoice(FanCategory Category, string Title)
+{
+    /// <summary>Ordre d'affichage des sections de l'onglet, repris par la liste déroulante.</summary>
+    public static readonly IReadOnlyList<FanCategoryChoice> All = new[]
+    {
+        FanCategory.Cpu, FanCategory.Pump, FanCategory.Gpu, FanCategory.Case, FanCategory.Other, FanCategory.Unidentified,
+    }.Select(category => new FanCategoryChoice(category, FanCategoryInfo.Title(category))).ToList();
+}
+
 /// <summary>
 /// Pilotage des ventilateurs (onglet "Ventilateurs") : tous les ventilateurs pilotables au même
 /// endroit — ceux de la carte mère via LibreHardwareMonitor et ceux du GPU via NVAPI — avec pour
@@ -305,10 +455,10 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     /// ventilateur détecté.</summary>
     public ObservableCollectionEx<FanGroupViewModel> Groups { get; } = new();
 
-    private static readonly FanCategory[] CategoryOrder =
-    {
-        FanCategory.Cpu, FanCategory.Pump, FanCategory.Gpu, FanCategory.Case, FanCategory.Other, FanCategory.Unidentified,
-    };
+    private const string UnidentifiedNote =
+        "La carte mère ne donne pas le nom de ces connecteurs, et PCPerfSuite ne peut pas deviner ce qui y est branché. " +
+        "« Repérer » fait tourner un ventilateur à fond pendant 5 s pour le retrouver dans le boîtier ; le crayon permet " +
+        "ensuite de le nommer et de le ranger (pompe, boîtier…).";
 
     private readonly Dictionary<FanCategory, FanGroupViewModel> _groups = new();
 
@@ -418,14 +568,15 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
         var wanted = new List<FanGroupViewModel>();
 
-        foreach (FanCategory category in CategoryOrder)
+        foreach (FanCategory category in FanCategoryChoice.All.Select(choice => choice.Category))
         {
             List<FanControlItemViewModel> members = Fans.Where(f => f.Category == category && !f.IsEmptyHeader).ToList();
             if (members.Count == 0) continue;
 
             if (!_groups.TryGetValue(category, out FanGroupViewModel? group))
             {
-                group = _groups[category] = new FanGroupViewModel(FanCategoryInfo.Title(category));
+                group = _groups[category] = new FanGroupViewModel(
+                    FanCategoryInfo.Title(category), category == FanCategory.Unidentified ? UnidentifiedNote : null);
             }
 
             group.Fans.SyncTo(members);
@@ -464,7 +615,8 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
             FanCurveConfig config = ConfigFor(id, DefaultSourceFor(fan.Category), ref added);
             Fans.Add(new FanControlItemViewModel(
-                config, fan.Label, DescribeSource(fan), fan.Category, _hardware, Persist, CopyCurveToAll, OnFanRestoredToAuto));
+                config, fan.Label, DescribeSource(fan), fan.Category, IdentityFor(id), _hardware,
+                Persist, CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
         }
 
         foreach (int coolerId in coolerIds)
@@ -476,7 +628,8 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
             string label = _gpuLabels.GetValueOrDefault(coolerId, "GPU");
             string subtitle = _gpuName is { Length: > 0 } gpuName ? $"{gpuName} · cooler {coolerId}" : $"Cooler {coolerId}";
             Fans.Add(new FanControlItemViewModel(
-                config, label, subtitle, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll, OnFanRestoredToAuto));
+                config, label, subtitle, FanCategory.Gpu, IdentityFor(id), _gpu,
+                Persist, CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
         }
 
         if (added) Persist();
@@ -547,6 +700,37 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         return _gpuCoolerIds;
     }
 
+    private FanIdentityOverride? IdentityFor(string fanId) => _settings.FanIdentities.FirstOrDefault(i => i.FanId == fanId);
+
+    /// <summary>L'utilisateur a corrigé le nom ou la catégorie d'un ventilateur : on l'enregistre (ou on efface l'entrée
+    /// quand il revient à ce que la détection avait trouvé), puis on le range dans sa nouvelle section sans attendre
+    /// le relevé suivant.</summary>
+    private void OnFanIdentityChanged(FanControlItemViewModel item)
+    {
+        string? name = string.IsNullOrWhiteSpace(item.CustomName) ? null : item.CustomName.Trim();
+        string? category = item.Category != item.DetectedCategory ? FanCategoryInfo.Key(item.Category) : null;
+
+        FanIdentityOverride? record = IdentityFor(item.FanId);
+        if (name is null && category is null)
+        {
+            if (record is not null) _settings.FanIdentities.Remove(record);
+        }
+        else
+        {
+            if (record is null)
+            {
+                record = new FanIdentityOverride { FanId = item.FanId };
+                _settings.FanIdentities.Add(record);
+            }
+
+            record.Name = name;
+            record.Category = category;
+        }
+
+        Persist();
+        RebuildGroups();
+    }
+
     /// <summary>Le pilote graphique rend TOUS les coolers d'un coup (NVAPI RestoreCoolerSettingsToDefault, IGCL
     /// ctlFanSetDefaultMode sur chaque ventilateur) : repasser un cooler en Auto libère aussi ceux qui étaient en
     /// Manuel ou en Courbe. Les autres oublient leur dernière consigne pour que le prochain relevé la renvoie ;
@@ -593,6 +777,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         AppSettings settings = AppSettingsStore.Load();
         settings.FanCurves = _settings.FanCurves;
+        settings.FanIdentities = _settings.FanIdentities;
         AppSettingsStore.Save(settings);
     }
 

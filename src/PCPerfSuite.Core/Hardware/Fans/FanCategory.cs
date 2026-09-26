@@ -34,4 +34,33 @@ public static class FanCategoryInfo
         FanCategory.Other => "Autres",
         _ => "Non identifiés",
     };
+
+    /// <summary>Clé enregistrée dans settings.json. Une chaîne plutôt que le nombre de l'énumération : insérer une
+    /// catégorie au milieu ne doit pas réinterpréter en silence les réglages déjà écrits (voir ProcessesSettings).</summary>
+    public static string Key(FanCategory category) => category switch
+    {
+        FanCategory.Cpu => "cpu",
+        FanCategory.Gpu => "gpu",
+        FanCategory.Pump => "pump",
+        FanCategory.Case => "case",
+        FanCategory.Other => "other",
+        _ => "unidentified",
+    };
+
+    /// <summary>Faux pour une clé inconnue (réglage d'une version ultérieure, fichier édité à la main) : l'appelant
+    /// garde alors la catégorie détectée.</summary>
+    public static bool TryParseKey(string? key, out FanCategory category)
+    {
+        foreach (FanCategory candidate in Enum.GetValues<FanCategory>())
+        {
+            if (string.Equals(Key(candidate), key, StringComparison.OrdinalIgnoreCase))
+            {
+                category = candidate;
+                return true;
+            }
+        }
+
+        category = FanCategory.Unidentified;
+        return false;
+    }
 }
