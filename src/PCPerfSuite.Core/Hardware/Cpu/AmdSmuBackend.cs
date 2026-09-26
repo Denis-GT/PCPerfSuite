@@ -44,7 +44,6 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     private const string PciMutexName = @"Global\Access_PCI";
 
     private const float MinAllowedWatts = 5f;
-    private const float MaxFactoryMultiplier = 1.5f;
 
     /// <summary>Boîte aux lettres MP1 des APU : registre de commande, de réponse et d'arguments.</summary>
     private readonly record struct Mailbox(uint Command, uint Response, uint Arguments);
@@ -61,6 +60,7 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     private readonly float _defaultBurstWatts;
     private readonly float _minWatts;
     private readonly float _maxWatts;
+    private readonly CpuMaxWattsInfo _maxWattsInfo;
 
     public string Description { get; }
 
@@ -68,7 +68,7 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
 
     private AmdSmuBackend(
         PawnIoModule smu, AmdCodeName codeName, bool isApu, Mailbox mp1,
-        float defaultSustained, float defaultBurst, float minWatts, float maxWatts)
+        float defaultSustained, float defaultBurst, float minWatts, CpuMaxWattsInfo maxWatts)
     {
         _smu = smu;
         _codeName = codeName;
@@ -77,7 +77,8 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
         _defaultSustainedWatts = defaultSustained;
         _defaultBurstWatts = defaultBurst;
         _minWatts = minWatts;
-        _maxWatts = maxWatts;
+        _maxWatts = maxWatts.Watts;
+        _maxWattsInfo = maxWatts;
 
         Description = isApu
             ? $"AMD {codeName} — limites de puissance par la boîte aux lettres MP1 du SMU."
@@ -112,7 +113,9 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
             ? Mp1RenoirFamily
             : Mp1RembrandtFamily;
 
-        var backend = new AmdSmuBackend(smu, codeName, isApu, mp1, 0, 0, MinAllowedWatts, 100);
+        // Instance de sondage : seule la lecture de la table SMU lui sert, ses bornes sont remplacées juste après.
+        var backend = new AmdSmuBackend(
+            smu, codeName, isApu, mp1, 0, 0, MinAllowedWatts, CpuMaxWattsResolver.ForAmd(0, 0, MinAllowedWatts));
 
         // Les valeurs d'usine viennent de la table SMU : sans elle, on ne saurait ni quoi afficher, ni à
         // quoi revenir, et on refuse alors d'écrire quoi que ce soit.
@@ -124,7 +127,9 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
             return new UnsupportedCpuBackend(reason);
         }
 
-        float maxWatts = Math.Max(MinAllowedWatts + 1f, Math.Max(values.sustained, values.burst) * MaxFactoryMultiplier);
+        // Aucune voie documentée ne donne la puissance maximale d'un processeur AMD : la limite lue, x 1,5, et
+        // l'interface le dit (CpuMaxWattsResolver.ForAmd).
+        CpuMaxWattsInfo maxWatts = CpuMaxWattsResolver.ForAmd(values.sustained, values.burst, MinAllowedWatts);
 
         return new AmdSmuBackend(
             smu, codeName, isApu, mp1, values.sustained, values.burst, MinAllowedWatts, maxWatts);
@@ -142,6 +147,7 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
             DefaultBurstWatts = _defaultBurstWatts,
             MinWatts = _minWatts,
             MaxWatts = _maxWatts,
+            MaxWattsInfo = _maxWattsInfo,
         };
     }
 
