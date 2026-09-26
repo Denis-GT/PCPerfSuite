@@ -201,6 +201,9 @@ public sealed class OverlaySettings
     /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
     public bool OneLinePerMetric { get; set; }
 
+    /// <summary>Sur la ligne MEM (mémoire du GPU + RAM), fait précéder chaque groupe de « VRAM » / « RAM ».</summary>
+    public bool MemorySubLabels { get; set; } = true;
+
     /// <summary>Cadence de rafraîchissement de l'overlay, en millisecondes. Plancher : la cadence du
     /// monitoring, qui est la source des valeurs.</summary>
     public int RefreshMs { get; set; } = 1000;

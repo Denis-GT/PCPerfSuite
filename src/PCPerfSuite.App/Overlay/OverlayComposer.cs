@@ -9,14 +9,18 @@ namespace PCPerfSuite.App.Overlay;
 /// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
 public sealed partial class OverlayCell : ObservableObject
 {
-    public OverlayCell(MetricDefinition metric, int column)
+    public OverlayCell(MetricDefinition metric, int column, string? prefix = null)
     {
         Metric = metric;
+        Prefix = prefix;
         ValueGroup = $"value{column}";
         UnitGroup = $"unit{column}";
     }
 
     public MetricDefinition Metric { get; }
+
+    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM) ; null pour la plupart des cellules.</summary>
+    public string? Prefix { get; }
 
     /// <summary>Noms des colonnes partagées d'une ligne à l'autre (voir StickyWidth).</summary>
     public string ValueGroup { get; }
@@ -68,10 +72,14 @@ public sealed class OverlayColorScheme
 /// </summary>
 public static class OverlayComposer
 {
+    /// <summary>Libellé de la ligne qui regroupe la mémoire du GPU et la RAM.</summary>
+    private const string MemoryLabel = "MEM";
+
     public static List<OverlayLine> Build(
         IReadOnlyList<MetricDefinition> metrics,
         bool oneLinePerMetric,
-        OverlayColorScheme colors)
+        OverlayColorScheme colors,
+        bool memorySubLabels = true)
     {
         if (oneLinePerMetric)
         {
@@ -86,17 +94,60 @@ public static class OverlayComposer
                 .ToList();
         }
 
-        // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W".
+        // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W". La mémoire du GPU quitte la
+        // ligne GPU pour rejoindre la RAM sur une ligne MEM ; le tri par position de catégorie la garde sous GPU.
         return metrics
-            .GroupBy(m => m.Category)
-            .Select(group => new OverlayLine
-            {
-                Label = group.Key.OsdLabel,
-                LabelColorHex = colors.CategoryColor(group.Key),
-                ValueColorHex = colors.ValueColor,
-                Cells = group.Select((metric, column) => new OverlayCell(metric, column)).ToArray(),
-            })
+            .GroupBy(LineCategory)
+            .OrderBy(group => IndexOf(group.Key))
+            .Select(group => group.Key == MetricCatalog.Ram
+                ? BuildMemoryLine(group, colors, memorySubLabels)
+                : new OverlayLine
+                {
+                    Label = group.Key.OsdLabel,
+                    LabelColorHex = colors.CategoryColor(group.Key),
+                    ValueColorHex = colors.ValueColor,
+                    Cells = group.Select((metric, column) => new OverlayCell(metric, column)).ToArray(),
+                })
             .ToList();
+    }
+
+    /// <summary>Catégorie de la ligne d'une métrique : la mémoire du GPU est rangée avec la RAM.</summary>
+    private static MetricCategory LineCategory(MetricDefinition metric)
+        => MetricCatalog.GpuMemoryIds.Contains(metric.Id) ? MetricCatalog.Ram : metric.Category;
+
+    private static int IndexOf(MetricCategory category)
+    {
+        for (int i = 0; i < MetricCatalog.Categories.Count; i++)
+        {
+            if (MetricCatalog.Categories[i] == category) return i;
+        }
+        return int.MaxValue;
+    }
+
+    /// <summary>Ligne MEM : d'abord la mémoire du GPU, puis la RAM, chaque groupe précédé de son sous-libellé si demandé.</summary>
+    private static OverlayLine BuildMemoryLine(IEnumerable<MetricDefinition> metrics, OverlayColorScheme colors, bool subLabels)
+    {
+        MetricDefinition[] ordered = metrics
+            .OrderBy(m => MetricCatalog.GpuMemoryIds.Contains(m.Id) ? 0 : 1)
+            .ToArray();
+
+        MetricDefinition? firstVram = ordered.FirstOrDefault(m => MetricCatalog.GpuMemoryIds.Contains(m.Id));
+        MetricDefinition? firstRam = ordered.FirstOrDefault(m => !MetricCatalog.GpuMemoryIds.Contains(m.Id));
+
+        string? PrefixFor(MetricDefinition metric)
+        {
+            if (!subLabels) return null;
+            if (metric == firstVram) return "VRAM";
+            return metric == firstRam ? "RAM" : null;
+        }
+
+        return new OverlayLine
+        {
+            Label = MemoryLabel,
+            LabelColorHex = colors.CategoryColor(MetricCatalog.Ram),
+            ValueColorHex = colors.ValueColor,
+            Cells = ordered.Select((metric, column) => new OverlayCell(metric, column, PrefixFor(metric))).ToArray(),
+        };
     }
 
     public static void Update(IEnumerable<OverlayLine> lines, MetricSample sample)
@@ -136,6 +187,8 @@ public static class OverlayComposer
 
             foreach (OverlayCell cell in line.Cells)
             {
+                if (!string.IsNullOrEmpty(cell.Prefix)) AppendColored(text, "  " + cell.Prefix, line.LabelColorHex, withColors);
+
                 int valueWidth = widths.Grow(cell.ValueGroup, cell.Value.Length);
                 int unitWidth = widths.Grow(cell.UnitGroup, cell.Unit.Length);
 
