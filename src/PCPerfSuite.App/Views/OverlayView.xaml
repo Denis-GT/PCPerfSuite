@@ -150,9 +150,21 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Une ligne par métrique" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OneLinePerMetric}" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,18" Visibility="{Binding OneLinePerMetric, Converter={StaticResource InverseBoolToVisibility}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Sous-libellés VRAM / RAM" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                <TextBlock Text="Sur la ligne MEM, distingue la mémoire du GPU de la RAM : « MEM  VRAM 9501 MHz  RAM 12.4 Go »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding MemorySubLabels}" VerticalAlignment="Center"/>
                         </Grid>
 
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>

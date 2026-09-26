@@ -19,6 +19,18 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Prefix, StringFormat='  {0}'}"
+                                       Foreground="{Binding DataContext.LabelBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Prefix}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                             <TextBlock Text="  "/>
                             <TextBlock Text="{Binding Value}" TextAlignment="Right"
                                        controls:StickyWidth.Group="{Binding ValueGroup}"/>

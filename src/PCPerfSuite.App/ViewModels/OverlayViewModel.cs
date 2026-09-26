@@ -43,6 +43,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool useRtss;
     [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
+    [ObservableProperty] private bool memorySubLabels;
     [ObservableProperty] private bool isRtssDetected;
 
     /// <summary>Change quand les colonnes doivent repartir de zéro (métriques, mode, police) : les largeurs
@@ -96,6 +97,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         useRtss = settings.UseRtss;
         useWindow = settings.UseWindow;
         oneLinePerMetric = settings.OneLinePerMetric;
+        memorySubLabels = settings.MemorySubLabels;
         _refreshMs = RefreshRates.Clamp(settings.RefreshMs);
 
         Metrics = new MetricSelectionViewModel(settings.MetricIds ?? LegacyMetricIds(settings));
@@ -147,6 +149,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     partial void OnUseWindowChanged(bool value) => OnDisplayOptionsChanged();
 
     partial void OnOneLinePerMetricChanged(bool value) => OnDisplayOptionsChanged();
+
+    partial void OnMemorySubLabelsChanged(bool value) => OnDisplayOptionsChanged();
 
     private void OnDisplayOptionsChanged()
     {
@@ -217,7 +221,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         {
             _structureDirty = false;
             Lines.Clear();
-            foreach (OverlayLine line in OverlayComposer.Build(Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme()))
+            foreach (OverlayLine line in OverlayComposer.Build(Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels))
             {
                 Lines.Add(line);
             }
@@ -285,6 +289,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         settings.Overlay.UseRtss = UseRtss;
         settings.Overlay.UseWindow = UseWindow;
         settings.Overlay.OneLinePerMetric = OneLinePerMetric;
+        settings.Overlay.MemorySubLabels = MemorySubLabels;
         settings.Overlay.RefreshMs = RefreshMs;
         settings.Overlay.MetricIds = Metrics.SelectedIds;
 

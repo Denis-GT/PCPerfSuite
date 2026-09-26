@@ -237,6 +237,12 @@ public static class MetricCatalog
         },
     };
 
+    /// <summary>Métriques de la mémoire du GPU (catégorie GPU) : l'overlay les range sur la ligne MEM, avec la RAM.</summary>
+    internal static readonly IReadOnlySet<string> GpuMemoryIds = new HashSet<string>
+    {
+        "gpu.temp.memory", "gpu.clock.memory", "gpu.vram.used", "gpu.vram.load",
+    };
+
     /// <summary>Tuiles graphiques affichées par défaut dans le Monitoring : ce que montraient les anciennes cartes par composant.</summary>
     public static IReadOnlyList<string> DefaultMonitoringIds { get; } = new[]
     {
