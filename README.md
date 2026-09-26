@@ -46,8 +46,8 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   (processeur, pompe, carte graphique, boîtier…) sur deux colonnes : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
   ceux du GPU** (NVAPI, ADLX ou IGCL selon la marque). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
-  température (CPU, GPU, la plus chaude des deux, carte mère), hystérésis, vitesses mini/maxi et
-  arrêt complet à froid. Détail plus bas.
+  température (CPU, GPU, la plus chaude des deux, carte mère), hystérésis, accélération et
+  décélération, vitesses mini/maxi et arrêt complet à froid. Détail plus bas.
 - **GPU** — overclocking NVIDIA, AMD Radeon et Intel Arc : décalage d'horloge cœur et
   mémoire, limite de puissance, limite de température, tension quand la carte l'accepte,
   profils enregistrés et affichage de ce qui bride la carte en direct. Détail plus bas.
@@ -214,6 +214,12 @@ Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
   un ventilateur de boîtier) ou la carte mère.
 - **Hystérésis** en °C : le ventilateur ne ralentit qu'une fois la température retombée d'autant,
   ce qui l'empêche de « pomper » autour d'un point de la courbe.
+- **Accélération et décélération** en %/s : la vitesse à laquelle le ventilateur change de régime,
+  réglée à part pour la montée et pour la descente (par exemple une montée rapide pour suivre la
+  chauffe, une descente lente qui passe inaperçue). 100 %/s, le réglage par défaut, veut dire
+  immédiat. Le rythme suit le temps réellement écoulé, quelle que soit la cadence du Monitoring ; un
+  ventilateur à l'arrêt repart directement à sa consigne, et la protection thermique du GPU (100 %
+  au-delà de 88 °C) n'attend pas. « Consigne actuelle » affiche la cible pendant la transition.
 - **Vitesses mini et maxi**, pour un ventilateur qui cale trop bas ou qu'on ne veut jamais entendre
   à fond.
 - **Arrêt complet à froid (0 RPM)** sous une température au choix — désactivé par défaut, tous les
@@ -278,7 +284,10 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   - **PawnIO** : le bouton télécharge la dernière version de l'installeur depuis le dépôt GitHub
     officiel de son auteur (HTTPS uniquement, redirections comprises), vérifie sa signature
     Authenticode et l'éditeur (`namazso`), puis le lance. Le même bouton existe dans l'onglet
-    Processeur.
+    Processeur. « Mettre à jour » lit d'abord la dernière version publiée (dans la redirection de
+    la page « releases/latest », sans rien télécharger) et ne lance rien si PawnIO est déjà à jour ;
+    l'installeur, lui, refuse de réinstaller une version déjà en place (code 183), ce que l'app
+    explique au lieu de l'afficher comme une panne.
   - **RTSS** : Guru3D ne propose aucun lien direct stable vers sa dernière version (pages à jeton,
     nom de fichier différent à chaque version). Le bouton ouvre donc la page de téléchargement
     officielle ; l'état se met à jour dès le retour dans l'app, et RTSS peut être lancé depuis là.
