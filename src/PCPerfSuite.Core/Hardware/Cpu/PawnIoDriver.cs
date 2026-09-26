@@ -40,6 +40,31 @@ public static class PawnIoDriver
     public static OfficialInstallerSource SetupSource { get; } = new(
         new Uri(SetupUrl), OfficialInstaller.GitHubHosts, "PawnIO_setup.exe", "-install -silent", "namazso");
 
+    /// <summary>Page de la dernière version publiée : sa redirection donne le numéro de version sans rien télécharger
+    /// (voir <see cref="OfficialInstaller.TryGetLatestReleaseVersionAsync"/>).</summary>
+    public const string LatestReleaseUrl = "https://github.com/namazso/PawnIO.Setup/releases/latest";
+
+    /// <summary>ERROR_ALREADY_EXISTS. Depuis la 2.2.0, l'installeur rend des codes d'erreur Windows en ligne de
+    /// commande, et celui-ci quand la version qu'il porte est déjà installée : il ne réinstalle pas par-dessus.</summary>
+    public const int SetupAlreadyInstalledExitCode = 183;
+
+    /// <summary>Dernière version publiée de PawnIO, null si elle n'a pas pu être lue. Ne lève jamais.</summary>
+    public static Task<Version?> TryGetLatestVersionAsync(CancellationToken cancellationToken)
+        => OfficialInstaller.TryGetLatestReleaseVersionAsync(new Uri(LatestReleaseUrl), OfficialInstaller.GitHubHosts, cancellationToken);
+
+    /// <summary>Vrai si la version installée (« 2.2.0 », telle que l'inscrit l'installeur) est au moins la dernière
+    /// publiée. Faux quand l'une des deux est inconnue ou illisible : dans le doute, la mise à jour est proposée.</summary>
+    public static bool IsUpToDate(string? installedVersion, Version? latest)
+    {
+        if (latest is null || !System.Version.TryParse(installedVersion, out System.Version? installed)) return false;
+
+        // « 2.2 » et « 2.2.0.0 » sont la même version, mais pas pour Version.CompareTo : un composant absent y vaut -1.
+        return Normalize(installed) >= Normalize(latest);
+
+        static System.Version Normalize(System.Version v)
+            => new(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+    }
+
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO";
 
     private static readonly object LoadLock = new();

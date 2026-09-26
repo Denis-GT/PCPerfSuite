@@ -101,6 +101,9 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
     private readonly Func<Task> _refresh;
     private readonly CancellationTokenSource _cancellation = new();
 
+    /// <summary>Version inscrite par l'installeur lors de la dernière relecture (« 2.2.0 »), null si inconnue.</summary>
+    private string? _installedVersion;
+
     public PawnIoItemViewModel(Func<Task> refresh) => _refresh = refresh;
 
     public override string Name => "PawnIO";
@@ -128,6 +131,7 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
     public void Apply(PawnIoInstallation installation)
     {
         State = Classify(installation);
+        _installedVersion = installation.Version;
         string version = installation.Version is { } v ? $" ({v})" : "";
 
         IsApplicable = State != PawnIoState.Unsupported;
@@ -173,6 +177,23 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
     protected override async Task RunPrimaryAsync()
     {
         bool wasLoaded = PawnIoDriver.IsInstalled;
+        PawnIoState before = State;
+        string? installedVersion = _installedVersion;
+
+        // « Mettre à jour » : inutile de télécharger et de lancer l'installeur (avec l'invite d'autorisation de
+        // Windows) pour une version déjà en place, qu'il refuserait de toute façon (voir SetupAlreadyInstalledExitCode).
+        // Faute de pouvoir lire la dernière version, on tente l'installation comme avant.
+        if (before is PawnIoState.Ready or PawnIoState.RestartRequired)
+        {
+            Message = "Recherche de la dernière version…";
+            Version? latest = await PawnIoDriver.TryGetLatestVersionAsync(_cancellation.Token);
+            if (PawnIoDriver.IsUpToDate(installedVersion, latest))
+            {
+                Message = $"PawnIO est à jour : la version {installedVersion} installée est la dernière publiée.";
+                return;
+            }
+        }
+
         var progress = new Progress<string>(text => Message = text);
 
         InstallOutcome outcome = await OfficialInstaller.DownloadAndRunAsync(
@@ -180,7 +201,11 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
 
         await _refresh();
 
-        if (!outcome.Succeeded)
+        if (outcome.ExitCode == PawnIoDriver.SetupAlreadyInstalledExitCode)
+        {
+            Message = AlreadyInstalledMessage(before, installedVersion);
+        }
+        else if (!outcome.Succeeded)
         {
             Message = $"{outcome.Message} Tu peux aussi l'installer depuis le site officiel (bouton « Site officiel »).";
         }
@@ -195,6 +220,25 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
                 ? "Mise à jour terminée. Relance PCPerfSuite pour utiliser la nouvelle version."
                 : outcome.Message;
         }
+    }
+
+    /// <summary>L'installeur a répondu « cette version est déjà installée » (code 183). Ce n'est pas une panne : pour une
+    /// mise à jour, il n'y a rien à faire ; pour une réinstallation, il faut d'abord retirer la version en place, ce que
+    /// PCPerfSuite ne fait pas lui-même (désinstaller un pilote en cours d'utilisation n'est pas sans risque).</summary>
+    private static string AlreadyInstalledMessage(PawnIoState before, string? installedVersion)
+    {
+        string version = installedVersion is { Length: > 0 } v ? $" {v}" : "";
+        return before switch
+        {
+            PawnIoState.Ready or PawnIoState.RestartRequired =>
+                $"PawnIO est à jour : l'installeur indique que la version{version} est déjà installée, il n'y a rien à mettre à jour.",
+            PawnIoState.Unusable =>
+                $"L'installeur ne réinstalle pas la version{version} déjà présente. Désinstalle PawnIO depuis Paramètres Windows › " +
+                "Applications › Applications installées, puis clique sur « Installer ».",
+            _ =>
+                "L'installeur indique que PawnIO est déjà installé, mais PCPerfSuite ne le trouve pas. Redémarre Windows, puis " +
+                "clique sur « Vérifier à nouveau » ; s'il manque toujours, installe-le depuis le site officiel.",
+        };
     }
 
     protected override void RunSecondary()

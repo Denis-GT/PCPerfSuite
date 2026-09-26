@@ -16,8 +16,10 @@ public sealed record OfficialInstallerSource(
     string Arguments,
     string ExpectedPublisher);
 
-/// <summary>Issue d'une installation, avec un message prêt à afficher. Un échec n'est jamais une exception.</summary>
-public readonly record struct InstallOutcome(bool Succeeded, string Message);
+/// <summary>Issue d'une installation, avec un message prêt à afficher. Un échec n'est jamais une exception.
+/// <paramref name="ExitCode"/> est le code rendu par l'installeur, null s'il n'a pas été lancé ou pas attendu jusqu'au
+/// bout : chaque installeur a ses propres codes, c'est à l'appelant, qui le connaît, de les interpréter.</summary>
+public readonly record struct InstallOutcome(bool Succeeded, string Message, int? ExitCode = null);
 
 /// <summary>
 /// Télécharge un installeur depuis sa source officielle, le vérifie, puis le lance.
@@ -49,6 +51,9 @@ public static class OfficialInstaller
 
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>Lire la dernière version n'est qu'un raccourci : passé ce délai, on télécharge sans savoir.</summary>
+    private static readonly TimeSpan VersionCheckTimeout = TimeSpan.FromSeconds(10);
 
     // Les redirections sont suivies à la main, une par une : la vérification de l'hôte doit porter sur chaque étape,
     // pas seulement sur l'adresse finale (la requête est déjà partie vers l'hôte intermédiaire).
@@ -258,13 +263,71 @@ public static class OfficialInstaller
                     $"L'installeur tourne encore après {InstallTimeout.TotalMinutes:0} minutes. Laisse-le finir, puis clique sur « Vérifier à nouveau ».");
             }
 
-            return process.ExitCode switch
+            int exitCode = process.ExitCode;
+            return exitCode switch
             {
-                0 => new InstallOutcome(true, "Installation terminée."),
-                ExitRebootRequired => new InstallOutcome(true, "Installation terminée : Windows demande un redémarrage."),
-                var code => new InstallOutcome(false, $"L'installeur s'est terminé avec une erreur (code {code})."),
+                0 => new InstallOutcome(true, "Installation terminée.", exitCode),
+                ExitRebootRequired => new InstallOutcome(true, "Installation terminée : Windows demande un redémarrage.", exitCode),
+                _ => new InstallOutcome(false, $"L'installeur s'est terminé avec une erreur ({DescribeExitCode(exitCode)}).", exitCode),
             };
         }
+    }
+
+    /// <summary>« code 5 : Accès refusé » : le code, suivi du texte que Windows lui associe quand il en connaît un. Les
+    /// installeurs renvoient le plus souvent des codes d'erreur Windows ; un code qu'il ne connaît pas reste affiché seul.</summary>
+    public static string DescribeExitCode(int exitCode)
+    {
+        string? text = null;
+        try
+        {
+            text = new Win32Exception(exitCode).Message.Trim().TrimEnd('.');
+        }
+        catch
+        {
+            // best-effort : le code seul reste une information utile.
+        }
+
+        // Pour un code que Windows ne connaît pas, .NET renvoie « Unknown error (0x…) », qui n'apprend rien de plus.
+        bool meaningful = !string.IsNullOrEmpty(text) && !text.Contains($"0x{exitCode:x}", StringComparison.OrdinalIgnoreCase);
+        return meaningful ? $"code {exitCode} : {text}" : $"code {exitCode}";
+    }
+
+    /// <summary>
+    /// Dernière version publiée sur une page « releases/latest » de GitHub, lue dans la redirection qu'elle renvoie vers
+    /// « releases/tag/2.2.0 » : rien n'est téléchargé, et cette adresse, contrairement à l'API de GitHub, n'a pas de
+    /// quota. Null quand la version ne peut pas être lue (réseau coupé, page déplacée, étiquette qui n'est pas un
+    /// numéro de version) : l'appelant fait alors comme s'il ne savait pas, jamais comme si tout était à jour.
+    /// </summary>
+    public static async Task<Version?> TryGetLatestReleaseVersionAsync(
+        Uri latestReleasePage, IReadOnlyList<string> allowedHosts, CancellationToken cancellationToken)
+    {
+        try
+        {
+            RequireAllowed(latestReleasePage, allowedHosts);
+
+            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(VersionCheckTimeout);
+
+            using HttpResponseMessage response = await Http
+                .GetAsync(latestReleasePage, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+
+            if (response.Headers.Location is not { } location) return null;
+            return ReleaseVersionFromLocation(location.IsAbsoluteUri ? location : new Uri(latestReleasePage, location));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Numéro de version d'une adresse « …/releases/tag/2.2.0 » (ou « v2.2.0 »), null si elle n'en porte pas.</summary>
+    public static Version? ReleaseVersionFromLocation(Uri location)
+    {
+        string[] segments = location.AbsolutePath.Trim('/').Split('/');
+        if (segments.Length < 2 || !string.Equals(segments[^2], "tag", StringComparison.OrdinalIgnoreCase)) return null;
+
+        string tag = Uri.UnescapeDataString(segments[^1]).TrimStart('v', 'V');
+        return Version.TryParse(tag, out Version? version) ? version : null;
     }
 
     /// <summary>HTTPS obligatoire, hôte dans la liste. Lève <see cref="InstallFailure"/> sinon.</summary>
