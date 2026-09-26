@@ -29,8 +29,22 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     public string FanId { get; }
     public string DisplayName { get; }
 
+    /// <summary>D'où vient ce ventilateur : le nom lu et la puce qui le porte (« Nom lu : CPU Fan · Nuvoton NCT6798D »),
+    /// ou le canal quand la carte mère n'a donné aucun nom. C'est ce qui permet de retrouver le ventilateur dans un
+    /// signalement, ou dans le BIOS.</summary>
+    public string Subtitle { get; }
+
     /// <summary>Ce que refroidit ce ventilateur (voir <see cref="FanIdentification"/>).</summary>
     public FanCategory Category { get; }
+
+    public bool IsPump => Category == FanCategory.Pump;
+
+    /// <summary>L'arrêt complet à froid n'est pas proposé pour une pompe : sans circulation, le liquide ne refroidit plus
+    /// rien et le processeur chauffe en quelques secondes.</summary>
+    public bool CanStopWhenCool => !IsPump;
+
+    /// <summary>Explication affichée sous le mode d'une pompe, jamais pour un ventilateur.</summary>
+    public string PumpNote => $"Pompe : PCPerfSuite ne l'arrête jamais et ne la descend pas sous {PumpMinPercent:0} %.";
 
     /// <summary>Ventilateur du GPU, piloté par l'API du constructeur ou par la bibliothèque de capteurs : il a la
     /// protection thermique du GPU et la température du GPU comme source par défaut.</summary>
@@ -59,6 +73,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     public FanControlItemViewModel(
         FanCurveConfig config,
         string displayName,
+        string subtitle,
         FanCategory category,
         IFanController controller,
         Action persist,
@@ -73,6 +88,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
         FanId = config.ControlSensorId;
         DisplayName = displayName;
+        Subtitle = subtitle;
         Category = category;
 
         Points = new ObservableCollection<FanCurvePoint>(config.Points);
@@ -84,7 +100,19 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         maxPercent = config.MaxPercent;
         stopWhenCool = config.StopBelowTempC is not null;
         stopBelowTempC = config.StopBelowTempC ?? 40;
+
+        // Une pompe qui avait reçu un arrêt à froid quand elle n'était pas reconnue (« Ventilateur 6 ») ne s'arrête
+        // plus : le réglage ne se voit plus, il ne doit donc pas continuer à agir.
+        if (IsPump && config.StopBelowTempC is not null)
+        {
+            config.StopBelowTempC = null;
+            stopWhenCool = false;
+        }
     }
+
+    /// <summary>Une pompe ne descend jamais sous cette vitesse en mode Manuel ou Courbe. Beaucoup de pompes calent
+    /// sous 20-30 %, et une consigne à 0 % par mégarde arrête la circulation du liquide.</summary>
+    public const float PumpMinPercent = 30f;
 
     /// <summary>Au-delà de cette température, un ventilateur GPU piloté par l'app passe à 100% quel que
     /// soit le mode choisi — garde-fou indépendant des réglages utilisateur. En mode Auto, c'est la
@@ -104,6 +132,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         };
 
         if (target is not null && IsGpu && tempC is { } temp && temp >= GpuCriticalTempC) target = 100;
+        if (target is { } requested && IsPump && requested < PumpMinPercent) target = PumpMinPercent;
 
         if (target is { } percent)
         {
@@ -266,7 +295,30 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     /// <summary>Libellé de chaque cooler GPU (« GPU 1 », « GPU 2 »...), par numéro de cooler.</summary>
     private Dictionary<int, string> _gpuLabels = new();
 
+    private string? _gpuName;
+
+    /// <summary>Tous les ventilateurs à plat : ce que parcourent la fermeture de l'app et le diagnostic. L'écran,
+    /// lui, affiche <see cref="Groups"/>.</summary>
     public ObservableCollectionEx<FanControlItemViewModel> Fans { get; } = new();
+
+    /// <summary>Sections de l'écran, dans l'ordre d'affichage : une par catégorie non vide, puis les connecteurs sans
+    /// ventilateur détecté.</summary>
+    public ObservableCollectionEx<FanGroupViewModel> Groups { get; } = new();
+
+    private static readonly FanCategory[] CategoryOrder =
+    {
+        FanCategory.Cpu, FanCategory.Pump, FanCategory.Gpu, FanCategory.Case, FanCategory.Other, FanCategory.Unidentified,
+    };
+
+    private readonly Dictionary<FanCategory, FanGroupViewModel> _groups = new();
+
+    private readonly FanGroupViewModel _emptyHeadersGroup = new(
+        "Connecteurs sans ventilateur détecté",
+        "0 tr/min alors que la carte mère les alimente : connecteur vide, ou ventilateur dont la vitesse n'est pas lue " +
+        "(2 broches, ou branché sur un hub). Ils restent pilotables.",
+        isCollapsible: true);
+
+    private string _groupSignature = "";
 
     [ObservableProperty] private bool hasGpu;
 
@@ -304,18 +356,18 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         HasGpu = snapshot.Gpu is not null;
 
-        // Règle de compatibilité 5 : sur un portable, le refroidissement appartient au contrôleur
-        // embarqué du constructeur, donc on n'expose aucun ventilateur de carte mère ici — même quand
-        // LibreHardwareMonitor voit une puce Super I/O pilotable (barebones Clevo/Tongfang, quelques
-        // MSI). Sans ce filtre, l'onglet les afficherait comme pilotables et NoFansMessage promettrait
-        // exactement le contraire de ce que l'app ferait. Le ventilateur du GPU, lui, passe par le
-        // pilote graphique (NVAPI/ADLX/IGCL) et reste légitime sur un portable à carte dédiée.
         // Une carte graphique arrive par deux chemins (voir GpuFanPairing) : ses coolers sont pilotés par l'API du
         // constructeur, et les commandes que la bibliothèque de capteurs expose pour la même carte ne sont pas
         // listées une deuxième fois. Elles servent à lire la vitesse de chaque cooler.
         IReadOnlyList<int> coolerIds = ResolveGpuCoolerIds();
         GpuFanPairing gpuFans = GpuFanPairing.Pair(coolerIds, _gpuVendor, snapshot.Fans);
 
+        // Règle de compatibilité 5 : sur un portable, le refroidissement appartient au contrôleur
+        // embarqué du constructeur, donc on n'expose aucun ventilateur de carte mère ici — même quand
+        // LibreHardwareMonitor voit une puce Super I/O pilotable (barebones Clevo/Tongfang, quelques
+        // MSI). Sans ce filtre, l'onglet les afficherait comme pilotables et NoFansMessage promettrait
+        // exactement le contraire de ce que l'app ferait. Le ventilateur du GPU, lui, passe par le
+        // pilote graphique (NVAPI/ADLX/IGCL) et reste légitime sur un portable à carte dédiée.
         List<FanReading> motherboard = MachineInfo.Current.IsLaptop
             ? new List<FanReading>()
             : snapshot.Fans.Where(f => f.CanControl && !gpuFans.Replaced.Contains(f)).ToList();
@@ -351,6 +403,43 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
             item.Apply(TempFor(item.Source, snapshot));
         }
+
+        RebuildGroups();
+    }
+
+    /// <summary>Range les ventilateurs par catégorie, puis les connecteurs sans ventilateur détecté à part. Ne touche
+    /// à rien tant que la composition n'a pas changé : le relevé tombe plusieurs fois par seconde, et reconstruire
+    /// les cartes à chaque fois ferait perdre le focus et l'état d'un champ en cours de saisie.</summary>
+    private void RebuildGroups()
+    {
+        string signature = string.Join("|", Fans.Select(f => $"{f.FanId}/{(int)f.Category}/{f.IsEmptyHeader}"));
+        if (signature == _groupSignature) return;
+        _groupSignature = signature;
+
+        var wanted = new List<FanGroupViewModel>();
+
+        foreach (FanCategory category in CategoryOrder)
+        {
+            List<FanControlItemViewModel> members = Fans.Where(f => f.Category == category && !f.IsEmptyHeader).ToList();
+            if (members.Count == 0) continue;
+
+            if (!_groups.TryGetValue(category, out FanGroupViewModel? group))
+            {
+                group = _groups[category] = new FanGroupViewModel(FanCategoryInfo.Title(category));
+            }
+
+            group.Fans.SyncTo(members);
+            wanted.Add(group);
+        }
+
+        List<FanControlItemViewModel> empty = Fans.Where(f => f.IsEmptyHeader).ToList();
+        if (empty.Count > 0)
+        {
+            _emptyHeadersGroup.Fans.SyncTo(empty);
+            wanted.Add(_emptyHeadersGroup);
+        }
+
+        Groups.SyncTo(wanted);
     }
 
     private static bool IsGpuCooler(string fanId) => fanId.StartsWith(GpuControlService.FanIdPrefix, StringComparison.Ordinal);
@@ -374,7 +463,8 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
             if (Fans.Any(f => f.FanId == id)) continue;
 
             FanCurveConfig config = ConfigFor(id, DefaultSourceFor(fan.Category), ref added);
-            Fans.Add(new FanControlItemViewModel(config, fan.Label, fan.Category, _hardware, Persist, CopyCurveToAll, OnFanRestoredToAuto));
+            Fans.Add(new FanControlItemViewModel(
+                config, fan.Label, DescribeSource(fan), fan.Category, _hardware, Persist, CopyCurveToAll, OnFanRestoredToAuto));
         }
 
         foreach (int coolerId in coolerIds)
@@ -384,14 +474,35 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
             FanCurveConfig config = ConfigFor(id, FanTempSource.GpuCore, ref added);
             string label = _gpuLabels.GetValueOrDefault(coolerId, "GPU");
-            Fans.Add(new FanControlItemViewModel(config, label, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll, OnFanRestoredToAuto));
+            string subtitle = _gpuName is { Length: > 0 } gpuName ? $"{gpuName} · cooler {coolerId}" : $"Cooler {coolerId}";
+            Fans.Add(new FanControlItemViewModel(
+                config, label, subtitle, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll, OnFanRestoredToAuto));
         }
 
         if (added) Persist();
     }
 
-    private static FanTempSource DefaultSourceFor(FanCategory category)
-        => category == FanCategory.Gpu ? FanTempSource.GpuCore : FanTempSource.CpuPackage;
+    /// <summary>Température suivie par défaut d'un ventilateur qu'on n'a jamais réglé : le GPU pour ses ventilateurs, la
+    /// plus chaude du CPU et du GPU pour le boîtier (il doit suivre celui des deux qui chauffe), le CPU sinon. Sans GPU,
+    /// « le plus chaud » n'est pas proposé à l'écran : on reste sur le CPU.</summary>
+    private FanTempSource DefaultSourceFor(FanCategory category) => category switch
+    {
+        FanCategory.Gpu => FanTempSource.GpuCore,
+        FanCategory.Case when HasGpu => FanTempSource.HottestOfCpuGpu,
+        _ => FanTempSource.CpuPackage,
+    };
+
+    /// <summary>Ce qu'on sait de l'origine d'un ventilateur : le nom lu, ou le canal quand la carte n'en a donné aucun.</summary>
+    private static string DescribeSource(FanReading fan)
+    {
+        if (fan.Category == FanCategory.Gpu) return $"{fan.HardwareName} · {fan.SensorName}";
+
+        if (fan.NameFromHardware) return $"Nom lu : {fan.SensorName} · {fan.HardwareName}";
+
+        return fan.Channel is { } channel
+            ? $"{fan.HardwareName} · canal {channel + 1} — nom non fourni par la carte mère"
+            : $"{fan.HardwareName} — nom non fourni";
+    }
 
     /// <summary>Configuration d'un ventilateur, créée au besoin. Pour le GPU, on reprend les réglages
     /// de l'ancien onglet GPU (où vivait la courbe GPU) plutôt que de repartir de zéro.</summary>
@@ -423,6 +534,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         if (_gpu.TryInitialize() && _gpu.GetSnapshot() is { } snap)
         {
             _gpuVendor = _gpu.Vendor;
+            _gpuName = snap.Name;
             _gpuCoolerIds.AddRange(snap.Fans.Select(f => f.CoolerId).Distinct().OrderBy(id => id));
 
             // « GPU 1 », « GPU 2 »... — ou « GPU » pour un cooler seul. Même règle que pour les autres ventilateurs.
@@ -455,6 +567,10 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         foreach (FanControlItemViewModel item in Fans)
         {
+            // Une pompe n'a pas les besoins d'un ventilateur : une courbe pensée pour un ventilateur de boîtier,
+            // qui ralentit à froid, ne doit jamais lui être imposée en un clic.
+            if (item.IsPump) continue;
+
             if (!ReferenceEquals(item, source)) item.CopyFrom(source);
         }
     }
