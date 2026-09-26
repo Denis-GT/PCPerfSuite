@@ -70,7 +70,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _cpu = new CpuControlViewModel(_cpuControl, _monitoring);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
-        AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu));
+        AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu));
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
 
         NavItems = new ObservableCollection<NavEntry>

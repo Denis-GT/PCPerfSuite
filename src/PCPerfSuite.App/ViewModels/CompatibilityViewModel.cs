@@ -33,6 +33,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     private readonly ProcessesViewModel _processes;
     private readonly FanCurvesViewModel _fans;
     private readonly GpuControlViewModel _gpu;
+    private readonly CpuControlViewModel _cpu;
 
     private MetricSample? _lastSample;
 
@@ -47,13 +48,14 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     [ObservableProperty] private string? copyStatus;
 
     public CompatibilityViewModel(HardwareMonitorService hardware, MonitoringViewModel monitoring,
-        ProcessesViewModel processes, FanCurvesViewModel fans, GpuControlViewModel gpu)
+        ProcessesViewModel processes, FanCurvesViewModel fans, GpuControlViewModel gpu, CpuControlViewModel cpu)
     {
         _hardware = hardware;
         _monitoring = monitoring;
         _processes = processes;
         _fans = fans;
         _gpu = gpu;
+        _cpu = cpu;
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
         Refresh();
@@ -138,6 +140,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             yield return new CompatibilityRow("CPU", snapshot.Cpu.Name, "Charge, températures, puissance et fréquences selon ce que le processeur expose.", true);
         }
 
+        yield return CpuPowerLimitRow();
+
         string gpus = machine.VideoControllers.Count > 0 ? string.Join(", ", machine.VideoControllers) : "Aucun GPU identifié par Windows";
         yield return new CompatibilityRow("GPU", snapshot?.Gpu?.Name ?? "Non lu", gpus, snapshot?.Gpu is not null);
 
@@ -172,6 +176,36 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         bool rtss = IsRtssRunning();
         yield return new CompatibilityRow("RTSS (FPS et overlay en plein écran)", rtss ? "Lancé" : "Non lancé",
             rtss ? "Les FPS sont lus pendant les jeux." : "Installer et lancer RivaTuner Statistics Server (gratuit, guru3d.com) pour les FPS.", rtss);
+    }
+
+    /// <summary>Le maximum des champs de limite de puissance (onglet Processeur) et sa source : la limite lue dans
+    /// le processeur, ou un repli — avec ce que le processeur a répondu, valeurs brutes comprises. Sans cette ligne,
+    /// un signalement « le maximum est faux sur mon PC » ne dit pas quel registre a manqué ni ce qu'il contenait.
+    /// « OK » seulement quand la valeur vient du processeur : un repli s'affiche « -- » avec sa raison.</summary>
+    private CompatibilityRow CpuPowerLimitRow()
+    {
+        const string title = "Limite de puissance CPU (maximum)";
+
+        // Limites illisibles : pilote absent, app sans administrateur, processeur ou marque non pris en charge…
+        // la raison est celle que l'onglet Processeur affiche déjà.
+        if (_cpu.MaxWattsInfo is not { } info)
+        {
+            return new CompatibilityRow(title, "Non disponible",
+                _cpu.UnavailableReason.Length > 0
+                    ? _cpu.UnavailableReason
+                    : "Les limites de puissance de ce processeur n'ont pas pu être lues.",
+                false);
+        }
+
+        string status = $"Max {info.Watts:0} W · {info.SourceLabel}" + (info.IsExperimental ? " (expérimental)" : "");
+
+        var detail = new List<string> { info.Explanation, $"Relevés : {info.RawValues}." };
+        if (info.IsExperimental) detail.Add(CpuMaxWattsInfo.ExperimentalNotice);
+
+        // Limites lisibles mais pas modifiables (verrouillées par le BIOS…) : le maximum reste à connaître.
+        if (!_cpu.IsPowerLimitAvailable && _cpu.UnavailableReason.Length > 0) detail.Add(_cpu.UnavailableReason);
+
+        return new CompatibilityRow(title, status, string.Join(" ", detail), info.FromProcessor);
     }
 
     /// <summary>Noms de modèle et lettres des disques, et par qui ils sont fournis : certains contrôleurs NVMe

@@ -9,6 +9,10 @@ namespace PCPerfSuite.Core.Hardware.Cpu;
 /// Le bit 63 de 0x610 est un verrou : une fois posé par le BIOS, plus rien n'est modifiable jusqu'au
 /// prochain démarrage — c'est courant sur les portables, et ça se dit à l'utilisateur.
 ///
+/// Un quatrième, 0x601, n'est lu que pour connaître PL4 (la limite de crête), sur les générations qui
+/// l'y mettent : elle sert de maximum quand 0x614 n'en donne pas. Ce registre n'est jamais écrit.
+/// Le choix du maximum est fait par <see cref="CpuMaxWattsResolver"/>.
+///
 /// Les ratios turbo (MSR 0x1AD) ne sont volontairement pas touchés : le module IntelMSR de PawnIO
 /// n'en autorise que la lecture.
 /// </summary>
@@ -18,22 +22,13 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     private const uint MsrPkgPowerLimit = 0x610;
     private const uint MsrPkgPowerInfo = 0x614;
 
+    /// <summary>MSR_VR_CURRENT_CONFIG : sur les générations qui l'ont (voir <see cref="CpuMaxWattsResolver.HasPl4Register"/>),
+    /// les bits 12:0 portent PL4, en unités de puissance. Lecture seule : le module PawnIO en autorise l'écriture,
+    /// mais elle règle le courant du régulateur de tension et n'a rien à faire ici.</summary>
+    private const uint MsrVrCurrentConfig = 0x601;
+
     /// <summary>Plancher absolu : en dessous, un PC peut devenir inutilisable jusqu'au redémarrage.</summary>
     private const float MinAllowedWatts = 5f;
-
-    /// <summary>Plafond de sécurité, en multiple de la limite d'usine : monter au-delà ne sert à rien
-    /// (le processeur est de toute façon bridé par sa température et son VRM) et cuit le matériel.</summary>
-    private const float MaxFactoryMultiplier = 1.5f;
-
-    /// <summary>Au-delà, une limite lue n'en est pas une : le registre RAPL tient sur 15 bits (4095,875 W à 1/8 W
-    /// près) et beaucoup de cartes mères de bureau y écrivent 4095 W pour dire « sans limite », surtout sur la
-    /// limite courte durée. Aucun processeur grand public n'approche 1000 W.</summary>
-    private const float UnlimitedWatts = 1000f;
-
-    /// <summary>Plafond retenu quand la limite d'usine est « sans limite » : le multiple de 4095 W (6142 W)
-    /// n'aurait aucun sens, ni comme borne de saisie ni comme valeur écrite dans le processeur. 400 W couvre
-    /// les réglages usine des plus gros processeurs de bureau (≈ 250-350 W) sans laisser monter plus haut.</summary>
-    private const float UnlimitedCapWatts = 400f;
 
     private readonly PawnIoModule _msr;
     private readonly float _powerUnitWatts;
@@ -43,6 +38,7 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     private readonly float _defaultBurstWatts;
     private readonly float _minWatts;
     private readonly float _maxWatts;
+    private readonly CpuMaxWattsInfo _maxWattsInfo;
 
     public string Description { get; }
 
@@ -50,7 +46,7 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 
     private IntelPowerLimitBackend(
         PawnIoModule msr, float powerUnitWatts, bool locked,
-        float defaultSustained, float defaultBurst, float minWatts, float maxWatts)
+        float defaultSustained, float defaultBurst, float minWatts, CpuMaxWattsInfo maxWatts)
     {
         _msr = msr;
         _powerUnitWatts = powerUnitWatts;
@@ -58,7 +54,8 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
         _defaultSustainedWatts = defaultSustained;
         _defaultBurstWatts = defaultBurst;
         _minWatts = minWatts;
-        _maxWatts = maxWatts;
+        _maxWatts = maxWatts.Watts;
+        _maxWattsInfo = maxWatts;
 
         Description = "Intel — limites de puissance par registre MSR (module IntelMSR de PawnIO).";
         PowerLimit = locked
@@ -67,8 +64,9 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     }
 
     /// <summary>Charge le module IntelMSR et relève les valeurs d'usine. Retourne un backend "indisponible"
-    /// porteur de la raison quand le pilote, le module ou le processeur ne suivent pas.</summary>
-    public static ICpuTuningBackend Create()
+    /// porteur de la raison quand le pilote, le module ou le processeur ne suivent pas. La plateforme donne
+    /// la famille et le modèle, qui décident si PL4 est lisible sur ce processeur.</summary>
+    public static ICpuTuningBackend Create(CpuPlatform platform)
     {
         PawnIoModule? msr = PawnIoDriver.TryLoadModule("IntelMSR", out string? error);
         if (msr is null) return new UnsupportedCpuBackend(error ?? "Module IntelMSR indisponible.");
@@ -106,23 +104,36 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
                 "firmwares qui masquent ce registre.");
         }
 
-        // 0x614 donne le TDP et les bornes du processeur ; absent ou vide sur certains modèles, d'où le repli.
+        // 0x614 donne la puissance de base (bits 14:0), le minimum (30:16) et le maximum (46:32) du processeur ;
+        // vide ou illisible sur certains modèles, d'où le repli sur PL4 puis sur la limite du BIOS.
         float hardwareMin = MinAllowedWatts;
-        float hardwareMax = Math.Max(sustained, burst) * 2f;
+        float? tdp = null;
+        float? infoMax = null;
+        string? infoError = null;
         if (TryReadMsr(msr, MsrPkgPowerInfo, out ulong info))
         {
             float infoMin = ((info >> 16) & 0x7FFF) * powerUnitWatts;
-            float infoMax = ((info >> 32) & 0x7FFF) * powerUnitWatts;
+            tdp = (info & 0x7FFF) * powerUnitWatts;
+            infoMax = ((info >> 32) & 0x7FFF) * powerUnitWatts;
             if (infoMin > 0) hardwareMin = Math.Max(MinAllowedWatts, infoMin);
-            if (infoMax > 0) hardwareMax = infoMax;
+        }
+        else
+        {
+            infoError = msr.DescribeLastError();
         }
 
-        // Une limite d'usine « sans limite » ne donne aucune base de calcul : plafond fixe. Sinon, le multiple
-        // de la limite d'usine, borné par ce que le processeur annonce.
-        float factoryCap = Math.Max(sustained, burst) >= UnlimitedWatts
-            ? UnlimitedCapWatts
-            : Math.Max(sustained, burst) * MaxFactoryMultiplier;
-        float maxWatts = Math.Max(hardwareMin + 1f, Math.Min(hardwareMax, factoryCap));
+        // PL4 : seulement sur les générations où 0x601 la porte en watts (ailleurs, ce sont des ampères).
+        bool pl4Exposed = CpuMaxWattsResolver.HasPl4Register(platform.Family, platform.Model);
+        float? pl4 = null;
+        string? pl4Error = null;
+        if (pl4Exposed)
+        {
+            if (TryReadMsr(msr, MsrVrCurrentConfig, out ulong vrConfig)) pl4 = (vrConfig & 0x1FFF) * powerUnitWatts;
+            else pl4Error = msr.DescribeLastError();
+        }
+
+        CpuMaxWattsInfo maxWatts = CpuMaxWattsResolver.ForIntel(new IntelPowerReadings(
+            sustained, burst, hardwareMin, tdp, infoMax, infoError, pl4Exposed, pl4, pl4Error));
 
         return new IntelPowerLimitBackend(
             msr, powerUnitWatts, locked, sustained, burst, hardwareMin, maxWatts);
@@ -140,20 +151,39 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
             DefaultBurstWatts = _defaultBurstWatts,
             MinWatts = _minWatts,
             MaxWatts = _maxWatts,
+            MaxWattsInfo = _maxWattsInfo,
         };
     }
 
     public bool TrySetPowerLimits(float sustainedWatts, float? burstWatts, out string message)
+    {
+        float sustained = Math.Clamp(sustainedWatts, _minWatts, _maxWatts);
+        // La limite courte durée n'a de sens qu'au-dessus de la soutenue.
+        float burst = Math.Clamp(burstWatts ?? sustained, sustained, _maxWatts);
+
+        return TryWriteLimits(sustained, burst, out message);
+    }
+
+    /// <summary>
+    /// Ce que « Limites d'origine » réécrit : les valeurs relevées avant toute écriture de l'app, sans le
+    /// plafond du maximum proposé. Ce plafond borne ce que l'utilisateur peut saisir ; le lui appliquer ici
+    /// réécrivait 400 W à la place des 4095 W que la carte mère avait posés, tout en annonçant les avoir
+    /// rétablis. Le plancher et l'ordre PL2 ≥ PL1 restent : une limite à 0 W, activée, brideraient le PC.
+    /// </summary>
+    public static (float Sustained, float Burst) RestoreTargets(float defaultSustained, float defaultBurst, float minWatts)
+    {
+        float sustained = Math.Max(defaultSustained, minWatts);
+        return (sustained, Math.Max(defaultBurst, sustained));
+    }
+
+    /// <summary>Écrit les deux limites telles quelles (les appelants ont déjà borné), puis les relit.</summary>
+    private bool TryWriteLimits(float sustained, float burst, out string message)
     {
         if (_locked)
         {
             message = "Limites verrouillées par le BIOS/UEFI : elles ne sont modifiables qu'après un redémarrage, et seulement si le BIOS ne les reverrouille pas.";
             return false;
         }
-
-        float sustained = Math.Clamp(sustainedWatts, _minWatts, _maxWatts);
-        // La limite courte durée n'a de sens qu'au-dessus de la soutenue.
-        float burst = Math.Clamp(burstWatts ?? sustained, sustained, _maxWatts);
 
         if (!TryReadMsr(_msr, MsrPkgPowerLimit, out ulong current))
         {
@@ -200,9 +230,10 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 
     public bool TryRestoreDefaults(out string message)
     {
-        if (!TrySetPowerLimits(_defaultSustainedWatts, _defaultBurstWatts, out message)) return false;
+        (float sustained, float burst) = RestoreTargets(_defaultSustainedWatts, _defaultBurstWatts, _minWatts);
+        if (!TryWriteLimits(sustained, burst, out message)) return false;
 
-        message = $"Limites d'origine rétablies ({_defaultSustainedWatts:0} W / {_defaultBurstWatts:0} W).";
+        message = $"Limites d'origine rétablies ({sustained:0} W / {burst:0} W).";
         return true;
     }
 
