@@ -103,7 +103,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Canal RTSS" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBox Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit, guru3d.com)." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
+                                <TextBox Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit) : Paramètres › Installations." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding UseRtss}" VerticalAlignment="Center"/>
                         </Grid>

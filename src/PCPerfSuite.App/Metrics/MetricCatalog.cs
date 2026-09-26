@@ -160,7 +160,7 @@ public static class MetricCatalog
         string suffix = PawnIoDriver.IsInstalled
             ? ""
             : " Le pilote PawnIO n'est pas installé sur ce PC : il est nécessaire pour la plupart des sondes bas niveau " +
-              "(températures et tensions CPU, sondes de carte mère) — voir Paramètres › Compatibilité de ce PC › « Pilote PawnIO ».";
+              "(températures et tensions CPU, sondes de carte mère) — il s'installe depuis Paramètres › Installations.";
         return $"{baseReason} Ce n'est pas un dysfonctionnement de PCPerfSuite.{suffix}";
     }
 
