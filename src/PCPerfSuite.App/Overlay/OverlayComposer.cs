@@ -9,18 +9,29 @@ namespace PCPerfSuite.App.Overlay;
 /// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
 public sealed partial class OverlayCell : ObservableObject
 {
-    public OverlayCell(MetricDefinition metric, int column, string? prefix = null)
+    public OverlayCell(
+        MetricDefinition metric, int column, string? prefix = null, string gap = OverlayComposer.WideGap, bool showUnit = true)
     {
         Metric = metric;
         Prefix = prefix;
+        Gap = gap;
+        ShowUnit = showUnit;
         ValueGroup = $"value{column}";
         UnitGroup = $"unit{column}";
     }
 
     public MetricDefinition Metric { get; }
 
-    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM) ; null pour la plupart des cellules.</summary>
+    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM, « MOY », « 1% » sur la ligne
+    /// JEU) ; null pour la plupart des cellules.</summary>
     public string? Prefix { get; }
+
+    /// <summary>Faux quand le libellé de la cellule tient lieu d'unité (« MOY 138 » et non « MOY 138 FPS »).</summary>
+    public bool ShowUnit { get; }
+
+    /// <summary>Espaces entre ce qui précède (libellé de ligne, cellule ou sous-libellé) et la valeur. Choisis par
+    /// <see cref="OverlayComposer"/> : resserrés dans une même ligne, sauf autour des débits disque et réseau.</summary>
+    public string Gap { get; }
 
     /// <summary>Noms des colonnes partagées d'une ligne à l'autre (voir StickyWidth).</summary>
     public string ValueGroup { get; }
@@ -34,12 +45,19 @@ public sealed partial class OverlayCell : ObservableObject
         MetricReading reading = Metric.Read(sample);
         Value = reading.Value;
         // Comme MetricReading.Text : "%" et "°C" collés au nombre, les autres unités séparées d'une espace.
-        Unit = reading.Unit is "" or "%" or "°C" ? reading.Unit : " " + reading.Unit;
+        Unit = !ShowUnit ? "" : reading.Unit is "" or "%" or "°C" ? reading.Unit : " " + reading.Unit;
     }
 }
 
 public sealed class OverlayLine
 {
+    /// <summary>Clé stable de la ligne dans l'ordre enregistré : clé de catégorie (« ram » pour la ligne MEM) ou
+    /// identifiant de métrique en mode une ligne par métrique.</summary>
+    public required string Key { get; init; }
+
+    /// <summary>Nom lisible de la ligne, pour la liste qui règle leur ordre.</summary>
+    public required string Title { get; init; }
+
     public required string Label { get; init; }
     public required string LabelColorHex { get; init; }
     public required string ValueColorHex { get; init; }
@@ -75,64 +93,103 @@ public static class OverlayComposer
     /// <summary>Libellé de la ligne qui regroupe la mémoire du GPU et la RAM.</summary>
     private const string MemoryLabel = "MEM";
 
+    /// <summary>Nom de la ligne MEM dans la liste d'ordre des lignes.</summary>
+    private const string MemoryTitle = "Mémoire (GPU et RAM)";
+
+    /// <summary>Deux espaces : après le libellé de la ligne, entre deux groupes de valeurs, et de chaque côté d'un
+    /// débit, dont la largeur et l'unité changent d'un relevé à l'autre.</summary>
+    public const string WideGap = "  ";
+
+    /// <summary>Une espace : entre deux valeurs d'un même groupe, et entre un sous-libellé et sa valeur.</summary>
+    public const string TightGap = " ";
+
+    /// <param name="lineOrder">Ordre des lignes : clés de catégorie, ou identifiants de métrique en mode une ligne
+    /// par métrique (voir <see cref="OverlayLineOrder"/>). Null : l'ordre du catalogue.</param>
+    /// <param name="unavailableMemoryIds">Métriques de la ligne MEM que ce PC ne fournit pas (voir
+    /// <see cref="UnavailableMemoryIds"/>) : un groupe VRAM ou RAM qui n'a plus que celles-là disparaît, avec son
+    /// sous-libellé, et la ligne entière avec lui quand les deux groupes sont vides. Null : rien n'est retiré.</param>
     public static List<OverlayLine> Build(
         IReadOnlyList<MetricDefinition> metrics,
         bool oneLinePerMetric,
         OverlayColorScheme colors,
-        bool memorySubLabels = true)
+        bool memorySubLabels = true,
+        IReadOnlyList<string>? lineOrder = null,
+        IReadOnlySet<string>? unavailableMemoryIds = null)
     {
         if (oneLinePerMetric)
         {
-            return metrics
+            List<OverlayLine> perMetric = metrics
                 .Select(metric => new OverlayLine
                 {
+                    Key = metric.Id,
+                    Title = metric.Label,
                     Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
                     LabelColorHex = colors.CategoryColor(metric.Category),
                     ValueColorHex = colors.ValueColor,
                     Cells = new[] { new OverlayCell(metric, 0) },
                 })
                 .ToList();
+
+            return lineOrder is null ? perMetric : OverlayLineOrder.Sort(perMetric, line => line.Key, lineOrder);
         }
 
         // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W". La mémoire du GPU quitte la
-        // ligne GPU pour rejoindre la RAM sur une ligne MEM ; le tri par position de catégorie la garde sous GPU.
-        return metrics
+        // ligne GPU pour rejoindre la RAM sur une ligne MEM, qui porte la clé de la RAM : elle suit donc la
+        // catégorie RAM dans l'ordre, sous GPU par défaut.
+        IReadOnlySet<string> unavailable = unavailableMemoryIds ?? new HashSet<string>();
+        List<OverlayLine> perCategory = metrics
             .GroupBy(LineCategory)
-            .OrderBy(group => IndexOf(group.Key))
             .Select(group => group.Key == MetricCatalog.Ram
-                ? BuildMemoryLine(group, colors, memorySubLabels)
+                ? BuildMemoryLine(group, colors, memorySubLabels, unavailable)
                 : new OverlayLine
                 {
+                    Key = group.Key.Key,
+                    Title = group.Key.Name,
                     Label = group.Key.OsdLabel,
                     LabelColorHex = colors.CategoryColor(group.Key),
                     ValueColorHex = colors.ValueColor,
-                    Cells = group.Select((metric, column) => new OverlayCell(metric, column)).ToArray(),
+                    Cells = BuildCategoryCells(group.ToArray()),
                 })
+            .OfType<OverlayLine>()
             .ToList();
+
+        return OverlayLineOrder.Sort(perCategory, line => line.Key, lineOrder ?? CatalogCategoryOrder);
     }
+
+    /// <summary>Ordre par défaut des lignes par catégorie : celui du catalogue.</summary>
+    public static IReadOnlyList<string> CatalogCategoryOrder { get; } = MetricCatalog.Categories.Select(c => c.Key).ToArray();
 
     /// <summary>Catégorie de la ligne d'une métrique : la mémoire du GPU est rangée avec la RAM.</summary>
     private static MetricCategory LineCategory(MetricDefinition metric)
         => MetricCatalog.GpuMemoryIds.Contains(metric.Id) ? MetricCatalog.Ram : metric.Category;
 
-    private static int IndexOf(MetricCategory category)
+    /// <summary>Métriques de la ligne MEM (mémoire du GPU et RAM) que ce PC ne fournit pas d'après ce relevé.
+    /// Sert à retirer de la ligne ce qui n'aurait rien à montrer ; « -- » (pas encore lu) n'en fait pas partie.</summary>
+    public static HashSet<string> UnavailableMemoryIds(IEnumerable<MetricDefinition> metrics, MetricSample sample)
     {
-        for (int i = 0; i < MetricCatalog.Categories.Count; i++)
+        var ids = new HashSet<string>();
+        foreach (MetricDefinition metric in metrics)
         {
-            if (MetricCatalog.Categories[i] == category) return i;
+            if (LineCategory(metric) == MetricCatalog.Ram && metric.Read(sample).IsUnavailable) ids.Add(metric.Id);
         }
-        return int.MaxValue;
+        return ids;
     }
 
-    /// <summary>Ligne MEM : d'abord la mémoire du GPU, puis la RAM, chaque groupe précédé de son sous-libellé si demandé.</summary>
-    private static OverlayLine BuildMemoryLine(IEnumerable<MetricDefinition> metrics, OverlayColorScheme colors, bool subLabels)
+    /// <summary>Ligne MEM : d'abord la mémoire du GPU, puis la RAM, chaque groupe précédé de son sous-libellé si demandé.
+    /// Un groupe dont aucune valeur n'est fournie par ce PC n'a rien à montrer, ni ses « N/D » ni son sous-libellé :
+    /// il disparaît, et la ligne avec lui (libellé « MEM » compris) si l'autre groupe est vide aussi — d'où null.
+    /// Un groupe qui a au moins une valeur garde les autres, « N/D » compris : on ne laisse pas de trou sans explication.</summary>
+    private static OverlayLine? BuildMemoryLine(
+        IEnumerable<MetricDefinition> metrics, OverlayColorScheme colors, bool subLabels, IReadOnlySet<string> unavailable)
     {
-        MetricDefinition[] ordered = metrics
-            .OrderBy(m => MetricCatalog.GpuMemoryIds.Contains(m.Id) ? 0 : 1)
-            .ToArray();
+        MetricDefinition[] all = metrics.ToArray();
+        MetricDefinition[] vram = WithSomethingToShow(all.Where(m => MetricCatalog.GpuMemoryIds.Contains(m.Id)), unavailable);
+        MetricDefinition[] ram = WithSomethingToShow(all.Where(m => !MetricCatalog.GpuMemoryIds.Contains(m.Id)), unavailable);
+        if (vram.Length + ram.Length == 0) return null;
 
-        MetricDefinition? firstVram = ordered.FirstOrDefault(m => MetricCatalog.GpuMemoryIds.Contains(m.Id));
-        MetricDefinition? firstRam = ordered.FirstOrDefault(m => !MetricCatalog.GpuMemoryIds.Contains(m.Id));
+        MetricDefinition[] ordered = vram.Concat(ram).ToArray();
+        MetricDefinition? firstVram = vram.FirstOrDefault();
+        MetricDefinition? firstRam = ram.FirstOrDefault();
 
         string? PrefixFor(MetricDefinition metric)
         {
@@ -143,11 +200,62 @@ public static class OverlayComposer
 
         return new OverlayLine
         {
+            Key = MetricCatalog.Ram.Key,
+            Title = MemoryTitle,
             Label = MemoryLabel,
             LabelColorHex = colors.CategoryColor(MetricCatalog.Ram),
             ValueColorHex = colors.ValueColor,
-            Cells = ordered.Select((metric, column) => new OverlayCell(metric, column, PrefixFor(metric))).ToArray(),
+            Cells = BuildCells(ordered, PrefixFor, metric => metric == firstVram || metric == firstRam),
         };
+    }
+
+    /// <summary>Cellules d'une ligne de catégorie ordinaire. Sur la ligne JEU, où chaque FPS porte son libellé
+    /// (« FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »), chaque valeur forme son propre groupe : le temps de frame, qui
+    /// n'en a pas, reste ainsi séparé du dernier libellé plutôt que de s'y coller.</summary>
+    private static OverlayCell[] BuildCategoryCells(MetricDefinition[] metrics)
+    {
+        bool labelled = metrics.Any(m => m.LineLabel is not null);
+        return BuildCells(metrics, metric => metric.LineLabel, _ => labelled);
+    }
+
+    /// <summary>Les cellules d'une ligne, chacune avec son espacement (voir <see cref="GapBefore"/>). Une valeur dont le
+    /// libellé (<see cref="MetricDefinition.LineLabel"/>) tient lieu d'unité n'affiche pas cette unité.</summary>
+    /// <param name="prefixFor">Sous-libellé d'une cellule, null si elle n'en a pas.</param>
+    /// <param name="opensGroup">Vrai pour la première cellule d'un groupe (début de la VRAM, début de la RAM).</param>
+    private static OverlayCell[] BuildCells(
+        IReadOnlyList<MetricDefinition> metrics, Func<MetricDefinition, string?> prefixFor, Func<MetricDefinition, bool> opensGroup)
+    {
+        var cells = new OverlayCell[metrics.Count];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            MetricDefinition metric = metrics[i];
+            string? prefix = prefixFor(metric);
+            cells[i] = new OverlayCell(
+                metric,
+                i,
+                prefix,
+                GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup(metric), prefix is not null),
+                showUnit: metric.LineLabel is null);
+        }
+        return cells;
+    }
+
+    /// <summary>Espaces avant la valeur d'une cellule. Une espace entre valeurs d'un même groupe ; deux après le
+    /// libellé de la ligne, avant un nouveau groupe, et de chaque côté d'un débit (disque, réseau), dont la largeur
+    /// varie : c'est ce qui les garde lisibles. Après un sous-libellé, une espace : c'est lui qui apporte les deux
+    /// espaces de séparation.</summary>
+    /// <param name="previous">La métrique de la cellule précédente, null pour la première de la ligne.</param>
+    private static string GapBefore(MetricDefinition metric, MetricDefinition? previous, bool opensGroup, bool hasPrefix)
+    {
+        if (hasPrefix) return TightGap;
+        return previous is null || opensGroup || metric.IsRate || previous.IsRate ? WideGap : TightGap;
+    }
+
+    /// <summary>Le groupe tel quel, ou vide quand ce PC ne fournit aucune de ses valeurs.</summary>
+    private static MetricDefinition[] WithSomethingToShow(IEnumerable<MetricDefinition> group, IReadOnlySet<string> unavailable)
+    {
+        MetricDefinition[] metrics = group.ToArray();
+        return metrics.All(m => unavailable.Contains(m.Id)) ? Array.Empty<MetricDefinition>() : metrics;
     }
 
     public static void Update(IEnumerable<OverlayLine> lines, MetricSample sample)
@@ -192,7 +300,7 @@ public static class OverlayComposer
                 int valueWidth = widths.Grow(cell.ValueGroup, cell.Value.Length);
                 int unitWidth = widths.Grow(cell.UnitGroup, cell.Unit.Length);
 
-                string field = "  " + Field(cell.Value, valueWidth, rightAligned: true);
+                string field = cell.Gap + Field(cell.Value, valueWidth, rightAligned: true);
                 if (unitWidth > 0) field += Field(cell.Unit, unitWidth, rightAligned: false);
 
                 AppendColored(text, field, line.ValueColorHex, withColors);

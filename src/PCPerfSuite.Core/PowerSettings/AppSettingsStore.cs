@@ -205,6 +205,14 @@ public sealed class OverlaySettings
     /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
     public bool OneLinePerMetric { get; set; }
 
+    /// <summary>Ordre des lignes en mode une ligne par catégorie : clés de catégorie (« ram » pour la ligne MEM).
+    /// Null tant que l'utilisateur n'a rien déplacé : c'est alors l'ordre du catalogue.</summary>
+    public List<string>? LineOrder { get; set; }
+
+    /// <summary>Ordre des lignes en mode une ligne par métrique : identifiants du catalogue de métriques.
+    /// Null tant que l'utilisateur n'a rien déplacé.</summary>
+    public List<string>? MetricLineOrder { get; set; }
+
     /// <summary>Sur la ligne MEM (mémoire du GPU + RAM), fait précéder chaque groupe de « VRAM » / « RAM ».</summary>
     public bool MemorySubLabels { get; set; } = true;
 
@@ -251,8 +259,10 @@ public sealed class OverlayAppearanceSettings
     /// <summary>Couleur des valeurs (les libellés, eux, prennent la couleur de leur catégorie).</summary>
     public string ValueColor { get; set; } = "#FFFFFF";
 
-    /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Une catégorie absente garde la
-    /// couleur par défaut du catalogue.</summary>
+    /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Ne contient que les couleurs que l'utilisateur a
+    /// changées : une catégorie absente suit la couleur par défaut du catalogue, y compris quand elle change d'une
+    /// version à l'autre. Les fichiers des versions précédentes, qui les enregistraient toutes, sont migrés à la
+    /// lecture (un ancien défaut n'est pas un choix).</summary>
     public Dictionary<string, string> CategoryColors { get; set; } = new();
 
     public OverlayAnchor Anchor { get; set; } = OverlayAnchor.TopLeft;

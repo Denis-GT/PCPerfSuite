@@ -82,7 +82,9 @@ Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
    bordure, c'est-à-dire la grande majorité des jeux récents, elle fonctionne.
 
 Réglages disponibles : métriques affichées (même catalogue que le Monitoring), une ligne
-par métrique ou une ligne par catégorie façon Afterburner, **cadence propre à l'overlay**
+par métrique ou une ligne par catégorie façon Afterburner, **l'ordre des lignes** (flèches
+monter / descendre dans l'onglet, enregistré séparément pour chacun des deux modes),
+**cadence propre à l'overlay**
 (indépendante de celle du Monitoring, sans pouvoir aller plus vite que lui puisque les
 valeurs en viennent), police, taille, **une couleur par catégorie** (CPU, GPU, RAM, NET…)
 pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran
@@ -94,6 +96,10 @@ le **1% low** et le **0.1% low**, calculés à partir de l'historique des 1024 d
 que RTSS tient à jour — la même matière première que les outils de benchmark. Un centile n'est
 affiché qu'avec assez d'images derrière lui (100 pour le 1%, 1000 pour le 0.1%) : sinon la valeur
 reste à `--` plutôt que d'annoncer un chiffre inventé.
+
+Sur la ligne JEU, chaque valeur de FPS est précédée de son libellé — `FPS`, `MOY`, `1%`, `0.1%` —
+qui tient lieu d'unité (« JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms ») ; le temps de frame
+garde son unité, sans libellé.
 
 ## Overclocking GPU
 

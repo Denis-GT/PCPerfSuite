@@ -150,7 +150,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Une ligne par métrique" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM ; ce que ce PC ne fournit pas (pas de GPU dédié, par exemple) n'y figure pas, et la ligne disparaît si rien n'est disponible. Sur la ligne JEU, chaque FPS est précédé de son libellé : « JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OneLinePerMetric}" VerticalAlignment="Center"/>
                         </Grid>
@@ -170,6 +170,55 @@
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>
                         <TextBlock Text="Métriques affichées" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,0,0,10"/>
                         <controls:MetricPicker DataContext="{Binding Metrics}"/>
+
+                        <!-- Ordre des lignes : celui du mode affiché (une ligne par catégorie ou par métrique).
+                             Une entrée par ligne réellement affichée ; les autres gardent leur place en coulisse. -->
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,4,0,16"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Ordre des lignes" Style="{StaticResource Eyebrow}" FontSize="12"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,4,12,0"
+                                           Text="Monte ou descend une ligne avec les flèches ; l'aperçu, plus bas, montre le résultat. L'ordre est enregistré, séparément pour « une ligne par catégorie » et pour « une ligne par métrique »."/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Ordre par défaut" Style="{StaticResource GhostButton}"
+                                    VerticalAlignment="Top" Command="{Binding ResetLineOrderCommand}"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding LineOrderItems}" Focusable="False" MaxWidth="520"
+                                      HorizontalAlignment="Left" Margin="0,12,0,0"
+                                      Visibility="{Binding HasLineOrderItems, Converter={StaticResource BoolToVisibility}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Padding="12,4,6,4" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Label}" Foreground="{Binding LabelBrush}"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource Body}"
+                                                       VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                                <Button Content="&#xE70E;" Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30"
+                                                        ToolTip="Monter cette ligne" Command="{Binding MoveUpCommand}"/>
+                                                <Button Content="&#xE70D;" Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30"
+                                                        Margin="4,0,0,0" ToolTip="Descendre cette ligne" Command="{Binding MoveDownCommand}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Aucune ligne à ordonner : coche des métriques ci-dessus." Style="{StaticResource Caption}"
+                                   Margin="0,12,0,0"
+                                   Visibility="{Binding HasLineOrderItems, Converter={StaticResource InverseBoolToVisibility}}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
