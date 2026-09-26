@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using PCPerfSuite.App.Interop;
 using PCPerfSuite.App.ViewModels;
 using PCPerfSuite.Core.PowerSettings;
@@ -80,6 +81,36 @@ public partial class MainWindow : Window
     }
 
     private void UpdateWindowShown() => _viewModel.IsWindowShown = IsVisible && WindowState != WindowState.Minimized;
+
+    /// <summary>Attente maximale de l'icône de la zone de notification au démarrage de Windows.</summary>
+    private static readonly TimeSpan TrayWait = TimeSpan.FromSeconds(45);
+
+    /// <summary>Démarrage par Windows (voir StartupTask) : la fenêtre reste cachée, l'app vit dans la zone de
+    /// notification, comme après un clic sur la croix. À l'ouverture de session, l'Explorateur n'a parfois pas fini de
+    /// créer la barre des tâches : l'icône s'inscrit alors dès qu'elle apparaît (message TaskbarCreated, voir
+    /// TrayIcon), et on l'attend un peu. Sans icône au bout du délai, la fenêtre s'ouvre : une app sans fenêtre ni
+    /// icône serait introuvable.</summary>
+    public void StartInTray()
+    {
+        if (_tray.IsAvailable) return;
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        DateTime deadline = DateTime.UtcNow + TrayWait;
+        timer.Tick += (_, _) =>
+        {
+            if (_tray.IsAvailable)
+            {
+                timer.Stop();
+                return;
+            }
+
+            if (DateTime.UtcNow < deadline) return;
+
+            timer.Stop();
+            if (!IsVisible) RestoreFromTray();
+        };
+        timer.Start();
+    }
 
     private void RestoreFromTray()
     {

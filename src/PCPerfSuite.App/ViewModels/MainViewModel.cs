@@ -122,8 +122,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsAppSettingsSelected));
         UpdateAttention();
 
-        // L'utilisateur a pu installer quelque chose depuis la dernière fois : on relit à l'ouverture des Paramètres.
-        if (IsAppSettingsSelected) _ = _installations.RefreshAsync();
+        // L'utilisateur a pu installer quelque chose, ou supprimer la tâche de démarrage dans le Planificateur de
+        // tâches, depuis la dernière fois : on relit à l'ouverture des Paramètres.
+        if (IsAppSettingsSelected)
+        {
+            _ = _installations.RefreshAsync();
+            _ = AppSettings.RefreshLaunchAtStartupAsync();
+        }
     }
 
     partial void OnIsWindowShownChanged(bool value) => UpdateAttention();

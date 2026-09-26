@@ -39,6 +39,29 @@
                                   IsChecked="{Binding MinimizeToTrayOnClose}"/>
                     </Grid>
                 </Border>
+
+                <!-- Démarrage de Windows : une tâche planifiée (voir StartupTask), la seule méthode qui lance une app
+                     exigeant les droits administrateur sans invite UAC à chaque ouverture de session. Grisé, avec sa
+                     raison dessous, quand ce PC ne permet pas de le modifier. -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                            <TextBlock Text="Lancer l'application au démarrage de Windows"
+                                       Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                     Text="PCPerfSuite démarre dans la zone de notification à l'ouverture de session, sans demande d'autorisation à chaque fois : PCPerfSuite a besoin des droits administrateur, alors Windows le lance par une tâche planifiée qui les porte, créée une seule fois quand tu actives l'option. Désactiver la supprime."/>
+                            <TextBox Text="{Binding LaunchAtStartupMessage}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
+                                     Foreground="{StaticResource WarnBrush}"
+                                     Visibility="{Binding LaunchAtStartupMessage, Converter={StaticResource NullToVisibility}}"/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                  IsChecked="{Binding LaunchAtStartup}" IsEnabled="{Binding CanChangeLaunchAtStartup}"/>
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <!-- Installations : les logiciels externes dont PCPerfSuite a besoin, leur état, et de quoi les installer.

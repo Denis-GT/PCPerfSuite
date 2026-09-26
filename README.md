@@ -40,8 +40,8 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
 - **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
-  onglets : Général (zone de notification), Installations (voir plus bas), Compatibilité de
-  ce PC (voir plus bas) et Thèmes (à venir).
+  onglets : Général (zone de notification, lancement au démarrage de Windows), Installations
+  (voir plus bas), Compatibilité de ce PC (voir plus bas) et Thèmes (à venir).
 - **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit, rangés par catégorie
   (processeur, pompe, carte graphique, boîtier…) sur deux colonnes : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
@@ -297,6 +297,14 @@ lui, couvre NVIDIA, AMD et Intel.
   automatiquement au lancement — Windows affichera l'invite UAC. Sans ça, la plupart des
   capteurs et tous les réglages système resteront inaccessibles (l'app te le signale dans
   l'interface plutôt que de planter).
+- **Lancement au démarrage de Windows** (Paramètres › Général) : l'app exigeant les droits
+  administrateur, ni la clé de registre « Run » ni le dossier Démarrage ne conviennent (Windows
+  bloque ces lancements, ou il faudrait accepter une invite UAC à chaque ouverture de session).
+  L'option crée, une seule fois, une tâche planifiée « à l'ouverture de session, avec les
+  autorisations maximales » ; le Planificateur de tâches lance ensuite l'app directement avec le
+  jeton administrateur de la session, sans invite, et elle démarre dans la zone de notification.
+  Désactiver l'option supprime la tâche. L'option est grisée, avec sa raison, si l'app n'est pas
+  lancée en administrateur ou si elle tourne sous un autre compte que celui de la session.
 - **Pilote PawnIO** : les capteurs bas niveau et la limite de puissance du processeur passent
   par [PawnIO](https://pawnio.eu/), un pilote signé et à jour. Il remplace WinRing0, que Windows
   Defender signale depuis 2025 comme pilote vulnérable (CVE-2020-14979) et que la liste de blocage

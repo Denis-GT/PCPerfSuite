@@ -125,6 +125,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             : new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount,
                 "L'app tourne sous le compte de la session : fichiers temporaires et caches nettoyés sont bien ceux de cet utilisateur.", true);
 
+        yield return StartupRow();
+
         yield return AppSettingsStore.LastError is { } settingsError
             ? new CompatibilityRow("Enregistrement des réglages", "En échec", settingsError, false)
             : new CompatibilityRow("Enregistrement des réglages", "OK",
@@ -196,6 +198,27 @@ public sealed partial class CompatibilityViewModel : ObservableObject
                 (PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.")
                 + " À installer depuis Paramètres › Installations (bouton « Installer »).", false),
         };
+    }
+
+    /// <summary>Lancement au démarrage de Windows (Paramètres › Général) : activé, désactivé, ou indisponible avec sa
+    /// raison. « Désactivé » est un choix, pas un défaut : il n'est marqué comme problème que s'il est impossible à
+    /// activer.</summary>
+    private static CompatibilityRow StartupRow()
+    {
+        const string title = "Lancement au démarrage de Windows";
+        StartupTaskInfo info = StartupTask.Read();
+
+        if (info.IsEnabled)
+        {
+            string detail = $"La tâche planifiée « {StartupTask.TaskName} » lance {info.Target ?? "PCPerfSuite"} à l'ouverture de " +
+                            "session, avec les droits administrateur et sans demande d'autorisation.";
+            if (info.UnavailableReason is { } reason) detail += $" Modification impossible ici : {reason}";
+            return new CompatibilityRow(title, "Activé", detail, true);
+        }
+
+        return info.UnavailableReason is { } unavailable
+            ? new CompatibilityRow(title, "Indisponible", unavailable, false)
+            : new CompatibilityRow(title, "Désactivé", "Non activé : Paramètres › Général propose de lancer PCPerfSuite à l'ouverture de session.", true);
     }
 
     private CompatibilityRow RtssRow()
