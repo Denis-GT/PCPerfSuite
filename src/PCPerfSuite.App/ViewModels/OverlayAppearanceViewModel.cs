@@ -134,8 +134,8 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
             .Select(c => new OverlayColorSlotViewModel(
                 c.Key,
                 c.Name,
-                c.DefaultColor,
-                saved.TryGetValue(c.Key, out string? color) ? color : c.DefaultColor,
+                c.OverlayColor,
+                saved.TryGetValue(c.Key, out string? color) ? color : c.OverlayColor,
                 onChanged))
             .ToList();
     }
