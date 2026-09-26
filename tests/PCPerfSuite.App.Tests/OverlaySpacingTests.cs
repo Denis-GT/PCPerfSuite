@@ -10,8 +10,8 @@ public class OverlaySpacingTests
     private const string Wide = "  ";
     private const string Tight = " ";
 
-    private static OverlayLine SingleLine(bool subLabels, params string[] ids)
-        => Assert.Single(OverlayComposer.Build(TestData.Selection(ids), oneLinePerMetric: false, TestData.Colors, subLabels));
+    private static OverlayLine SingleLine(params string[] ids)
+        => Assert.Single(OverlayComposer.Build(TestData.Selection(ids), oneLinePerMetric: false, TestData.Colors));
 
     private static string[] Gaps(OverlayLine line) => line.Cells.Select(c => c.Gap).ToArray();
 
@@ -26,7 +26,7 @@ public class OverlaySpacingTests
     [Fact]
     public void PlainValues_AreOneSpaceApart_AfterTwoSpacesFromTheLabel()
     {
-        OverlayLine cpu = SingleLine(true, "cpu.load", "cpu.temp.package", "cpu.power", "cpu.clock.max");
+        OverlayLine cpu = SingleLine("cpu.load", "cpu.temp.package", "cpu.power", "cpu.clock.max");
 
         Assert.Equal(new[] { Wide, Tight, Tight, Tight }, Gaps(cpu));
     }
@@ -35,7 +35,7 @@ public class OverlaySpacingTests
     public void Rates_KeepTwoSpacesOnBothSides()
     {
         // Charge, lecture, écriture, température : un débit, le suivant, puis la valeur qui les suit.
-        OverlayLine disk = SingleLine(true, "storage.load", "storage.read", "storage.write", "storage.temp.max");
+        OverlayLine disk = SingleLine("storage.load", "storage.read", "storage.write", "storage.temp.max");
 
         Assert.Equal(new[] { Wide, Wide, Wide, Wide }, Gaps(disk));
     }
@@ -43,7 +43,7 @@ public class OverlaySpacingTests
     [Fact]
     public void ValueBeforeARate_StaysCloseToItsNeighbours()
     {
-        OverlayLine disk = SingleLine(true, "storage.load", "storage.temp.max");
+        OverlayLine disk = SingleLine("storage.load", "storage.temp.max");
 
         Assert.Equal(new[] { Wide, Tight }, Gaps(disk));
     }
@@ -51,27 +51,19 @@ public class OverlaySpacingTests
     [Fact]
     public void NetworkRates_AreTwoSpacesApart()
     {
-        OverlayLine net = SingleLine(true, "net.upload", "net.download");
+        OverlayLine net = SingleLine("net.upload", "net.download");
 
         Assert.Equal(new[] { Wide, Wide }, Gaps(net));
     }
 
     [Fact]
-    public void MemoryLine_WithSubLabels_UsesOneSpaceAfterEachSubLabel()
+    public void VramAndRamLines_AreSpacedLikeAnyOtherLine()
     {
-        OverlayLine mem = SingleLine(true, "gpu.clock.memory", "gpu.vram.used", "ram.used", "ram.load");
+        List<OverlayLine> lines = OverlayComposer.Build(
+            TestData.Selection("gpu.clock.memory", "gpu.vram.used", "ram.load", "ram.used"), oneLinePerMetric: false, TestData.Colors);
 
-        // Le sous-libellé apporte lui-même les deux espaces qui le précèdent.
-        Assert.Equal(new[] { "VRAM", null, "RAM", null }, mem.Cells.Select(c => c.Prefix));
-        Assert.Equal(new[] { Tight, Tight, Tight, Tight }, Gaps(mem));
-    }
-
-    [Fact]
-    public void MemoryLine_WithoutSubLabels_StillSeparatesTheTwoGroups()
-    {
-        OverlayLine mem = SingleLine(false, "gpu.clock.memory", "gpu.vram.used", "ram.used", "ram.load");
-
-        Assert.Equal(new[] { Wide, Tight, Wide, Tight }, Gaps(mem));
+        Assert.Equal(new[] { "vram", "ram" }, lines.Select(l => l.Key));
+        Assert.All(lines, line => Assert.Equal(new[] { Wide, Tight }, Gaps(line)));
     }
 
     [Fact]
@@ -128,7 +120,7 @@ public class OverlaySpacingTests
     }
 
     [Fact]
-    public void RtssText_MemoryLine_PutsOneSpaceBetweenSubLabelAndValue()
+    public void RtssText_PutsVramAndRamOnTwoLines()
     {
         MetricSample sample = TestData.Sample();
         List<OverlayLine> lines = OverlayComposer.Build(
@@ -137,6 +129,6 @@ public class OverlaySpacingTests
         OverlayComposer.Update(lines, sample);
         string text = OverlayComposer.ToRtssText(lines, withColors: false, sizePercent: 100, new RtssColumnWidths());
 
-        Assert.Equal("<A=3>MEM<A>  VRAM <A=-4>8200<A><A=3> Mo<A>  RAM <A=-2>39<A><A=1>%<A>", text);
+        Assert.Equal("<A=4>VRAM<A>  <A=-4>8200<A><A=3> Mo<A>\n<A=4>RAM<A>  <A=-2>39<A><A=1>%<A>", text);
     }
 }

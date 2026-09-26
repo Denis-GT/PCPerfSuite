@@ -63,8 +63,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private List<string> _categoryOrder;
     private List<string> _metricOrder;
 
-    /// <summary>Valeurs de la ligne MEM que ce PC ne fournit pas au dernier rendu : quand cet ensemble change (un
-    /// GPU dédié de portable qui se réveille, par exemple), la ligne est reconstruite.</summary>
+    /// <summary>Valeurs des lignes VRAM et RAM que ce PC ne fournit pas au dernier rendu : quand cet ensemble change
+    /// (un GPU dédié de portable qui se réveille, par exemple), les lignes sont reconstruites.</summary>
     private HashSet<string> _unavailableMemoryIds = new();
     private bool _structureDirty = true;
     private int _samplesSinceRender;
@@ -75,7 +75,6 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool useRtss;
     [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
-    [ObservableProperty] private bool memorySubLabels;
     [ObservableProperty] private bool isRtssDetected;
 
     /// <summary>Faux quand aucune ligne n'est affichée (rien de coché) : la liste d'ordre le dit au lieu de rester vide.</summary>
@@ -135,7 +134,6 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         useRtss = settings.UseRtss;
         useWindow = settings.UseWindow;
         oneLinePerMetric = settings.OneLinePerMetric;
-        memorySubLabels = settings.MemorySubLabels;
         _refreshMs = RefreshRates.Clamp(settings.RefreshMs);
 
         Metrics = new MetricSelectionViewModel(settings.MetricIds ?? LegacyMetricIds(settings));
@@ -190,8 +188,6 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     partial void OnUseWindowChanged(bool value) => OnDisplayOptionsChanged();
 
     partial void OnOneLinePerMetricChanged(bool value) => OnDisplayOptionsChanged();
-
-    partial void OnMemorySubLabelsChanged(bool value) => OnDisplayOptionsChanged();
 
     private void OnDisplayOptionsChanged()
     {
@@ -302,7 +298,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     {
         if (_lastSample is null) return;
 
-        // Seule la ligne MEM dépend du relevé pour sa structure, et seulement en mode une ligne par catégorie.
+        // Seules les lignes VRAM et RAM dépendent du relevé pour leur structure, et seulement en mode une ligne par
+        // catégorie.
         HashSet<string> unavailable = OneLinePerMetric
             ? new HashSet<string>()
             : OverlayComposer.UnavailableMemoryIds(Metrics.Selected, _lastSample);
@@ -322,8 +319,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
             Lines.Clear();
             foreach (OverlayLine line in OverlayComposer.Build(
-                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels, CurrentOrder,
-                         _unavailableMemoryIds))
+                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), CurrentOrder, _unavailableMemoryIds))
             {
                 Lines.Add(line);
             }
@@ -392,7 +388,6 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         settings.Overlay.UseRtss = UseRtss;
         settings.Overlay.UseWindow = UseWindow;
         settings.Overlay.OneLinePerMetric = OneLinePerMetric;
-        settings.Overlay.MemorySubLabels = MemorySubLabels;
         settings.Overlay.RefreshMs = RefreshMs;
         settings.Overlay.MetricIds = Metrics.SelectedIds;
         settings.Overlay.LineOrder = StoredOrder(_categoryOrder, CategoryKeys);

@@ -11,8 +11,8 @@ public class OverlayGameLineTests
     private static readonly string[] AllGameIds =
         { "game.fps", "game.fps.avg", "game.fps.low1", "game.fps.low01", "game.frametime" };
 
-    private static OverlayLine GameLine(bool subLabels = true)
-        => Assert.Single(OverlayComposer.Build(TestData.Selection(AllGameIds), oneLinePerMetric: false, TestData.Colors, subLabels));
+    private static OverlayLine GameLine()
+        => Assert.Single(OverlayComposer.Build(TestData.Selection(AllGameIds), oneLinePerMetric: false, TestData.Colors));
 
     private static MetricSample InGame()
         => TestData.Sample(game: new RtssFrameStats(Fps: 144, FrameTimeMs: 7.0, AverageFps: 138, OnePercentLowFps: 95, PointOnePercentLowFps: 80, SampleCount: 1024));
@@ -53,10 +53,6 @@ public class OverlayGameLineTests
         Assert.Equal("JEU", jeu.Label);
         Assert.Equal(new[] { "FPS", "MOY", "1%", "0.1%", null }, jeu.Cells.Select(c => c.Prefix));
     }
-
-    [Fact]
-    public void GameLine_LabelsDoNotDependOnTheMemorySubLabelSwitch()
-        => Assert.Equal(new[] { "FPS", "MOY", "1%", "0.1%", null }, GameLine(subLabels: false).Cells.Select(c => c.Prefix));
 
     [Fact]
     public void GameLine_DoesNotRepeatTheFpsUnit_ButKeepsMilliseconds()

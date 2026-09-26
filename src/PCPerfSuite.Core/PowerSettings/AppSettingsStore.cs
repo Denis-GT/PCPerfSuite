@@ -208,16 +208,13 @@ public sealed class OverlaySettings
     /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
     public bool OneLinePerMetric { get; set; }
 
-    /// <summary>Ordre des lignes en mode une ligne par catégorie : clés de catégorie (« ram » pour la ligne MEM).
-    /// Null tant que l'utilisateur n'a rien déplacé : c'est alors l'ordre du catalogue.</summary>
+    /// <summary>Ordre des lignes en mode une ligne par catégorie : clés de catégorie (« vram » pour la ligne de la
+    /// mémoire du GPU). Null tant que l'utilisateur n'a rien déplacé : c'est alors l'ordre du catalogue.</summary>
     public List<string>? LineOrder { get; set; }
 
     /// <summary>Ordre des lignes en mode une ligne par métrique : identifiants du catalogue de métriques.
     /// Null tant que l'utilisateur n'a rien déplacé.</summary>
     public List<string>? MetricLineOrder { get; set; }
-
-    /// <summary>Sur la ligne MEM (mémoire du GPU + RAM), fait précéder chaque groupe de « VRAM » / « RAM ».</summary>
-    public bool MemorySubLabels { get; set; } = true;
 
     /// <summary>Cadence de rafraîchissement de l'overlay, en millisecondes. Plancher : la cadence du
     /// monitoring, qui est la source des valeurs.</summary>
