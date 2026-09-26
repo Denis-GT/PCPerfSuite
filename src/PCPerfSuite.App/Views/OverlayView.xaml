@@ -150,7 +150,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Une ligne par métrique" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM ; ce que ce PC ne fournit pas (pas de GPU dédié, par exemple) n'y figure pas, et la ligne disparaît si rien n'est disponible." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM ; ce que ce PC ne fournit pas (pas de GPU dédié, par exemple) n'y figure pas, et la ligne disparaît si rien n'est disponible. Sur la ligne JEU, chaque FPS est précédé de son libellé : « JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OneLinePerMetric}" VerticalAlignment="Center"/>
                         </Grid>

@@ -9,19 +9,25 @@ namespace PCPerfSuite.App.Overlay;
 /// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
 public sealed partial class OverlayCell : ObservableObject
 {
-    public OverlayCell(MetricDefinition metric, int column, string? prefix = null, string gap = OverlayComposer.WideGap)
+    public OverlayCell(
+        MetricDefinition metric, int column, string? prefix = null, string gap = OverlayComposer.WideGap, bool showUnit = true)
     {
         Metric = metric;
         Prefix = prefix;
         Gap = gap;
+        ShowUnit = showUnit;
         ValueGroup = $"value{column}";
         UnitGroup = $"unit{column}";
     }
 
     public MetricDefinition Metric { get; }
 
-    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM) ; null pour la plupart des cellules.</summary>
+    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM, « MOY », « 1% » sur la ligne
+    /// JEU) ; null pour la plupart des cellules.</summary>
     public string? Prefix { get; }
+
+    /// <summary>Faux quand le libellé de la cellule tient lieu d'unité (« MOY 138 » et non « MOY 138 FPS »).</summary>
+    public bool ShowUnit { get; }
 
     /// <summary>Espaces entre ce qui précède (libellé de ligne, cellule ou sous-libellé) et la valeur. Choisis par
     /// <see cref="OverlayComposer"/> : resserrés dans une même ligne, sauf autour des débits disque et réseau.</summary>
@@ -39,7 +45,7 @@ public sealed partial class OverlayCell : ObservableObject
         MetricReading reading = Metric.Read(sample);
         Value = reading.Value;
         // Comme MetricReading.Text : "%" et "°C" collés au nombre, les autres unités séparées d'une espace.
-        Unit = reading.Unit is "" or "%" or "°C" ? reading.Unit : " " + reading.Unit;
+        Unit = !ShowUnit ? "" : reading.Unit is "" or "%" or "°C" ? reading.Unit : " " + reading.Unit;
     }
 }
 
@@ -142,7 +148,7 @@ public static class OverlayComposer
                     Label = group.Key.OsdLabel,
                     LabelColorHex = colors.CategoryColor(group.Key),
                     ValueColorHex = colors.ValueColor,
-                    Cells = BuildCells(group.ToArray(), _ => null, _ => false),
+                    Cells = BuildCategoryCells(group.ToArray()),
                 })
             .OfType<OverlayLine>()
             .ToList();
@@ -203,7 +209,17 @@ public static class OverlayComposer
         };
     }
 
-    /// <summary>Les cellules d'une ligne, chacune avec son espacement (voir <see cref="GapBefore"/>).</summary>
+    /// <summary>Cellules d'une ligne de catégorie ordinaire. Sur la ligne JEU, où chaque FPS porte son libellé
+    /// (« FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »), chaque valeur forme son propre groupe : le temps de frame, qui
+    /// n'en a pas, reste ainsi séparé du dernier libellé plutôt que de s'y coller.</summary>
+    private static OverlayCell[] BuildCategoryCells(MetricDefinition[] metrics)
+    {
+        bool labelled = metrics.Any(m => m.LineLabel is not null);
+        return BuildCells(metrics, metric => metric.LineLabel, _ => labelled);
+    }
+
+    /// <summary>Les cellules d'une ligne, chacune avec son espacement (voir <see cref="GapBefore"/>). Une valeur dont le
+    /// libellé (<see cref="MetricDefinition.LineLabel"/>) tient lieu d'unité n'affiche pas cette unité.</summary>
     /// <param name="prefixFor">Sous-libellé d'une cellule, null si elle n'en a pas.</param>
     /// <param name="opensGroup">Vrai pour la première cellule d'un groupe (début de la VRAM, début de la RAM).</param>
     private static OverlayCell[] BuildCells(
@@ -215,7 +231,11 @@ public static class OverlayComposer
             MetricDefinition metric = metrics[i];
             string? prefix = prefixFor(metric);
             cells[i] = new OverlayCell(
-                metric, i, prefix, GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup(metric), prefix is not null));
+                metric,
+                i,
+                prefix,
+                GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup(metric), prefix is not null),
+                showUnit: metric.LineLabel is null);
         }
         return cells;
     }

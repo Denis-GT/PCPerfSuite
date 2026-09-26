@@ -147,6 +147,7 @@ public static class PowerMetricCatalog
         Label = definition.Label,
         OsdLabel = definition.OsdLabel,
         Description = description,
+        LineLabel = definition.LineLabel,
         IsPercent = definition.IsPercent,
         IsRate = definition.IsRate,
         IsSigned = definition.IsSigned,

@@ -96,6 +96,10 @@ que RTSS tient à jour — la même matière première que les outils de benchma
 affiché qu'avec assez d'images derrière lui (100 pour le 1%, 1000 pour le 0.1%) : sinon la valeur
 reste à `--` plutôt que d'annoncer un chiffre inventé.
 
+Sur la ligne JEU, chaque valeur de FPS est précédée de son libellé — `FPS`, `MOY`, `1%`, `0.1%` —
+qui tient lieu d'unité (« JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms ») ; le temps de frame
+garde son unité, sans libellé.
+
 ## Overclocking GPU
 
 Chaque marque passe par l'API officielle livrée avec son pilote, sans pilote ni service

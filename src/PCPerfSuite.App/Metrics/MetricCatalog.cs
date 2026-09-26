@@ -59,6 +59,11 @@ public sealed class MetricDefinition
     /// <summary>Précisions sur la métrique, en infobulle dans les sélecteurs (Monitoring et overlay).</summary>
     public string? Description { get; init; }
 
+    /// <summary>Libellé court qui précède la valeur sur la ligne de sa catégorie (« MOY », « 1% »), pour distinguer
+    /// des valeurs de même unité (les FPS). Il tient lieu d'unité : celle-ci n'est alors pas répétée. Null : la valeur
+    /// s'affiche seule, avec son unité. Sans effet en mode une ligne par métrique, où <see cref="OsdLabel"/> fait déjà ce travail.</summary>
+    public string? LineLabel { get; init; }
+
     public bool IsPercent { get; init; }
 
     /// <summary>Débit en octets par seconde (disque, réseau) : sa valeur change de largeur et d'unité (Ko/s, Mo/s…)
@@ -228,10 +233,10 @@ public static class MetricCatalog
         Rate("net.upload", Network, "Débit montant total", "envoi", NetworkRateFloor, s => s.Hardware.Network.UploadBytesPerSecond),
         Rate("net.download", Network, "Débit descendant total", "recep", NetworkRateFloor, s => s.Hardware.Network.DownloadBytesPerSecond),
 
-        Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps, hint: GameHint),
-        Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps, hint: GameHint),
-        Numeric("game.fps.low1", Game, "FPS 1% low", "1%", "FPS", "0", s => s.Game?.OnePercentLowFps, hint: GameHint),
-        Numeric("game.fps.low01", Game, "FPS 0.1% low", "0.1%", "FPS", "0", s => s.Game?.PointOnePercentLowFps, hint: GameHint),
+        Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps, hint: GameHint, lineLabel: "FPS"),
+        Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps, hint: GameHint, lineLabel: "MOY"),
+        Numeric("game.fps.low1", Game, "FPS 1% low", "1%", "FPS", "0", s => s.Game?.OnePercentLowFps, hint: GameHint, lineLabel: "1%"),
+        Numeric("game.fps.low01", Game, "FPS 0.1% low", "0.1%", "FPS", "0", s => s.Game?.PointOnePercentLowFps, hint: GameHint, lineLabel: "0.1%"),
         Numeric("game.frametime", Game, "Temps de frame", "frame", "ms", "0.0", s => s.Game?.FrameTimeMs, hint: GameHint),
 
         new MetricDefinition
@@ -263,7 +268,8 @@ public static class MetricCatalog
     };
 
     internal static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
-        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null, string? hint = null)
+        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null, string? hint = null,
+        string? lineLabel = null)
     {
         // Une seule expression de mise en forme, partagée par la valeur courante et par un point d'historique :
         // le repère du graphique ne peut donc pas afficher un nombre différent du grand chiffre de la tuile.
@@ -275,6 +281,7 @@ public static class MetricCatalog
             Category = category,
             Label = label,
             OsdLabel = osdLabel,
+            LineLabel = lineLabel,
             IsPercent = unit == "%",
             ReadGroup = group ?? GroupFor(id, category),
             UnavailableHint = hint ?? DefaultUnavailableHint,
