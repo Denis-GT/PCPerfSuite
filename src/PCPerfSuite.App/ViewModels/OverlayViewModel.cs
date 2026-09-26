@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Overlay;
 using PCPerfSuite.App.Utils;
@@ -9,6 +11,27 @@ using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
+
+/// <summary>Une ligne de la liste qui règle l'ordre des lignes de l'overlay : son libellé tel qu'il s'affiche en
+/// jeu, son nom lisible et les boutons monter / descendre (désactivés aux extrémités). Reconstruite à chaque
+/// changement de l'ordre : rien n'y bouge, donc rien à notifier.</summary>
+public sealed class OverlayLineOrderItemViewModel
+{
+    public OverlayLineOrderItemViewModel(OverlayLine line, bool canMoveUp, bool canMoveDown, Action<string, int> move)
+    {
+        Label = line.Label;
+        Title = line.Title;
+        LabelBrush = line.LabelBrush;
+        MoveUpCommand = new RelayCommand(() => move(line.Key, -1), () => canMoveUp);
+        MoveDownCommand = new RelayCommand(() => move(line.Key, 1), () => canMoveDown);
+    }
+
+    public string Label { get; }
+    public string Title { get; }
+    public Brush LabelBrush { get; }
+    public IRelayCommand MoveUpCommand { get; }
+    public IRelayCommand MoveDownCommand { get; }
+}
 
 /// <summary>
 /// Overlay en jeu (onglet "Overlay") : met en forme les métriques choisies (même catalogue que "Mes
@@ -34,6 +57,11 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private readonly MonitoringViewModel _monitoring;
     private readonly SampleHistory _renderGapsMs = new(CadenceWindow);
     private MetricSample? _lastSample;
+
+    /// <summary>Ordre des lignes, un par mode d'affichage : ce que règle la liste de l'onglet et qui est enregistré.
+    /// Chacun est complété à chaque reconstruction avec ce que le catalogue a gagné entre-temps.</summary>
+    private List<string> _categoryOrder;
+    private List<string> _metricOrder;
     private bool _structureDirty = true;
     private int _samplesSinceRender;
     private long _lastRenderTimestamp;
@@ -45,6 +73,9 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool oneLinePerMetric;
     [ObservableProperty] private bool memorySubLabels;
     [ObservableProperty] private bool isRtssDetected;
+
+    /// <summary>Faux quand aucune ligne n'est affichée (rien de coché) : la liste d'ordre le dit au lieu de rester vide.</summary>
+    [ObservableProperty] private bool hasLineOrderItems;
 
     /// <summary>Change quand les colonnes doivent repartir de zéro (métriques, mode, police) : les largeurs
     /// mémorisées par l'affichage sont alors oubliées.</summary>
@@ -84,6 +115,9 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     /// Reconstruites seulement quand un réglage change ; les relevés ne font que mettre à jour leurs valeurs.</summary>
     public ObservableCollection<OverlayLine> Lines { get; } = new();
 
+    /// <summary>Les mêmes lignes, une entrée par ligne affichée, avec leurs boutons monter / descendre.</summary>
+    public ObservableCollection<OverlayLineOrderItemViewModel> LineOrderItems { get; } = new();
+
     /// <summary>Signalé quand la géométrie de l'overlay change (ancrage, marges, police) : la fenêtre
     /// se replace.</summary>
     public event Action? LayoutChanged;
@@ -102,6 +136,9 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
         Metrics = new MetricSelectionViewModel(settings.MetricIds ?? LegacyMetricIds(settings));
         Metrics.SelectionChanged += OnDisplayOptionsChanged;
+
+        _categoryOrder = OverlayLineOrder.Merge(settings.LineOrder, CategoryKeys);
+        _metricOrder = OverlayLineOrder.Merge(settings.MetricLineOrder, MetricKeys);
 
         Appearance = new OverlayAppearanceViewModel(
             settings.Appearance ?? new OverlayAppearanceSettings(),
@@ -157,6 +194,50 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         _structureDirty = true;
         Persist();
         Render();
+    }
+
+    /// <summary>Clés des lignes par catégorie, dans l'ordre du catalogue.</summary>
+    private static IReadOnlyList<string> CategoryKeys => OverlayComposer.CatalogCategoryOrder;
+
+    /// <summary>Identifiants des métriques proposées, dans l'ordre du catalogue (il grandit quand une métrique
+    /// propre à la machine est découverte).</summary>
+    private IReadOnlyList<string> MetricKeys => Metrics.Definitions.Select(m => m.Id).ToList();
+
+    private List<string> CurrentOrder => OneLinePerMetric ? _metricOrder : _categoryOrder;
+
+    private IReadOnlyList<string> CurrentCatalogKeys => OneLinePerMetric ? MetricKeys : CategoryKeys;
+
+    private void MoveLine(string key, int direction)
+    {
+        List<string> moved = OverlayLineOrder.Move(CurrentOrder, Lines.Select(line => line.Key), key, direction);
+        if (OneLinePerMetric) _metricOrder = moved;
+        else _categoryOrder = moved;
+
+        OnDisplayOptionsChanged();
+    }
+
+    private bool CanResetLineOrder() => !OverlayLineOrder.IsDefault(CurrentOrder, CurrentCatalogKeys);
+
+    /// <summary>Remet l'ordre du catalogue pour le mode affiché ; l'autre mode garde le sien.</summary>
+    [RelayCommand(CanExecute = nameof(CanResetLineOrder))]
+    private void ResetLineOrder()
+    {
+        if (OneLinePerMetric) _metricOrder = OverlayLineOrder.Merge(null, MetricKeys);
+        else _categoryOrder = OverlayLineOrder.Merge(null, CategoryKeys);
+
+        OnDisplayOptionsChanged();
+    }
+
+    private void RebuildLineOrderItems()
+    {
+        LineOrderItems.Clear();
+        for (int i = 0; i < Lines.Count; i++)
+        {
+            LineOrderItems.Add(new OverlayLineOrderItemViewModel(Lines[i], canMoveUp: i > 0, canMoveDown: i < Lines.Count - 1, MoveLine));
+        }
+
+        HasLineOrderItems = LineOrderItems.Count > 0;
+        ResetLineOrderCommand.NotifyCanExecuteChanged();
     }
 
     private void OnAppearanceLayoutChanged()
@@ -220,11 +301,18 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         if (_structureDirty)
         {
             _structureDirty = false;
+
+            // Une métrique découverte depuis le dernier rendu (batterie, conso totale) trouve sa place dans l'ordre.
+            _categoryOrder = OverlayLineOrder.Merge(_categoryOrder, CategoryKeys);
+            _metricOrder = OverlayLineOrder.Merge(_metricOrder, MetricKeys);
+
             Lines.Clear();
-            foreach (OverlayLine line in OverlayComposer.Build(Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels))
+            foreach (OverlayLine line in OverlayComposer.Build(
+                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels, CurrentOrder))
             {
                 Lines.Add(line);
             }
+            RebuildLineOrderItems();
             _rtssWidths.Reset();
             LayoutVersion++;
         }
@@ -292,6 +380,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         settings.Overlay.MemorySubLabels = MemorySubLabels;
         settings.Overlay.RefreshMs = RefreshMs;
         settings.Overlay.MetricIds = Metrics.SelectedIds;
+        settings.Overlay.LineOrder = StoredOrder(_categoryOrder, CategoryKeys);
+        settings.Overlay.MetricLineOrder = StoredOrder(_metricOrder, MetricKeys);
 
         OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();
         Appearance.WriteTo(appearance);
@@ -302,6 +392,11 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         settings.Overlay.ShowRam = null;
         AppSettingsStore.Save(settings);
     }
+
+    /// <summary>Null tant que l'ordre est celui du catalogue : le fichier ne garde que ce que l'utilisateur a
+    /// vraiment réglé, et une liste jamais touchée suit le catalogue quand il change.</summary>
+    private static List<string>? StoredOrder(List<string> order, IReadOnlyList<string> catalogKeys)
+        => OverlayLineOrder.IsDefault(order, catalogKeys) ? null : order.ToList();
 
     /// <summary>Libère le créneau OSD et ferme la fenêtre à la fermeture de l'app, pour ne pas laisser un
     /// texte périmé affiché dans les jeux une fois PCPerfSuite fermé.</summary>

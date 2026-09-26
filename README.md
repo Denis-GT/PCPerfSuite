@@ -81,7 +81,9 @@ Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
    bordure, c'est-à-dire la grande majorité des jeux récents, elle fonctionne.
 
 Réglages disponibles : métriques affichées (même catalogue que le Monitoring), une ligne
-par métrique ou une ligne par catégorie façon Afterburner, **cadence propre à l'overlay**
+par métrique ou une ligne par catégorie façon Afterburner, **l'ordre des lignes** (flèches
+monter / descendre dans l'onglet, enregistré séparément pour chacun des deux modes),
+**cadence propre à l'overlay**
 (indépendante de celle du Monitoring, sans pouvoir aller plus vite que lui puisque les
 valeurs en viennent), police, taille, **une couleur par catégorie** (CPU, GPU, RAM, NET…)
 pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran

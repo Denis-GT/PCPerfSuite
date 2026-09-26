@@ -40,6 +40,13 @@ public sealed partial class OverlayCell : ObservableObject
 
 public sealed class OverlayLine
 {
+    /// <summary>Clé stable de la ligne dans l'ordre enregistré : clé de catégorie (« ram » pour la ligne MEM) ou
+    /// identifiant de métrique en mode une ligne par métrique.</summary>
+    public required string Key { get; init; }
+
+    /// <summary>Nom lisible de la ligne, pour la liste qui règle leur ordre.</summary>
+    public required string Title { get; init; }
+
     public required string Label { get; init; }
     public required string LabelColorHex { get; init; }
     public required string ValueColorHex { get; init; }
@@ -75,54 +82,62 @@ public static class OverlayComposer
     /// <summary>Libellé de la ligne qui regroupe la mémoire du GPU et la RAM.</summary>
     private const string MemoryLabel = "MEM";
 
+    /// <summary>Nom de la ligne MEM dans la liste d'ordre des lignes.</summary>
+    private const string MemoryTitle = "Mémoire (GPU et RAM)";
+
+    /// <param name="lineOrder">Ordre des lignes : clés de catégorie, ou identifiants de métrique en mode une ligne
+    /// par métrique (voir <see cref="OverlayLineOrder"/>). Null : l'ordre du catalogue.</param>
     public static List<OverlayLine> Build(
         IReadOnlyList<MetricDefinition> metrics,
         bool oneLinePerMetric,
         OverlayColorScheme colors,
-        bool memorySubLabels = true)
+        bool memorySubLabels = true,
+        IReadOnlyList<string>? lineOrder = null)
     {
         if (oneLinePerMetric)
         {
-            return metrics
+            List<OverlayLine> perMetric = metrics
                 .Select(metric => new OverlayLine
                 {
+                    Key = metric.Id,
+                    Title = metric.Label,
                     Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
                     LabelColorHex = colors.CategoryColor(metric.Category),
                     ValueColorHex = colors.ValueColor,
                     Cells = new[] { new OverlayCell(metric, 0) },
                 })
                 .ToList();
+
+            return lineOrder is null ? perMetric : OverlayLineOrder.Sort(perMetric, line => line.Key, lineOrder);
         }
 
         // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W". La mémoire du GPU quitte la
-        // ligne GPU pour rejoindre la RAM sur une ligne MEM ; le tri par position de catégorie la garde sous GPU.
-        return metrics
+        // ligne GPU pour rejoindre la RAM sur une ligne MEM, qui porte la clé de la RAM : elle suit donc la
+        // catégorie RAM dans l'ordre, sous GPU par défaut.
+        List<OverlayLine> perCategory = metrics
             .GroupBy(LineCategory)
-            .OrderBy(group => IndexOf(group.Key))
             .Select(group => group.Key == MetricCatalog.Ram
                 ? BuildMemoryLine(group, colors, memorySubLabels)
                 : new OverlayLine
                 {
+                    Key = group.Key.Key,
+                    Title = group.Key.Name,
                     Label = group.Key.OsdLabel,
                     LabelColorHex = colors.CategoryColor(group.Key),
                     ValueColorHex = colors.ValueColor,
                     Cells = group.Select((metric, column) => new OverlayCell(metric, column)).ToArray(),
                 })
             .ToList();
+
+        return OverlayLineOrder.Sort(perCategory, line => line.Key, lineOrder ?? CatalogCategoryOrder);
     }
+
+    /// <summary>Ordre par défaut des lignes par catégorie : celui du catalogue.</summary>
+    public static IReadOnlyList<string> CatalogCategoryOrder { get; } = MetricCatalog.Categories.Select(c => c.Key).ToArray();
 
     /// <summary>Catégorie de la ligne d'une métrique : la mémoire du GPU est rangée avec la RAM.</summary>
     private static MetricCategory LineCategory(MetricDefinition metric)
         => MetricCatalog.GpuMemoryIds.Contains(metric.Id) ? MetricCatalog.Ram : metric.Category;
-
-    private static int IndexOf(MetricCategory category)
-    {
-        for (int i = 0; i < MetricCatalog.Categories.Count; i++)
-        {
-            if (MetricCatalog.Categories[i] == category) return i;
-        }
-        return int.MaxValue;
-    }
 
     /// <summary>Ligne MEM : d'abord la mémoire du GPU, puis la RAM, chaque groupe précédé de son sous-libellé si demandé.</summary>
     private static OverlayLine BuildMemoryLine(IEnumerable<MetricDefinition> metrics, OverlayColorScheme colors, bool subLabels)
@@ -143,6 +158,8 @@ public static class OverlayComposer
 
         return new OverlayLine
         {
+            Key = MetricCatalog.Ram.Key,
+            Title = MemoryTitle,
             Label = MemoryLabel,
             LabelColorHex = colors.CategoryColor(MetricCatalog.Ram),
             ValueColorHex = colors.ValueColor,
