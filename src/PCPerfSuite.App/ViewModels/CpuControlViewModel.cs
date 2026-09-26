@@ -258,6 +258,14 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double minWatts = 5;
     [ObservableProperty] private double maxWatts = 100;
 
+    /// <summary>D'où vient le maximum des champs : la limite du processeur, ou un repli. Null tant que les
+    /// limites n'ont pas été lues. Lu aussi par le diagnostic « Compatibilité de ce PC ».</summary>
+    public CpuMaxWattsInfo? MaxWattsInfo { get; private set; }
+
+    /// <summary>Le maximum, sa source et — pour un repli — pourquoi le processeur n'a rien donné de mieux.
+    /// Null (et donc masqué) tant qu'il n'y a rien à dire.</summary>
+    [ObservableProperty] private string? maxWattsNote;
+
     /// <summary>L'avertissement a été accepté : tant que non, les curseurs restent inertes.</summary>
     [ObservableProperty] private bool riskAccepted;
     public bool NeedsRiskAcceptance => IsPowerLimitAvailable && !RiskAccepted;
@@ -346,6 +354,9 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         MinWatts = snapshot.MinWatts;
         MaxWatts = snapshot.MaxWatts;
+        MaxWattsInfo = snapshot.MaxWattsInfo;
+        MaxWattsNote = $"Maximum proposé : {snapshot.MaxWattsInfo.Watts:0} W. {snapshot.MaxWattsInfo.Explanation}"
+                       + (snapshot.MaxWattsInfo.IsExperimental ? $" {CpuMaxWattsInfo.ExperimentalNotice}" : "");
 
         _suppressApply = true;
         SustainedWatts = snapshot.SustainedWatts;
@@ -391,19 +402,27 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
     partial void OnRiskAcceptedChanged(bool value) => OnPropertyChanged(nameof(NeedsRiskAcceptance));
 
-    /// <summary>Valeur lue à partir de laquelle une limite est le marqueur « sans limite » de la carte mère
-    /// (4095 W) et non une vraie puissance. Même seuil que <c>IntelPowerLimitBackend.UnlimitedWatts</c>.</summary>
-    private const double UnlimitedWatts = 1000;
-
     /// <summary>Explique une valeur affichée hors de la plage saisissable (4095 W pour une plage qui s'arrête à
-    /// 400 W) au lieu de la laisser passer pour une erreur. Vide pour une limite ordinaire.</summary>
-    public string SustainedNote => UnlimitedNote(SustainedWatts);
+    /// 400 W, ou un PL2 du BIOS au-dessus du maximum du processeur) au lieu de la laisser passer pour une
+    /// erreur. Vide pour une limite ordinaire.</summary>
+    public string SustainedNote => OutOfRangeNote(SustainedWatts);
 
-    public string BurstNote => UnlimitedNote(BurstWatts);
+    public string BurstNote => OutOfRangeNote(BurstWatts);
 
-    private static string UnlimitedNote(double watts) => watts >= UnlimitedWatts
-        ? $"Pas de limite définie par le BIOS (valeur lue : {watts:0} W)"
-        : "";
+    private string OutOfRangeNote(double watts)
+    {
+        // Même seuil que le résolveur : c'est le marqueur « sans limite » de la carte mère, pas une puissance.
+        if (watts >= CpuMaxWattsResolver.UnlimitedWatts) return $"Pas de limite définie par le BIOS (valeur lue : {watts:0} W)";
+        if (watts > MaxWatts) return $"Valeur du BIOS, au-dessus du maximum proposé ({MaxWatts:0} W)";
+        return "";
+    }
+
+    /// <summary>Le maximum arrive après (ou avec) les valeurs lues : les notes « hors plage » se recalculent.</summary>
+    partial void OnMaxWattsChanged(double value)
+    {
+        OnPropertyChanged(nameof(SustainedNote));
+        OnPropertyChanged(nameof(BurstNote));
+    }
 
     partial void OnSustainedWattsChanged(double value)
     {

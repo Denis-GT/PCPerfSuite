@@ -32,6 +32,11 @@ public enum CpuMaxWattsSource
 public sealed record CpuMaxWattsInfo(
     float Watts, CpuMaxWattsSource Source, string Explanation, bool IsExperimental, string RawValues)
 {
+    /// <summary>Ajoutée partout où un maximum <see cref="IsExperimental"/> est affiché (onglet Processeur et
+    /// diagnostic), pour que les deux disent la même chose.</summary>
+    public const string ExperimentalNotice =
+        "Expérimental : non vérifié sur une vraie machine, signale toute valeur incohérente.";
+
     /// <summary>Vrai si la valeur vient du processeur lui-même, pas d'un repli de l'app.</summary>
     public bool FromProcessor => Source is CpuMaxWattsSource.ProcessorMaxPower or CpuMaxWattsSource.PeakLimitPl4;
 

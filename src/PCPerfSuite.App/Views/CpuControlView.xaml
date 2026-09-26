@@ -146,6 +146,12 @@
                         <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
                                  Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
 
+                        <!-- Hors du bloc désactivé plus bas, volontairement : d'où vient le maximum des champs
+                             (le processeur, ou un repli et pourquoi) se lit avant d'avoir accepté l'avertissement. -->
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                 Text="{Binding MaxWattsNote, Mode=OneWay}"
+                                 Visibility="{Binding MaxWattsNote, Converter={StaticResource NullToVisibility}}"/>
+
                         <!-- Avertissement, à accepter une fois -->
                         <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
                                 Visibility="{Binding NeedsRiskAcceptance, Converter={StaticResource BoolToVisibility}}">
