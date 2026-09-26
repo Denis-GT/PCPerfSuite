@@ -202,7 +202,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
                 case HardwareType.Memory:
                     // FUSION, et non affectation. LibreHardwareMonitor expose plusieurs matériels de type
-                    // Memory : « Virtual Memory », « Generic Memory », puis UNE BARRETTE par module dès que
+                    // Memory : « Virtual Memory », « Total Memory », puis UNE BARRETTE par module dès que
                     // le SPD est lisible sur le SMBus. Une barrette ne porte ni utilisation ni charge —
                     // seulement une capacité, des timings et une température — si bien qu'une affectation
                     // sèche faisait gagner le dernier matériel rencontré et effaçait les bonnes valeurs :
@@ -449,11 +449,17 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     private static MemorySnapshot ReadMemory(IHardware hardware)
     {
-        // Mémoire physique et mémoire virtuelle portent des capteurs de même type, et "Memory Used" est
-        // contenu dans "Virtual Memory Used" : on sépare les deux familles avant de chercher par nom. Selon
-        // la version de la bibliothèque, les deux vivent sur un seul matériel ou sur deux ; le tri par nom
-        // couvre les deux cas.
-        ISensor[] virtualSensors = hardware.Sensors.Where(s => s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)).ToArray();
+        // Mémoire physique et mémoire virtuelle portent des capteurs de même type : on sépare les deux familles
+        // avant de chercher par nom. Les anciennes versions de la bibliothèque les mettaient sur un seul
+        // matériel, où "Memory Used" est contenu dans "Virtual Memory Used" : le nom du capteur les distingue.
+        // Depuis la 0.9.4, la mémoire virtuelle est un matériel à part, « Virtual Memory », énuméré AVANT
+        // « Total Memory » et dont les capteurs portent les mêmes noms ("Memory Used"…) : seul le nom du
+        // matériel les distingue. Sans ce test, la mémoire engagée (RAM + fichier d'échange) passait pour la
+        // RAM utilisée, au-delà de la RAM installée.
+        bool virtualHardware = hardware.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase);
+        ISensor[] virtualSensors = virtualHardware
+            ? hardware.Sensors
+            : hardware.Sensors.Where(s => s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)).ToArray();
         ISensor[] physicalSensors = hardware.Sensors.Except(virtualSensors).ToArray();
 
         // "Memory Used" / "Memory Available" sont les noms de la bibliothèque aujourd'hui. Le repli sur le

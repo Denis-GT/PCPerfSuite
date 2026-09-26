@@ -34,6 +34,10 @@ public sealed class CpuPowerLimitSnapshot
     /// <summary>Bornes proposées à l'utilisateur, déjà bridées par les garde-fous du backend.</summary>
     public required float MinWatts { get; init; }
     public required float MaxWatts { get; init; }
+
+    /// <summary>D'où vient <see cref="MaxWatts"/> : la limite du processeur lui-même, ou un repli — et dans ce
+    /// cas pourquoi. Affiché à côté des champs et dans le diagnostic de compatibilité.</summary>
+    public required CpuMaxWattsInfo MaxWattsInfo { get; init; }
 }
 
 /// <summary>

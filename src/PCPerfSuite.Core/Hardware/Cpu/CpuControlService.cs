@@ -56,7 +56,7 @@ public sealed class CpuControlService : IDisposable
 
         return platform.Vendor switch
         {
-            CpuVendor.Intel => IntelPowerLimitBackend.Create(),
+            CpuVendor.Intel => IntelPowerLimitBackend.Create(platform),
             CpuVendor.Amd => AmdSmuBackend.Create(),
             _ => new UnsupportedCpuBackend(
                 "Processeur d'un fabricant non pris en charge pour le réglage des limites de puissance."),

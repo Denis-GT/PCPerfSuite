@@ -19,12 +19,17 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
                                 Visibility="{Binding IsDriverMissing, Converter={StaticResource BoolToVisibility}}">
+                        <!-- Même ligne PawnIO que Paramètres › Installations : téléchargement de l'installeur officiel signé. -->
                         <Button Content="Installer PawnIO" Style="{StaticResource AccentButton}"
-                                Command="{Binding OpenDriverSiteCommand}"/>
+                                Command="{Binding PawnIo.PrimaryCommand}"/>
                         <TextBox Style="{StaticResource SelectableCaption}" VerticalAlignment="Center" Margin="12,0,0,0"
                                  TextWrapping="Wrap" MaxWidth="480"
                                  Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
                     </StackPanel>
+
+                    <!-- Hors du bloc ci-dessus : une fois le pilote installé, le bouton disparaît mais le résultat doit rester lisible. -->
+                    <TextBox Text="{Binding PawnIo.Message}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
+                             Visibility="{Binding PawnIo.Message, Converter={StaticResource NullToVisibility}}"/>
                 </StackPanel>
             </Border>
 
@@ -145,6 +150,12 @@
                         <TextBlock Text="Limites de puissance" Style="{StaticResource H2}"/>
                         <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
                                  Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
+
+                        <!-- Hors du bloc désactivé plus bas, volontairement : d'où vient le maximum des champs
+                             (le processeur, ou un repli et pourquoi) se lit avant d'avoir accepté l'avertissement. -->
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                 Text="{Binding MaxWattsNote, Mode=OneWay}"
+                                 Visibility="{Binding MaxWattsNote, Converter={StaticResource NullToVisibility}}"/>
 
                         <!-- Avertissement, à accepter une fois -->
                         <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"

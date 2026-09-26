@@ -29,18 +29,15 @@
             </Setter>
         </Style>
 
-        <!-- Une ligne de réglage des couleurs : une seule case (la couleur courante) et le nom. Un clic sur la
-             case ouvre une petite fenêtre : couleurs de base, puis choix précis (carré, teinte, code hex).
-             DataContext : OverlayColorSlotViewModel. -->
-        <DataTemplate x:Key="ColorSlotTemplate">
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <!-- Une case de couleur (la couleur courante). Un clic ouvre une petite fenêtre : couleurs de base, puis choix
+             précis (carré, teinte, code hex). DataContext : OverlayColorSlotViewModel. -->
+        <DataTemplate x:Key="ColorSwatchTemplate">
+            <Grid HorizontalAlignment="Left">
                 <!-- Désactivée pendant que la fenêtre est ouverte : sinon un clic sur la case la ferme (StaysOpen=False,
                      clic hors de la fenêtre) puis la rouvre aussitôt (bascule du ToggleButton). -->
                 <ToggleButton x:Name="Swatch" Style="{StaticResource ColorSlotButton}" Background="{Binding Brush}"
                               ToolTip="Changer la couleur"
                               IsHitTestVisible="{Binding IsOpen, ElementName=ColorPopup, Converter={StaticResource InverseBoolean}}"/>
-                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120" Margin="10,0,0,0"
-                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
 
                 <Popup x:Name="ColorPopup" PlacementTarget="{Binding ElementName=Swatch}" Placement="Bottom"
                        StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
@@ -68,6 +65,27 @@
                         </StackPanel>
                     </Border>
                 </Popup>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Une ligne de réglage des couleurs : une case et le nom. DataContext : OverlayColorSlotViewModel. -->
+        <DataTemplate x:Key="ColorSlotTemplate">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Focusable="False"/>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120" Margin="10,0,0,0"
+                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Une catégorie : la case de son nom en tête de ligne, celle de ses valeurs, puis son nom. Les largeurs
+             suivent les en-têtes « Nom » et « Valeurs » posés au-dessus de la liste. DataContext :
+             OverlayCategoryColorsViewModel. -->
+        <DataTemplate x:Key="CategoryColorsRowTemplate">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <ContentControl Content="{Binding Label}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Width="56" Focusable="False"/>
+                <ContentControl Content="{Binding Value}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Width="56" Focusable="False"/>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120"
+                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -103,7 +121,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Canal RTSS" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBox Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit, guru3d.com)." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
+                                <TextBox Text="Fonctionne partout, y compris en plein écran exclusif. RTSS doit être installé et lancé (gratuit) : Paramètres › Installations." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding UseRtss}" VerticalAlignment="Center"/>
                         </Grid>
@@ -150,26 +168,63 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="Une ligne par métrique" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU et la RAM sont regroupées sur une ligne MEM." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                                <TextBlock Text="Sinon, une ligne par catégorie façon Afterburner : « GPU  45%  62°C  180 W ». La mémoire du GPU a sa propre ligne VRAM, sous GPU ; les lignes VRAM et RAM disparaissent quand ce PC ne fournit aucune de leurs valeurs (pas de GPU dédié, par exemple). Sur la ligne JEU, chaque FPS est précédé de son libellé : « JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OneLinePerMetric}" VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <Grid Margin="0,0,0,18" Visibility="{Binding OneLinePerMetric, Converter={StaticResource InverseBoolToVisibility}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Sous-libellés VRAM / RAM" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                <TextBlock Text="Sur la ligne MEM, distingue la mémoire du GPU de la RAM : « MEM  VRAM 9501 MHz  RAM 12.4 Go »." Style="{StaticResource Caption}" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding MemorySubLabels}" VerticalAlignment="Center"/>
                         </Grid>
 
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>
                         <TextBlock Text="Métriques affichées" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,0,0,10"/>
                         <controls:MetricPicker DataContext="{Binding Metrics}"/>
+
+                        <!-- Ordre des lignes : celui du mode affiché (une ligne par catégorie ou par métrique).
+                             Une entrée par ligne réellement affichée ; les autres gardent leur place en coulisse. -->
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,4,0,16"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Ordre des lignes" Style="{StaticResource Eyebrow}" FontSize="12"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,4,12,0"
+                                           Text="Monte ou descend une ligne avec les flèches ; l'aperçu, plus bas, montre le résultat. L'ordre est enregistré, séparément pour « une ligne par catégorie » et pour « une ligne par métrique »."/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Ordre par défaut" Style="{StaticResource GhostButton}"
+                                    VerticalAlignment="Top" Command="{Binding ResetLineOrderCommand}"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding LineOrderItems}" Focusable="False" MaxWidth="520"
+                                      HorizontalAlignment="Left" Margin="0,12,0,0"
+                                      Visibility="{Binding HasLineOrderItems, Converter={StaticResource BoolToVisibility}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Padding="12,4,6,4" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Label}" Foreground="{Binding LabelBrush}"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource Body}"
+                                                       VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                                <Button Content="&#xE70E;" Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30"
+                                                        ToolTip="Monter cette ligne" Command="{Binding MoveUpCommand}"/>
+                                                <Button Content="&#xE70D;" Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30"
+                                                        Margin="4,0,0,0" ToolTip="Descendre cette ligne" Command="{Binding MoveDownCommand}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Aucune ligne à ordonner : coche des métriques ci-dessus." Style="{StaticResource Caption}"
+                                   Margin="0,12,0,0"
+                                   Visibility="{Binding HasLineOrderItems, Converter={StaticResource InverseBoolToVisibility}}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -206,6 +261,24 @@
                     <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
                              Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
 
+                    <!-- Espacements : en nombre d'espaces, pour suivre la taille du texte dans la fenêtre comme dans RTSS.
+                         Bornes : OverlaySpacing.MinSpaces et MaxSpaces. -->
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Espacements" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="Entre les valeurs" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="8"
+                                                      Value="{Binding Appearance.ValueSpacing}" Unit="esp."/>
+                                <TextBlock Text="Séparations" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="28,0,10,0"/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="8"
+                                                      Value="{Binding Appearance.SeparatorSpacing}" Unit="esp."/>
+                            </StackPanel>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                     Text="En nombre d'espaces, dans la fenêtre comme dans RTSS. « Entre les valeurs » écarte deux valeurs d'une même ligne (1 par défaut). « Séparations » s'applique après le nom de la ligne, avant chaque libellé de la ligne JEU (MOY, 1%…) et autour des débits disque et réseau, dont la largeur varie (2 par défaut)."/>
+                        </StackPanel>
+                    </Border>
+
                     <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
                         <StackPanel>
                             <Grid Margin="0,0,0,12">
@@ -215,15 +288,29 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Couleurs par catégorie" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                    <TextBox Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
+                                    <TextBox Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil, et au besoin les valeurs de chaque catégorie. Les valeurs dont tu ne changes pas la couleur suivent celle de la ligne « Par défaut »." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Appearance.UseCategoryColors}" VerticalAlignment="Center"/>
                             </Grid>
 
-                            <ItemsControl ItemsSource="{Binding Appearance.CategoryColors}" ItemTemplate="{StaticResource ColorSlotTemplate}"
-                                          Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource BoolToVisibility}}"/>
+                            <StackPanel Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource BoolToVisibility}}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Nom" Style="{StaticResource Eyebrow}" FontSize="11" Width="56"/>
+                                    <TextBlock Text="Valeurs" Style="{StaticResource Eyebrow}" FontSize="11" Width="56"/>
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding Appearance.CategoryColorRows}" ItemTemplate="{StaticResource CategoryColorsRowTemplate}"/>
+                                <!-- Couleur commune des valeurs, dans la colonne « Valeurs » : celle que suivent les catégories
+                                     dont on n'a pas changé la couleur des valeurs. -->
+                                <StackPanel Orientation="Horizontal" Margin="56,0,0,8">
+                                    <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSwatchTemplate}"
+                                                    Width="56" Focusable="False"/>
+                                    <TextBlock Text="Par défaut" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
 
-                            <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSlotTemplate}"/>
+                            <!-- Sans couleurs par catégorie, une seule couleur pour tout le texte. -->
+                            <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSlotTemplate}"
+                                            Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource InverseBoolToVisibility}}"/>
 
                             <Button Content="Couleurs par défaut" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                                     Margin="0,4,0,0" Command="{Binding Appearance.ResetColorsCommand}"/>

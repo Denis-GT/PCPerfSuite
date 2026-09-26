@@ -59,7 +59,16 @@ public sealed class MetricDefinition
     /// <summary>Précisions sur la métrique, en infobulle dans les sélecteurs (Monitoring et overlay).</summary>
     public string? Description { get; init; }
 
+    /// <summary>Libellé court qui précède la valeur sur la ligne de sa catégorie (« MOY », « 1% »), pour distinguer
+    /// des valeurs de même unité (les FPS). Il tient lieu d'unité : celle-ci n'est alors pas répétée. Null : la valeur
+    /// s'affiche seule, avec son unité. Sans effet en mode une ligne par métrique, où <see cref="OsdLabel"/> fait déjà ce travail.</summary>
+    public string? LineLabel { get; init; }
+
     public bool IsPercent { get; init; }
+
+    /// <summary>Débit en octets par seconde (disque, réseau) : sa valeur change de largeur et d'unité (Ko/s, Mo/s…)
+    /// d'un relevé à l'autre, l'overlay lui garde donc plus d'espace autour.</summary>
+    public bool IsRate { get; init; }
 
     /// <summary>Valeur signée (charge positive, décharge négative) : le graphique est centré sur un axe à zéro.</summary>
     public bool IsSigned { get; init; }
@@ -96,15 +105,18 @@ public sealed class MetricDefinition
 /// </summary>
 public static class MetricCatalog
 {
-    internal static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF", "#2FA3E0");
-    internal static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B", "#4CB85F");
-    internal static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF", "#9A62E0");
-    internal static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D", "#E0932B");
-    internal static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166", "#E0B030");
-    internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0", "#25B5A0");
-    internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C", "#E0587A");
-    internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8", "#8C97B3");
-    internal static readonly MetricCategory Power = new("power", "Énergie", "PWR", "#FFE066", "#E0C030");
+    // Couleurs d'overlay : 75 % de la luminosité de la version précédente, teinte et saturation inchangées.
+    // Les anciennes valeurs sont listées dans OverlayColorDefaults, pour que les réglages déjà enregistrés
+    // qui n'avaient pas été personnalisés suivent le nouveau défaut.
+    internal static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF", "#237AA8");
+    internal static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B", "#398A47");
+    internal static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF", "#744AA8");
+    internal static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D", "#A86E20");
+    internal static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166", "#A88424");
+    internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0", "#1C8878");
+    internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C", "#A8425C");
+    internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8", "#697186");
+    internal static readonly MetricCategory Power = new("power", "Énergie", "PWR", "#FFE066", "#A89024");
 
     /// <summary>1 Mo/s : plancher des graphiques de débit disque.</summary>
     internal const double DiskRateFloor = 1_048_576;
@@ -148,7 +160,7 @@ public static class MetricCatalog
         string suffix = PawnIoDriver.IsInstalled
             ? ""
             : " Le pilote PawnIO n'est pas installé sur ce PC : il est nécessaire pour la plupart des sondes bas niveau " +
-              "(températures et tensions CPU, sondes de carte mère) — voir Paramètres › Compatibilité de ce PC › « Pilote PawnIO ».";
+              "(températures et tensions CPU, sondes de carte mère) — il s'installe depuis Paramètres › Installations.";
         return $"{baseReason} Ce n'est pas un dysfonctionnement de PCPerfSuite.{suffix}";
     }
 
@@ -221,10 +233,10 @@ public static class MetricCatalog
         Rate("net.upload", Network, "Débit montant total", "envoi", NetworkRateFloor, s => s.Hardware.Network.UploadBytesPerSecond),
         Rate("net.download", Network, "Débit descendant total", "recep", NetworkRateFloor, s => s.Hardware.Network.DownloadBytesPerSecond),
 
-        Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps, hint: GameHint),
-        Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps, hint: GameHint),
-        Numeric("game.fps.low1", Game, "FPS 1% low", "1%", "FPS", "0", s => s.Game?.OnePercentLowFps, hint: GameHint),
-        Numeric("game.fps.low01", Game, "FPS 0.1% low", "0.1%", "FPS", "0", s => s.Game?.PointOnePercentLowFps, hint: GameHint),
+        Numeric("game.fps", Game, "FPS", "fps", "FPS", "0", s => s.Game?.Fps, hint: GameHint, lineLabel: "FPS"),
+        Numeric("game.fps.avg", Game, "FPS moyen", "moy", "FPS", "0", s => s.Game?.AverageFps, hint: GameHint, lineLabel: "MOY"),
+        Numeric("game.fps.low1", Game, "FPS 1% low", "1%", "FPS", "0", s => s.Game?.OnePercentLowFps, hint: GameHint, lineLabel: "1%"),
+        Numeric("game.fps.low01", Game, "FPS 0.1% low", "0.1%", "FPS", "0", s => s.Game?.PointOnePercentLowFps, hint: GameHint, lineLabel: "0.1%"),
         Numeric("game.frametime", Game, "Temps de frame", "frame", "ms", "0.0", s => s.Game?.FrameTimeMs, hint: GameHint),
 
         new MetricDefinition
@@ -238,7 +250,7 @@ public static class MetricCatalog
         },
     };
 
-    /// <summary>Métriques de la mémoire du GPU (catégorie GPU) : l'overlay les range sur la ligne MEM, avec la RAM.</summary>
+    /// <summary>Métriques de la mémoire du GPU (catégorie GPU) : l'overlay les range sur leur propre ligne, VRAM.</summary>
     internal static readonly IReadOnlySet<string> GpuMemoryIds = new HashSet<string>
     {
         "gpu.temp.memory", "gpu.clock.memory", "gpu.vram.used", "gpu.vram.load",
@@ -256,7 +268,8 @@ public static class MetricCatalog
     };
 
     internal static MetricDefinition Numeric(string id, MetricCategory category, string label, string osdLabel,
-        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null, string? hint = null)
+        string unit, string format, Func<MetricSample, double?> get, SensorGroup? group = null, string? hint = null,
+        string? lineLabel = null)
     {
         // Une seule expression de mise en forme, partagée par la valeur courante et par un point d'historique :
         // le repère du graphique ne peut donc pas afficher un nombre différent du grand chiffre de la tuile.
@@ -268,6 +281,7 @@ public static class MetricCatalog
             Category = category,
             Label = label,
             OsdLabel = osdLabel,
+            LineLabel = lineLabel,
             IsPercent = unit == "%",
             ReadGroup = group ?? GroupFor(id, category),
             UnavailableHint = hint ?? DefaultUnavailableHint,
@@ -310,6 +324,7 @@ public static class MetricCatalog
             Category = category,
             Label = label,
             OsdLabel = osdLabel,
+            IsRate = true,
             GraphMinimumScale = graphMinimumScale,
             ReadGroup = GroupFor(id, category),
             Read = s => getBytesPerSecond(s) is { } v ? Format(v) : Absent(s, GroupFor(id, category), category),

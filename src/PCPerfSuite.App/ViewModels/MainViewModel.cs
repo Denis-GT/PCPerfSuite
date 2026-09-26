@@ -29,6 +29,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly CpuControlViewModel _cpu;
     private readonly OverlayViewModel _overlay;
 
+    /// <summary>Logiciels externes (PawnIO, RTSS) : partagé par l'onglet Processeur, Paramètres et le diagnostic.</summary>
+    private readonly InstallationsViewModel _installations = new();
+
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
 
@@ -61,17 +64,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public bool IsAppSettingsSelected => ReferenceEquals(CurrentPage, AppSettingsNav);
 
+    /// <summary>Vrai tant que la fenêtre est affichée et non réduite : posé par <see cref="MainWindow"/>. Un
+    /// clignotement dans une fenêtre cachée ne sert à personne, et coûterait des images pour rien.</summary>
+    [ObservableProperty] private bool isWindowShown;
+
+    /// <summary>Le bouton Paramètres clignote tant qu'un logiciel manque, que la fenêtre est visible et que la page
+    /// affichée n'est pas Paramètres : une fois dedans, c'est l'onglet Installations qui prend le relais.</summary>
+    public bool IsAppSettingsBlinking => _installations.HasMissing && IsWindowShown && !IsAppSettingsSelected;
+
+    /// <summary>Info-bulle du bouton Paramètres : quoi installer, et pourquoi. Null, donc pas d'info-bulle, quand
+    /// rien ne manque.</summary>
+    public string? AppSettingsToolTip => _installations.MissingSummary;
+
     public MainViewModel()
     {
         _monitoring = new MonitoringViewModel(_hardware);
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
-        _cpu = new CpuControlViewModel(_cpuControl, _monitoring);
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
-        AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu));
+        AppSettings = new AppSettingsViewModel(
+            new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
+        _installations.PropertyChanged += (_, _) => UpdateAttention();
 
         NavItems = new ObservableCollection<NavEntry>
         {
@@ -103,7 +120,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
         OnPropertyChanged(nameof(IsAppSettingsSelected));
+        UpdateAttention();
+
+        // L'utilisateur a pu installer quelque chose, ou supprimer la tâche de démarrage dans le Planificateur de
+        // tâches, depuis la dernière fois : on relit à l'ouverture des Paramètres.
+        if (IsAppSettingsSelected)
+        {
+            _ = _installations.RefreshAsync();
+            _ = AppSettings.RefreshLaunchAtStartupAsync();
+        }
     }
+
+    partial void OnIsWindowShownChanged(bool value) => UpdateAttention();
+
+    /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
+    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, et celui de l'onglet Installations.</summary>
+    private void UpdateAttention()
+    {
+        OnPropertyChanged(nameof(IsAppSettingsBlinking));
+        OnPropertyChanged(nameof(AppSettingsToolTip));
+        AppSettings.IsPageShown = IsAppSettingsSelected && IsWindowShown;
+    }
+
+    /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
+    /// RTSS ou lancé son installeur dans une autre fenêtre. Une relecture du registre, hors du thread d'interface.</summary>
+    public void OnWindowActivated() => _ = _installations.RefreshAsync();
 
     /// <summary>Bouton "Paramètres" : la liste se désélectionne, pour qu'un seul élément paraisse actif.</summary>
     [RelayCommand]
@@ -121,6 +162,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
         _processes.Dispose();
+        _installations.Dispose();
         _fans.Dispose();
         _gpu.Dispose();
         _cpu.Dispose();

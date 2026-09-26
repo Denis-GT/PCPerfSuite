@@ -224,6 +224,10 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 {
     private readonly CpuControlService _cpu;
     private readonly MonitoringViewModel _monitoring;
+
+    /// <summary>Une seule ligne PawnIO pour toute l'app, celle de Paramètres › Installations : le bouton d'ici lance
+    /// donc le même téléchargement, avec la même progression, et les deux onglets ne se contredisent jamais.</summary>
+    public PawnIoItemViewModel PawnIo { get; }
     private readonly CpuPowerTuningService _powerTuning;
 
     /// <summary>Bloque l'application pendant qu'on repositionne plusieurs curseurs d'un coup.</summary>
@@ -242,7 +246,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string platformText = "";
     [ObservableProperty] private string driverText = "";
 
-    /// <summary>Vrai quand le pilote PawnIO manque : l'interface propose alors de l'installer.</summary>
+    /// <summary>Vrai quand le pilote PawnIO manque ou est inutilisable : l'interface propose alors de l'installer.</summary>
     [ObservableProperty] private bool isDriverMissing;
 
     [ObservableProperty] private bool isPowerLimitAvailable;
@@ -257,6 +261,14 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double burstWatts;
     [ObservableProperty] private double minWatts = 5;
     [ObservableProperty] private double maxWatts = 100;
+
+    /// <summary>D'où vient le maximum des champs : la limite du processeur, ou un repli. Null tant que les
+    /// limites n'ont pas été lues. Lu aussi par le diagnostic « Compatibilité de ce PC ».</summary>
+    public CpuMaxWattsInfo? MaxWattsInfo { get; private set; }
+
+    /// <summary>Le maximum, sa source et — pour un repli — pourquoi le processeur n'a rien donné de mieux.
+    /// Null (et donc masqué) tant qu'il n'y a rien à dire.</summary>
+    [ObservableProperty] private string? maxWattsNote;
 
     /// <summary>L'avertissement a été accepté : tant que non, les curseurs restent inertes.</summary>
     [ObservableProperty] private bool riskAccepted;
@@ -287,10 +299,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double? maxClockMhz;
     [ObservableProperty] private double? loadPercent;
 
-    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring)
+    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo)
     {
         _cpu = cpu;
         _monitoring = monitoring;
+        PawnIo = pawnIo;
         _powerTuning = new CpuPowerTuningService(cpu.Platform);
 
         AppSettings settings = AppSettingsStore.Load();
@@ -301,10 +314,8 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         CpuName = _cpu.Platform.Name;
         PlatformText = $"{_cpu.Platform.VendorLabel} · {_cpu.Backend.Description}";
 
-        DriverText = PawnIoDriver.IsInstalled
-            ? $"Pilote PawnIO {PawnIoDriver.Version} détecté (API {PawnIoDriver.ApiVersion})."
-            : PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.";
-        IsDriverMissing = !PawnIoDriver.IsInstalled && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
+        UpdateDriverStatus();
+        PawnIo.PropertyChanged += OnPawnIoChanged;
 
         CpuCapability capability = _cpu.Backend.PowerLimit;
         IsPowerLimitAvailable = capability.CanWrite;
@@ -346,6 +357,9 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         MinWatts = snapshot.MinWatts;
         MaxWatts = snapshot.MaxWatts;
+        MaxWattsInfo = snapshot.MaxWattsInfo;
+        MaxWattsNote = $"Maximum proposé : {snapshot.MaxWattsInfo.Watts:0} W. {snapshot.MaxWattsInfo.Explanation}"
+                       + (snapshot.MaxWattsInfo.IsExperimental ? $" {CpuMaxWattsInfo.ExperimentalNotice}" : "");
 
         _suppressApply = true;
         SustainedWatts = snapshot.SustainedWatts;
@@ -391,19 +405,27 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
     partial void OnRiskAcceptedChanged(bool value) => OnPropertyChanged(nameof(NeedsRiskAcceptance));
 
-    /// <summary>Valeur lue à partir de laquelle une limite est le marqueur « sans limite » de la carte mère
-    /// (4095 W) et non une vraie puissance. Même seuil que <c>IntelPowerLimitBackend.UnlimitedWatts</c>.</summary>
-    private const double UnlimitedWatts = 1000;
-
     /// <summary>Explique une valeur affichée hors de la plage saisissable (4095 W pour une plage qui s'arrête à
-    /// 400 W) au lieu de la laisser passer pour une erreur. Vide pour une limite ordinaire.</summary>
-    public string SustainedNote => UnlimitedNote(SustainedWatts);
+    /// 400 W, ou un PL2 du BIOS au-dessus du maximum du processeur) au lieu de la laisser passer pour une
+    /// erreur. Vide pour une limite ordinaire.</summary>
+    public string SustainedNote => OutOfRangeNote(SustainedWatts);
 
-    public string BurstNote => UnlimitedNote(BurstWatts);
+    public string BurstNote => OutOfRangeNote(BurstWatts);
 
-    private static string UnlimitedNote(double watts) => watts >= UnlimitedWatts
-        ? $"Pas de limite définie par le BIOS (valeur lue : {watts:0} W)"
-        : "";
+    private string OutOfRangeNote(double watts)
+    {
+        // Même seuil que le résolveur : c'est le marqueur « sans limite » de la carte mère, pas une puissance.
+        if (watts >= CpuMaxWattsResolver.UnlimitedWatts) return $"Pas de limite définie par le BIOS (valeur lue : {watts:0} W)";
+        if (watts > MaxWatts) return $"Valeur du BIOS, au-dessus du maximum proposé ({MaxWatts:0} W)";
+        return "";
+    }
+
+    /// <summary>Le maximum arrive après (ou avec) les valeurs lues : les notes « hors plage » se recalculent.</summary>
+    partial void OnMaxWattsChanged(double value)
+    {
+        OnPropertyChanged(nameof(SustainedNote));
+        OnPropertyChanged(nameof(BurstNote));
+    }
 
     partial void OnSustainedWattsChanged(double value)
     {
@@ -618,10 +640,24 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     private static string Plural(int count, string singular, string plural)
         => count > 1 ? $"{count} {plural}" : $"{count} {singular}";
 
-    [RelayCommand]
-    private void OpenDriverSite()
+    /// <summary>Le pilote peut être installé pendant que l'onglet est ouvert : le texte et le bouton suivent, au
+    /// lieu de proposer d'installer ce qui vient de l'être.</summary>
+    private void OnPawnIoChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (!PawnIoDriver.TryOpenDownloadPage(out string? error)) Status = error!;
+        if (e.PropertyName is nameof(PawnIoItemViewModel.StatusText) or nameof(PawnIoItemViewModel.StatusDetail)) UpdateDriverStatus();
+    }
+
+    private void UpdateDriverStatus()
+    {
+        DriverText = PawnIo.State switch
+        {
+            PawnIoState.Ready => $"Pilote PawnIO {PawnIoDriver.Version} détecté (API {PawnIoDriver.ApiVersion}).",
+            PawnIoState.RestartRequired => "Pilote PawnIO installé : relance PCPerfSuite pour qu'il soit utilisé.",
+            _ => PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.",
+        };
+
+        IsDriverMissing = PawnIo.State is PawnIoState.NotInstalled or PawnIoState.Unusable
+                          && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
     }
 
     private void OnEmergencyRestored(string message)
@@ -669,5 +705,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         _cpu.EmergencyRestored -= OnEmergencyRestored;
+        PawnIo.PropertyChanged -= OnPawnIoChanged;
     }
 }

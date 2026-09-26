@@ -40,8 +40,8 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
   un indicateur pour l'isolation du noyau (HVCI).
 - **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
-  onglets : Général (zone de notification), Compatibilité de ce PC (voir plus bas) et Thèmes
-  (à venir).
+  onglets : Général (zone de notification, lancement au démarrage de Windows), Installations
+  (voir plus bas), Compatibilité de ce PC (voir plus bas) et Thèmes (à venir).
 - **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit, rangés par catégorie
   (processeur, pompe, carte graphique, boîtier…) sur deux colonnes : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
@@ -56,7 +56,7 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   (PL1/PL2 sur Intel, PPT/STAPM sur AMD), avec relecture systématique de ce que le processeur a
   réellement retenu et sécurité thermique. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
-  transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
+  transparente dessinée par l'app, avec police, taille, espacements, couleurs et position réglables.
   Détail plus bas.
 - **Zone de notification** — la croix ne quitte pas l'app, elle la range près de l'horloge :
   le monitoring, les courbes de ventilation et l'overlay continuent de tourner pendant que tu
@@ -71,7 +71,8 @@ Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
    PCPerfSuite écrit le texte dans la mémoire partagée `RTSSSharedMemoryV2` que RTSS relit
    et dessine lui-même à l'intérieur du jeu — aucune injection de notre côté. C'est le seul
    canal qui fonctionne en **plein écran exclusif**. RTSS doit être installé et lancé
-   (gratuit, guru3d.com). Les couleurs et la taille du texte lui sont transmises via ses
+   (gratuit, guru3d.com ; Paramètres › Installations ouvre sa page officielle et le lance une
+   fois installé). Les couleurs et la taille du texte lui sont transmises via ses
    balises de mise en forme (`<C=AARRGGBB>`, `<S=nnn>`) ; la police, elle, reste celle
    configurée dans RTSS. Si une version trop ancienne de RTSS affichait les balises en
    clair, l'envoi des couleurs se désactive d'un interrupteur.
@@ -82,10 +83,15 @@ Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
    bordure, c'est-à-dire la grande majorité des jeux récents, elle fonctionne.
 
 Réglages disponibles : métriques affichées (même catalogue que le Monitoring), une ligne
-par métrique ou une ligne par catégorie façon Afterburner, **cadence propre à l'overlay**
+par métrique ou une ligne par catégorie façon Afterburner, **l'ordre des lignes** (flèches
+monter / descendre dans l'onglet, enregistré séparément pour chacun des deux modes),
+**cadence propre à l'overlay**
 (indépendante de celle du Monitoring, sans pouvoir aller plus vite que lui puisque les
-valeurs en viennent), police, taille, **une couleur par catégorie** (CPU, GPU, RAM, NET…)
-pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran
+valeurs en viennent), police, taille, **espacements** (entre les valeurs d'une ligne, et
+séparations après le nom de la ligne et autour des débits disque et réseau, en nombre
+d'espaces), **une couleur par catégorie** (CPU, GPU, RAM, NET…)
+pour repérer chaque ligne d'un coup d'œil, et au besoin **une couleur pour les valeurs de
+chaque catégorie** (sinon elles suivent une couleur commune), position sur l'écran
 (grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
 l'overlay affichera.
 
@@ -94,6 +100,10 @@ le **1% low** et le **0.1% low**, calculés à partir de l'historique des 1024 d
 que RTSS tient à jour — la même matière première que les outils de benchmark. Un centile n'est
 affiché qu'avec assez d'images derrière lui (100 pour le 1%, 1000 pour le 0.1%) : sinon la valeur
 reste à `--` plutôt que d'annoncer un chiffre inventé.
+
+Sur la ligne JEU, chaque valeur de FPS est précédée de son libellé — `FPS`, `MOY`, `1%`, `0.1%` —
+qui tient lieu d'unité (« JEU  FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms ») ; le temps de frame
+garde son unité, sans libellé.
 
 ## Overclocking GPU
 
@@ -196,8 +206,10 @@ Cet étage a besoin du pilote **PawnIO** (voir « Points d'attention ») : sans 
 Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
 
 - **Modes** Auto (firmware) / Manuel / Courbe, et presets Silencieux / Équilibré / Perf.
-- **Éditeur de courbe** : on glisse un point dans les deux axes, on en ajoute un au double-clic,
-  on en retire un au clic droit (de 2 à 12 points).
+- **Éditeur de courbe** : on clique un point pour le sélectionner et on le glisse dans les deux
+  axes. On en ajoute un au double-clic (à l'endroit voulu) ou avec « Ajouter un point » (au milieu
+  du plus grand écart, sans changer la forme de la courbe) ; on en retire un au clic droit, avec
+  Suppr ou avec « Retirer le point » (de 2 à 16 points).
 - **Source de température** par ventilateur : CPU, GPU, la plus chaude des deux (le bon choix pour
   un ventilateur de boîtier) ou la carte mère.
 - **Hystérésis** en °C : le ventilateur ne ralentit qu'une fois la température retombée d'autant,
@@ -208,6 +220,15 @@ Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
   ventilateurs ne redémarrant pas proprement.
 - **Appliquer à tous** recopie une courbe et ses réglages sur les autres ventilateurs, jamais sur
   une pompe.
+- **Profils** : les courbes de tous les ventilateurs s'enregistrent sous un nom (mode, courbe,
+  température suivie et réglages de chacun) et se rappellent en un clic ; on peut les renommer et
+  les supprimer, et un profil du même nom est remplacé. Un profil venu d'une autre machine, ou
+  d'avant qu'on débranche un ventilateur, s'applique quand même : ce qui n'existe pas ici est
+  ignoré, et l'app dit quoi et pourquoi (ventilateur absent, portable, app sans administrateur).
+  Les valeurs douteuses d'un profil (mode inconnu, pourcentage hors plage, points désordonnés) sont
+  ramenées dans les limites plutôt que posées telles quelles, et les ventilateurs que le profil ne
+  mentionne pas restent tels quels. Sur un portable, un profil n'atteint jamais le contrôleur
+  embarqué : seuls les ventilateurs listés dans l'onglet sont pilotés.
 
 Sécurité : par défaut **rien n'est réappliqué au démarrage et tout est rendu au pilote en
 quittant**. La case « Appliquer au démarrage » rend l'overclock persistant dans les deux
@@ -252,6 +273,24 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   température mémoire (junction) n'existe que sur les GPU NVIDIA en GDDR6X.
 - **Paramètres › Compatibilité de ce PC** résume ce qui est lu et pilotable sur la machine, et
   pourquoi le reste manque. « Copier le rapport » en fait un texte à joindre à un signalement.
+- **Paramètres › Installations** liste les deux logiciels externes dont l'app a besoin, avec leur
+  état (installé ou non, version) et à quoi ils servent :
+  - **PawnIO** : le bouton télécharge la dernière version de l'installeur depuis le dépôt GitHub
+    officiel de son auteur (HTTPS uniquement, redirections comprises), vérifie sa signature
+    Authenticode et l'éditeur (`namazso`), puis le lance. Le même bouton existe dans l'onglet
+    Processeur.
+  - **RTSS** : Guru3D ne propose aucun lien direct stable vers sa dernière version (pages à jeton,
+    nom de fichier différent à chaque version). Le bouton ouvre donc la page de téléchargement
+    officielle ; l'état se met à jour dès le retour dans l'app, et RTSS peut être lancé depuis là.
+
+  L'état est aussi repris dans « Compatibilité de ce PC ». Rien n'est jamais installé sans action
+  de ta part.
+
+  **Rappel visuel** : tant qu'un de ces logiciels n'est pas installé, le bouton Paramètres de la
+  barre latérale clignote (son fond passe progressivement à l'orange, puis revient), avec une
+  info-bulle qui dit quoi installer et pourquoi ; une fois dans Paramètres, c'est l'onglet
+  Installations qui clignote. Tout s'arrête dès que tout est installé, et aussi quand la fenêtre
+  est rangée dans la zone de notification ou réduite.
 
 **Ventilateurs des portables** : ils sont gérés par le contrôleur embarqué du constructeur, que
 LibreHardwareMonitor ne voit pas. L'app les lit (en lecture seule, jamais pilotés) via l'interface
@@ -278,13 +317,21 @@ lui, couvre NVIDIA, AMD et Intel.
   automatiquement au lancement — Windows affichera l'invite UAC. Sans ça, la plupart des
   capteurs et tous les réglages système resteront inaccessibles (l'app te le signale dans
   l'interface plutôt que de planter).
+- **Lancement au démarrage de Windows** (Paramètres › Général) : l'app exigeant les droits
+  administrateur, ni la clé de registre « Run » ni le dossier Démarrage ne conviennent (Windows
+  bloque ces lancements, ou il faudrait accepter une invite UAC à chaque ouverture de session).
+  L'option crée, une seule fois, une tâche planifiée « à l'ouverture de session, avec les
+  autorisations maximales » ; le Planificateur de tâches lance ensuite l'app directement avec le
+  jeton administrateur de la session, sans invite, et elle démarre dans la zone de notification.
+  Désactiver l'option supprime la tâche. L'option est grisée, avec sa raison, si l'app n'est pas
+  lancée en administrateur ou si elle tourne sous un autre compte que celui de la session.
 - **Pilote PawnIO** : les capteurs bas niveau et la limite de puissance du processeur passent
   par [PawnIO](https://pawnio.eu/), un pilote signé et à jour. Il remplace WinRing0, que Windows
   Defender signale depuis 2025 comme pilote vulnérable (CVE-2020-14979) et que la liste de blocage
   des pilotes refuse de charger. PawnIO n'ouvre pas un accès brut au matériel : il exécute des
   modules signés qui décident eux-mêmes de ce qu'ils autorisent, et un accès refusé est affiché
-  comme tel par l'app. Prends simplement la dernière version proposée par son site (testé avec la
-  2.2.0). L'onglet Processeur affiche la version installée, et entre parenthèses la version de
+  comme tel par l'app. Prends simplement la dernière version, avec le bouton de Paramètres ›
+  Installations ou depuis son site (testé avec la 2.2.0). L'onglet Processeur affiche la version installée, et entre parenthèses la version de
   l'interface de programmation, qui est celle que renvoie le pilote lui-même.
 - **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : cette option
   n'empêche pas PawnIO de fonctionner (contrairement à WinRing0), mais l'app affiche quand même

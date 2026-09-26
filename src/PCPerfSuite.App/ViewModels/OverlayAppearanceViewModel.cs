@@ -29,17 +29,21 @@ public sealed partial class OverlayColorChoiceViewModel : ObservableObject
     private void Select() => _slot.ColorHex = ColorHex;
 }
 
-/// <summary>Une ligne "libellé + palette" du réglage des couleurs (une par catégorie, plus une pour
-/// les valeurs).</summary>
+/// <summary>Une case de couleur du réglage des couleurs (nom et valeurs de chaque catégorie, plus la couleur commune
+/// des valeurs), avec sa palette.</summary>
 public sealed partial class OverlayColorSlotViewModel : ObservableObject
 {
     private readonly Action _onChanged;
+
+    /// <summary>Vrai pendant que la case suit sa couleur par défaut (<see cref="FollowDefault"/>) : ce n'est pas un
+    /// choix de l'utilisateur, et celui qui a changé la couleur par défaut se charge déjà du rendu.</summary>
+    private bool _following;
 
     /// <summary>Clé de persistance (clé de catégorie du catalogue, ou "value" pour les valeurs).</summary>
     public string Key { get; }
 
     public string Name { get; }
-    public string DefaultColorHex { get; }
+    public string DefaultColorHex { get; private set; }
     public IReadOnlyList<OverlayColorChoiceViewModel> Choices { get; }
 
     [ObservableProperty] private string colorHex;
@@ -60,12 +64,33 @@ public sealed partial class OverlayColorSlotViewModel : ObservableObject
 
     public void Reset() => ColorHex = DefaultColorHex;
 
+    /// <summary>Vrai tant que l'utilisateur n'a pas choisi une autre couleur que celle par défaut.</summary>
+    public bool IsDefault => OverlayColorDefaults.SameColor(ColorHex, DefaultColorHex);
+
+    /// <summary>Change la couleur par défaut. Une case restée sur l'ancienne la suit ; une couleur choisie reste.</summary>
+    public void FollowDefault(string colorHex)
+    {
+        bool wasDefault = IsDefault;
+        DefaultColorHex = colorHex;
+        if (!wasDefault) return;
+
+        _following = true;
+        try
+        {
+            ColorHex = colorHex;
+        }
+        finally
+        {
+            _following = false;
+        }
+    }
+
     partial void OnColorHexChanged(string value)
     {
         Brush = OverlayPalette.ToBrush(value);
         OnPropertyChanged(nameof(Brush));
         SyncChoices();
-        _onChanged();
+        if (!_following) _onChanged();
     }
 
     private void SyncChoices()
@@ -75,6 +100,21 @@ public sealed partial class OverlayColorSlotViewModel : ObservableObject
             choice.IsSelected = string.Equals(choice.ColorHex, ColorHex, StringComparison.OrdinalIgnoreCase);
         }
     }
+}
+
+/// <summary>Une catégorie dans le réglage des couleurs : la couleur de son nom en tête de ligne (CPU, GPU…) et celle
+/// de ses valeurs.</summary>
+public sealed class OverlayCategoryColorsViewModel
+{
+    public OverlayCategoryColorsViewModel(OverlayColorSlotViewModel label, OverlayColorSlotViewModel value)
+    {
+        Label = label;
+        Value = value;
+    }
+
+    public string Name => Label.Name;
+    public OverlayColorSlotViewModel Label { get; }
+    public OverlayColorSlotViewModel Value { get; }
 }
 
 /// <summary>
@@ -94,6 +134,8 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     [ObservableProperty] private FontFamily selectedFont;
     [ObservableProperty] private double fontSize;
     [ObservableProperty] private int rtssSizePercent;
+    [ObservableProperty] private int valueSpacing;
+    [ObservableProperty] private int separatorSpacing;
     [ObservableProperty] private bool useCategoryColors;
     [ObservableProperty] private bool sendColorsToRtss;
     [ObservableProperty] private double backgroundOpacity;
@@ -101,12 +143,20 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     [ObservableProperty] private int marginX;
     [ObservableProperty] private int marginY;
 
-    /// <summary>Couleur des valeurs (chiffres), commune à toutes les catégories.</summary>
+    /// <summary>Couleur commune des valeurs (chiffres) : celle de toutes les valeurs quand les couleurs par catégorie
+    /// sont désactivées, et sinon celle que suivent les catégories dont on n'a pas changé la couleur des valeurs.</summary>
     public OverlayColorSlotViewModel ValueColor { get; }
 
     /// <summary>Une entrée par catégorie du catalogue : c'est ce qui colore "CPU", "RAM", "NET"… en
     /// tête de ligne.</summary>
     public IReadOnlyList<OverlayColorSlotViewModel> CategoryColors { get; }
+
+    /// <summary>Couleur des valeurs de chaque catégorie, dans l'ordre de <see cref="CategoryColors"/>. Par défaut,
+    /// la couleur commune (<see cref="ValueColor"/>), qu'elle suit tant qu'on ne l'a pas changée.</summary>
+    public IReadOnlyList<OverlayColorSlotViewModel> CategoryValueColors { get; }
+
+    /// <summary>Les deux couleurs de chaque catégorie, une ligne par catégorie dans l'onglet.</summary>
+    public IReadOnlyList<OverlayCategoryColorsViewModel> CategoryColorRows { get; }
 
     public OverlayAppearanceViewModel(OverlayAppearanceSettings settings, Action onChanged, Action onLayoutChanged)
     {
@@ -120,6 +170,8 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
 
         fontSize = Math.Clamp(settings.FontSize, 10, 48);
         rtssSizePercent = Math.Clamp(settings.RtssSizePercent, 50, 200);
+        valueSpacing = Math.Clamp(settings.ValueSpacing, OverlaySpacing.MinSpaces, OverlaySpacing.MaxSpaces);
+        separatorSpacing = Math.Clamp(settings.SeparatorSpacing, OverlaySpacing.MinSpaces, OverlaySpacing.MaxSpaces);
         useCategoryColors = settings.UseCategoryColors;
         sendColorsToRtss = settings.SendColorsToRtss;
         backgroundOpacity = Math.Clamp(settings.BackgroundOpacity, 0, 1);
@@ -128,39 +180,63 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
         marginY = Math.Clamp(settings.MarginY, 0, 600);
 
         Dictionary<string, string> saved = settings.CategoryColors ?? new Dictionary<string, string>();
+        Dictionary<string, string> savedValues = settings.CategoryValueColors ?? new Dictionary<string, string>();
 
-        ValueColor = new OverlayColorSlotViewModel("value", "Valeurs", "#FFFFFF", settings.ValueColor, onChanged);
+        ValueColor = new OverlayColorSlotViewModel("value", "Valeurs", "#FFFFFF", settings.ValueColor, OnValueColorChanged);
         CategoryColors = MetricCatalog.Categories
             .Select(c => new OverlayColorSlotViewModel(
                 c.Key,
                 c.Name,
                 c.OverlayColor,
-                saved.TryGetValue(c.Key, out string? color) ? color : c.OverlayColor,
+                OverlayColorDefaults.Resolve(c, saved.GetValueOrDefault(c.Key)),
                 onChanged))
             .ToList();
+        CategoryValueColors = MetricCatalog.Categories
+            .Select(c => new OverlayColorSlotViewModel(
+                c.Key,
+                c.Name,
+                ValueColor.ColorHex,
+                savedValues.GetValueOrDefault(c.Key) is { } hex && !string.IsNullOrWhiteSpace(hex) ? hex : ValueColor.ColorHex,
+                onChanged))
+            .ToList();
+        CategoryColorRows = CategoryColors.Zip(CategoryValueColors, (label, value) => new OverlayCategoryColorsViewModel(label, value)).ToList();
     }
 
-    /// <summary>Couleurs à appliquer aux lignes : la couleur de catégorie quand l'option est activée,
-    /// sinon une couleur unique pour tout le texte.</summary>
+    /// <summary>La couleur commune des valeurs a changé : les catégories dont les valeurs la suivaient prennent la
+    /// nouvelle, puis un seul rendu pour le tout.</summary>
+    private void OnValueColorChanged()
+    {
+        foreach (OverlayColorSlotViewModel slot in CategoryValueColors) slot.FollowDefault(ValueColor.ColorHex);
+        _onChanged();
+    }
+
+    /// <summary>Couleurs à appliquer aux lignes : celles de chaque catégorie (nom et valeurs) quand l'option est
+    /// activée, sinon la couleur commune des valeurs pour tout le texte.</summary>
     public OverlayColorScheme BuildColorScheme()
     {
-        Dictionary<string, string> byKey = CategoryColors.ToDictionary(slot => slot.Key, slot => slot.ColorHex);
+        Dictionary<string, string> labels = CategoryColors.ToDictionary(slot => slot.Key, slot => slot.ColorHex);
+        Dictionary<string, string> values = CategoryValueColors.ToDictionary(slot => slot.Key, slot => slot.ColorHex);
 
-        string valueColor = ValueColor.ColorHex;
+        string common = ValueColor.ColorHex;
         bool colored = UseCategoryColors;
 
         return new OverlayColorScheme
         {
-            ValueColor = valueColor,
-            CategoryColor = category => colored && byKey.TryGetValue(category.Key, out string? hex) ? hex : valueColor,
+            CategoryColor = category => colored && labels.TryGetValue(category.Key, out string? hex) ? hex : common,
+            ValueColor = category => colored && values.TryGetValue(category.Key, out string? hex) ? hex : common,
         };
     }
+
+    /// <summary>Espacements à appliquer aux lignes, en nombre d'espaces.</summary>
+    public OverlaySpacing BuildSpacing() => new(ValueSpacing, SeparatorSpacing);
 
     public void WriteTo(OverlayAppearanceSettings settings)
     {
         settings.FontFamily = SelectedFont.Source;
         settings.FontSize = FontSize;
         settings.RtssSizePercent = RtssSizePercent;
+        settings.ValueSpacing = ValueSpacing;
+        settings.SeparatorSpacing = SeparatorSpacing;
         settings.UseCategoryColors = UseCategoryColors;
         settings.SendColorsToRtss = SendColorsToRtss;
         settings.BackgroundOpacity = BackgroundOpacity;
@@ -168,7 +244,16 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
         settings.MarginX = MarginX;
         settings.MarginY = MarginY;
         settings.ValueColor = ValueColor.ColorHex;
-        settings.CategoryColors = CategoryColors.ToDictionary(slot => slot.Key, slot => slot.ColorHex);
+
+        // Seules les couleurs que l'utilisateur a changées sont enregistrées : les autres suivent leur défaut — le
+        // catalogue pour les noms, qui peut évoluer d'une version à l'autre (voir OverlayColorDefaults), la couleur
+        // commune pour les valeurs.
+        settings.CategoryColors = CategoryColors
+            .Where(slot => !slot.IsDefault)
+            .ToDictionary(slot => slot.Key, slot => slot.ColorHex);
+        settings.CategoryValueColors = CategoryValueColors
+            .Where(slot => !slot.IsDefault)
+            .ToDictionary(slot => slot.Key, slot => slot.ColorHex);
     }
 
     [RelayCommand]
@@ -176,6 +261,7 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     {
         ValueColor.Reset();
         foreach (OverlayColorSlotViewModel slot in CategoryColors) slot.Reset();
+        foreach (OverlayColorSlotViewModel slot in CategoryValueColors) slot.Reset();
     }
 
     private FontFamily ResolveFont(string? name)
@@ -192,6 +278,10 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     partial void OnSelectedFontChanged(FontFamily value) => Changed();
     partial void OnFontSizeChanged(double value) => Changed();
     partial void OnRtssSizePercentChanged(int value) => _onChanged();
+
+    // Les espacements élargissent ou resserrent les lignes : la fenêtre ancrée à droite ou en bas doit être replacée.
+    partial void OnValueSpacingChanged(int value) => Changed();
+    partial void OnSeparatorSpacingChanged(int value) => Changed();
     partial void OnUseCategoryColorsChanged(bool value) => _onChanged();
     partial void OnSendColorsToRtssChanged(bool value) => _onChanged();
     partial void OnBackgroundOpacityChanged(double value)

@@ -60,12 +60,82 @@ public sealed class FanCurveConfig
     /// <summary>Arrêt complet du ventilateur (0 RPM) sous cette température — null = jamais à l'arrêt.
     /// Tous les ventilateurs ne redémarrent pas proprement : à utiliser en connaissance de cause.</summary>
     public float? StopBelowTempC { get; set; }
+
+    /// <summary>Copie indépendante, points compris : modifier un ventilateur ne doit pas modifier le profil
+    /// où sa configuration a été enregistrée, ni l'inverse.</summary>
+    public FanCurveConfig Clone() => new()
+    {
+        ControlSensorId = ControlSensorId,
+        Mode = Mode,
+        ManualPercent = ManualPercent,
+        Source = Source,
+        Points = Points.Select(p => new FanCurvePoint { TempC = p.TempC, Percent = p.Percent }).ToList(),
+        HysteresisC = HysteresisC,
+        MinPercent = MinPercent,
+        MaxPercent = MaxPercent,
+        StopBelowTempC = StopBelowTempC,
+    };
 }
 
 /// <summary>Interpolation linéaire d'une courbe temp→% : plate avant le premier point et après le
 /// dernier, interpolée entre les deux points encadrants sinon.</summary>
 public static class FanCurveMath
 {
+    /// <summary>Plage de températures d'une courbe : celle de l'éditeur, et donc la seule où un point peut être posé.</summary>
+    public const float MinTempC = 20;
+
+    public const float MaxTempC = 85;
+
+    /// <summary>Écart minimal entre deux points, pour qu'un point ne puisse pas en croiser un autre
+    /// (la courbe resterait dessinable, mais deviendrait impossible à rattraper à la souris).</summary>
+    public const float MinTempGap = 2;
+
+    public const int MinPoints = 2;
+
+    /// <summary>Au-delà, les étiquettes de température se chevauchent dans une carte en demi-largeur.</summary>
+    public const int MaxPoints = 16;
+
+    public static bool CanRemovePoint(int count) => count > MinPoints;
+
+    /// <summary>
+    /// Un nouveau point qui ne change pas la forme de la courbe : au milieu du plus grand écart de température entre
+    /// deux points voisins (ou entre un bout de la plage et le point le plus proche, où la courbe est plate), à la
+    /// hauteur que la courbe y a déjà. Null quand la courbe a atteint <see cref="MaxPoints"/> ou qu'aucun écart ne
+    /// laisse la place d'un point à au moins <see cref="MinTempGap"/> de ses voisins.
+    /// </summary>
+    public static FanCurvePoint? TryCreatePoint(IReadOnlyList<FanCurvePoint> points)
+    {
+        if (points.Count >= MaxPoints || points.Count == 0) return null;
+
+        List<FanCurvePoint> sorted = points.OrderBy(p => p.TempC).ToList();
+
+        // Les intervalles entre voisins, bornes de la plage comprises, du plus large au plus étroit.
+        var gaps = new List<(float From, float To)> { (MinTempC, sorted[0].TempC) };
+        for (int i = 0; i < sorted.Count - 1; i++) gaps.Add((sorted[i].TempC, sorted[i + 1].TempC));
+        gaps.Add((sorted[^1].TempC, MaxTempC));
+
+        foreach ((float from, float to) in gaps.OrderByDescending(g => g.To - g.From))
+        {
+            // Température entière, comme celles que pose l'éditeur : l'arrondi ne doit pas rapprocher le point d'un voisin.
+            float temp = MathF.Round((from + to) / 2);
+            if (temp - from < MinTempGap || to - temp < MinTempGap) continue;
+
+            return new FanCurvePoint { TempC = temp, Percent = MathF.Round(Evaluate(sorted, temp)) };
+        }
+
+        return null;
+    }
+
+    /// <summary>Insère un point à sa place dans l'ordre des températures et renvoie son rang.</summary>
+    public static int InsertSorted(IList<FanCurvePoint> points, FanCurvePoint point)
+    {
+        int index = 0;
+        while (index < points.Count && points[index].TempC <= point.TempC) index++;
+
+        points.Insert(index, point);
+        return index;
+    }
+
     public static float Evaluate(IReadOnlyList<FanCurvePoint> points, float tempC)
     {
         if (points.Count == 0) return 50;

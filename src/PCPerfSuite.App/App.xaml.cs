@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Threading;
 using PCPerfSuite.App.Utils;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App;
 
@@ -33,6 +34,28 @@ public partial class App : System.Windows.Application
             CrashLog.Record(args.Exception, "tâche non observée");
             args.SetObserved();
         };
+
+        // Lancée par la tâche de démarrage de Windows (voir StartupTask) : l'app démarre dans la zone de notification.
+        bool launchedByWindows = e.Args.Contains(StartupTask.LaunchArgument, StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var window = new MainWindow();
+            MainWindow = window;
+            if (launchedByWindows) window.StartInTray();
+            else window.Show();
+        }
+        catch (Exception ex)
+        {
+            // La fenêtre se créait avant par StartupUri, et une erreur ici arrêtait l'app. Sans ce filet, le
+            // gestionnaire d'erreurs ci-dessus l'avalerait et, l'arrêt étant explicite, un processus invisible
+            // resterait en vie sans fenêtre ni icône pour le quitter.
+            CrashLog.Record(ex, "démarrage");
+            MessageBox.Show(
+                $"PCPerfSuite n'a pas pu démarrer :\n\n{ex.Message}\n\nLe détail est enregistré dans :\n{CrashLog.FilePath}",
+                "PCPerfSuite", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+        }
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
