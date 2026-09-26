@@ -148,6 +148,7 @@ public static class PowerMetricCatalog
         OsdLabel = definition.OsdLabel,
         Description = description,
         IsPercent = definition.IsPercent,
+        IsRate = definition.IsRate,
         IsSigned = definition.IsSigned,
         GraphMaximum = definition.GraphMaximum,
         GraphMinimumScale = definition.GraphMinimumScale,

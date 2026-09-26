@@ -61,6 +61,10 @@ public sealed class MetricDefinition
 
     public bool IsPercent { get; init; }
 
+    /// <summary>Débit en octets par seconde (disque, réseau) : sa valeur change de largeur et d'unité (Ko/s, Mo/s…)
+    /// d'un relevé à l'autre, l'overlay lui garde donc plus d'espace autour.</summary>
+    public bool IsRate { get; init; }
+
     /// <summary>Valeur signée (charge positive, décharge négative) : le graphique est centré sur un axe à zéro.</summary>
     public bool IsSigned { get; init; }
     public required Func<MetricSample, MetricReading> Read { get; init; }
@@ -313,6 +317,7 @@ public static class MetricCatalog
             Category = category,
             Label = label,
             OsdLabel = osdLabel,
+            IsRate = true,
             GraphMinimumScale = graphMinimumScale,
             ReadGroup = GroupFor(id, category),
             Read = s => getBytesPerSecond(s) is { } v ? Format(v) : Absent(s, GroupFor(id, category), category),

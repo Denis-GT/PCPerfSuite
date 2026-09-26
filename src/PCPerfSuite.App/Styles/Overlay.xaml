@@ -6,7 +6,7 @@
          Colonnes fixes : libellé, puis pour chaque métrique la valeur calée à droite et son unité. Chaque colonne
          prend la largeur de la plus large vue jusqu'ici, sur toutes les lignes (StickyWidth, dont la portée est
          posée par le conteneur) : les valeurs ne se décalent plus d'un relevé à l'autre. Les espacements sont des
-         espaces, pour suivre la taille de police. -->
+         espaces (Gap, choisis par OverlayComposer), pour suivre la taille de police. -->
     <DataTemplate x:Key="OverlayLineTemplate">
         <StackPanel Orientation="Horizontal" TextElement.FontWeight="SemiBold" Typography.NumeralAlignment="Tabular">
             <TextBlock Text="{Binding Label}" Foreground="{Binding LabelBrush}" controls:StickyWidth.Group="label"/>
@@ -31,7 +31,7 @@
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
-                            <TextBlock Text="  "/>
+                            <TextBlock Text="{Binding Gap}"/>
                             <TextBlock Text="{Binding Value}" TextAlignment="Right"
                                        controls:StickyWidth.Group="{Binding ValueGroup}"/>
                             <TextBlock Text="{Binding Unit}" controls:StickyWidth.Group="{Binding UnitGroup}"/>
