@@ -470,7 +470,47 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     private string _groupSignature = "";
 
+    private GpuFanPairing _lastGpuPairing = GpuFanPairing.None;
+
     [ObservableProperty] private bool hasGpu;
+
+    // Ce que le diagnostic « Compatibilité de ce PC » demande à cet onglet : c'est lui qui sait comment les ventilateurs
+    // ont été identifiés, rapprochés et rangés.
+
+    /// <summary>Coolers de la carte graphique exposés par l'API du constructeur.</summary>
+    public int GpuCoolerCount => _gpuCoolerIds?.Count ?? 0;
+
+    /// <summary>Nom de l'API du constructeur qui pilote la carte graphique, null si aucune n'a répondu.</summary>
+    public string? GpuDriverName => _gpuVendor switch
+    {
+        GpuVendor.Nvidia => "NVIDIA (NVAPI)",
+        GpuVendor.Amd => "AMD (ADLX)",
+        GpuVendor.Intel => "Intel (IGCL)",
+        _ => null,
+    };
+
+    /// <summary>Lectures de la bibliothèque de capteurs écartées de la liste parce qu'elles décrivent les mêmes coolers.</summary>
+    public int GpuDuplicatesDiscarded => _lastGpuPairing.Replaced.Count;
+
+    /// <summary>Connecteurs de la carte mère où aucun ventilateur n'a été détecté.</summary>
+    public int EmptyHeaderCount => Fans.Count(f => f.IsEmptyHeader);
+
+    /// <summary>Ventilateurs dont l'utilisateur a corrigé le nom ou la catégorie.</summary>
+    public int CustomizedCount => Fans.Count(f => f.HasCustomIdentity);
+
+    /// <summary>Cette lecture décrit un ventilateur que l'API du constructeur pilote déjà : elle n'est pas listée.</summary>
+    public bool IsGpuDuplicate(FanReading reading) => _lastGpuPairing.Replaced.Any(r => r.SensorId == reading.SensorId);
+
+    /// <summary>Numéro du cooler (« gpu:2 ») dont cette lecture est le doublon, null si elle n'est rapprochée d'aucun.</summary>
+    public string? GpuCoolerIdFor(FanReading reading)
+        => _lastGpuPairing.Pairs.FirstOrDefault(p => p.Reading?.SensorId == reading.SensorId) is { } pair
+            ? GpuControlService.FanId(pair.CoolerId)
+            : null;
+
+    /// <summary>Le ventilateur listé dans l'onglet qui correspond à cette lecture, null si elle n'y figure pas (lecture
+    /// seule, doublon écarté, portable).</summary>
+    public FanControlItemViewModel? FindItem(FanReading reading)
+        => reading.PercentControlSensorId is { } id ? Fans.FirstOrDefault(f => f.FanId == id) : null;
 
     /// <summary>Pourquoi aucun ventilateur n'est pilotable ici, adapté au PC : sans administrateur, portable (dont
     /// les ventilateurs appartiennent au firmware du constructeur) ou carte mère sans pilotage logiciel.</summary>
@@ -510,7 +550,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         // constructeur, et les commandes que la bibliothèque de capteurs expose pour la même carte ne sont pas
         // listées une deuxième fois. Elles servent à lire la vitesse de chaque cooler.
         IReadOnlyList<int> coolerIds = ResolveGpuCoolerIds();
-        GpuFanPairing gpuFans = GpuFanPairing.Pair(coolerIds, _gpuVendor, snapshot.Fans);
+        GpuFanPairing gpuFans = _lastGpuPairing = GpuFanPairing.Pair(coolerIds, _gpuVendor, snapshot.Fans);
 
         // Règle de compatibilité 5 : sur un portable, le refroidissement appartient au contrôleur
         // embarqué du constructeur, donc on n'expose aucun ventilateur de carte mère ici — même quand

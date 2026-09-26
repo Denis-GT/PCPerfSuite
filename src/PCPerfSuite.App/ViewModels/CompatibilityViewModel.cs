@@ -10,6 +10,7 @@ using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.Processes;
@@ -145,6 +146,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             : new CompatibilityRow("Contrôle GPU (overclocking)", "Non disponible", _gpu.UnavailableMessage, false);
 
         yield return FanReadingRow(machine, snapshot);
+
+        yield return FanIdentificationRow(snapshot);
 
         yield return _fans.Fans.Count > 0
             ? new CompatibilityRow("Pilotage des ventilateurs", $"{_fans.Fans.Count} pilotable(s)", "Onglet Ventilateurs.", true)
@@ -284,6 +287,112 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         };
     }
 
+    /// <summary>Comment les ventilateurs ont été identifiés : ce que la carte mère a nommé, ce qui n'est qu'un numéro de canal
+    /// (et pourquoi), les doublons GPU écartés, les connecteurs sans ventilateur détecté. Sans cette ligne, « tous mes
+    /// ventilateurs s'appellent Fan #N » ne dit pas si la carte est absente de la table de noms ou si la lecture a échoué.</summary>
+    private CompatibilityRow FanIdentificationRow(HardwareSnapshot? snapshot)
+    {
+        const string title = "Identification des ventilateurs";
+
+        if (snapshot is null || snapshot.Fans.Count == 0)
+        {
+            string why = ElevationHelper.IsAdministrator()
+                ? "Aucun ventilateur lu : voir la ligne « Lecture des ventilateurs » ci-dessus."
+                : "PCPerfSuite n'est pas lancé en administrateur : les ventilateurs de la carte mère ne sont pas lisibles.";
+            return new CompatibilityRow(title, "Sans objet", why, false);
+        }
+
+        FanInventory inventory = FanInventory.Of(snapshot.Fans);
+        var parts = new List<string>();
+        bool namesMissing = false;
+
+        if (inventory.BoardFans > 0)
+        {
+            string unknownBoard = new MotherboardSnapshot().Name;
+            string board = snapshot.Motherboard.Name is { Length: > 0 } name && name != unknownBoard ? $"carte {name}" : "cette carte mère";
+
+            if (inventory.BoardFansNamed == inventory.BoardFans)
+            {
+                parts.Add($"Noms fournis par la carte mère : {inventory.BoardFans} sur {inventory.BoardFans}.");
+            }
+            else
+            {
+                namesMissing = true;
+                string chips = string.Join(", ", inventory.ChipsWithoutNames);
+                parts.Add($"Noms fournis par la carte mère : {inventory.BoardFansNamed} sur {inventory.BoardFans} ({chips} ; {board} absente de la table de "
+                          + "noms de LibreHardwareMonitor, la marque ou le modèle n'est pas encore pris en charge pour le nom des connecteurs). "
+                          + "Les ventilateurs sont numérotés, et le crayon de l'onglet Ventilateurs permet de les nommer.");
+            }
+        }
+
+        if (inventory.LaptopFans > 0)
+        {
+            parts.Add($"{inventory.LaptopFans} ventilateur(s) de portable, nommés par l'interface du constructeur (lecture seule).");
+        }
+
+        if (_fans.GpuCoolerCount > 0)
+        {
+            string duplicates = _fans.GpuDuplicatesDiscarded > 0
+                ? $" ; {_fans.GpuDuplicatesDiscarded} lecture(s) en double de LibreHardwareMonitor écartée(s)"
+                : "";
+            parts.Add($"{_fans.GpuCoolerCount} ventilateur(s) GPU piloté(s) par le pilote {_fans.GpuDriverName}{duplicates}.");
+        }
+        else if (inventory.GpuFans > 0)
+        {
+            parts.Add($"{inventory.GpuFans} ventilateur(s) GPU lu(s) par LibreHardwareMonitor ; le pilote graphique n'expose pas de pilotage " +
+                      "de ventilateur pour cette carte (limite du pilote ou de la carte), ils restent pilotables quand la bibliothèque le permet.");
+        }
+
+        if (_fans.EmptyHeaderCount > 0)
+        {
+            parts.Add($"{_fans.EmptyHeaderCount} connecteur(s) sans ventilateur détecté : 0 tr/min alors que la carte mère les alimente ; " +
+                      "un ventilateur sans fil de vitesse (2 broches, hub) se présente pareil, ils restent pilotables.");
+        }
+
+        if (_fans.CustomizedCount > 0)
+        {
+            parts.Add($"{_fans.CustomizedCount} ventilateur(s) renommé(s) ou rangé(s) à la main par l'utilisateur.");
+        }
+
+        // Des noms absents sur la carte mère ne sont pas une panne, mais c'est une prise en charge incomplète : la ligne
+        // le dit, sauf si l'utilisateur a déjà nommé ses ventilateurs.
+        bool ok = !namesMissing || _fans.CustomizedCount > 0;
+        return new CompatibilityRow(title, ok ? "Identifiés" : "Numéros seulement", string.Join(" ", parts), ok);
+    }
+
+    /// <summary>Une ligne du rapport pour un ventilateur : de quoi retrouver son nom, son connecteur et ce qu'on en a fait.
+    /// Ces champs suffisent pour ajouter une carte à une table de noms, ou vérifier la règle des connecteurs vides
+    /// (vitesse et commande lues).</summary>
+    private string DescribeFan(FanReading fan)
+    {
+        FanControlItemViewModel? item = _fans.FindItem(fan);
+        var notes = new List<string>();
+
+        if (_fans.IsGpuDuplicate(fan))
+        {
+            notes.Add(_fans.GpuCoolerIdFor(fan) is { } cooler
+                ? $"doublon du cooler {cooler}, écarté de l'onglet"
+                : "écarté de l'onglet : la carte est pilotée par son pilote graphique");
+        }
+        else if (item?.IsEmptyHeader == true)
+        {
+            notes.Add("connecteur sans ventilateur détecté");
+        }
+
+        if (item is { HasCustomIdentity: true })
+        {
+            notes.Add($"corrigé par l'utilisateur : « {item.DisplayName} », {FanCategoryInfo.Title(item.Category)}");
+        }
+
+        string chip = fan.Channel is { } channel ? $"{fan.HardwareName}, canal {channel + 1}" : fan.HardwareName;
+        string control = fan.PercentControlSensorId ?? "aucune (lecture seule)";
+        string suffix = notes.Count > 0 ? $" · {string.Join(" · ", notes)}" : "";
+
+        return $" - [{FanCategoryInfo.Title(fan.Category)}] {fan.Label} · nom lu « {fan.SensorName} » ({chip}) : "
+               + $"{fan.Rpm?.ToString("0") ?? "N/D"} RPM, {fan.PercentControl?.ToString("0") ?? "N/D"} % "
+               + $"· capteur {fan.SensorId} · commande {control}{suffix}";
+    }
+
     /// <summary>Met en forme une mesure éventuellement absente pour le rapport : « N/D » explicite, jamais un
     /// zéro qui laisserait croire à une valeur mesurée.</summary>
     private static string Value(float? value)
@@ -321,10 +430,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         {
             text.AppendLine();
             text.AppendLine("Ventilateurs lus :");
-            foreach (FanReading fan in sample.Hardware.Fans)
-            {
-                text.AppendLine($" - {fan.SensorName} ({fan.HardwareName}) : {fan.Rpm?.ToString("0") ?? "N/D"} RPM, {fan.PercentControl?.ToString("0") ?? "N/D"} %");
-            }
+            if (sample.Hardware.Fans.Count == 0) text.AppendLine(" - Aucun ventilateur lu.");
+            foreach (FanReading fan in sample.Hardware.Fans) text.AppendLine(DescribeFan(fan));
 
             // Détail de la mémoire : sans lui, un « la RAM s'affiche N/D » ne dit pas quelle source a manqué.
             MemorySnapshot memory = sample.Hardware.Memory;
