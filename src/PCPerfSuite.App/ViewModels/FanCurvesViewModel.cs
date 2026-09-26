@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -27,12 +28,17 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     public string FanId { get; }
     public string DisplayName { get; }
 
-    /// <summary>Ventilateur du GPU : la source de température par défaut et les libellés diffèrent.</summary>
-    public bool IsGpu { get; }
+    /// <summary>Ce que refroidit ce ventilateur (voir <see cref="FanIdentification"/>).</summary>
+    public FanCategory Category { get; }
+
+    /// <summary>Ventilateur du GPU, piloté par l'API du constructeur ou par la bibliothèque de capteurs : il a la
+    /// protection thermique du GPU et la température du GPU comme source par défaut.</summary>
+    public bool IsGpu => Category == FanCategory.Gpu;
 
     public ObservableCollection<FanCurvePoint> Points { get; }
 
-    [ObservableProperty] private double rpm;
+    /// <summary>Null tant qu'aucune vitesse n'a été lue pour ce ventilateur : affiché « -- », jamais « 0 RPM ».</summary>
+    [ObservableProperty] private double? rpm;
     [ObservableProperty] private double? currentPercent;
     [ObservableProperty] private double? targetPercent;
     [ObservableProperty] private double? sourceTempC;
@@ -48,7 +54,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     public FanControlItemViewModel(
         FanCurveConfig config,
         string displayName,
-        bool isGpu,
+        FanCategory category,
         IFanController controller,
         Action persist,
         Action<FanControlItemViewModel> copyToAll)
@@ -60,7 +66,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
         FanId = config.ControlSensorId;
         DisplayName = displayName;
-        IsGpu = isGpu;
+        Category = category;
 
         Points = new ObservableCollection<FanCurvePoint>(config.Points);
         mode = config.Mode;
@@ -238,9 +244,14 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     private readonly MonitoringViewModel _monitoring;
     private readonly AppSettings _settings;
 
-    /// <summary>Identifiants des coolers GPU, résolus une seule fois : NVAPI ne les renumérote pas en
-    /// cours de route, inutile de les relire à chaque relevé.</summary>
-    private List<string>? _gpuFanIds;
+    /// <summary>Coolers GPU exposés par l'API du constructeur, résolus une seule fois : NVAPI ne les renumérote
+    /// pas en cours de route, inutile de les relire à chaque relevé.</summary>
+    private List<int>? _gpuCoolerIds;
+
+    private GpuVendor? _gpuVendor;
+
+    /// <summary>Libellé de chaque cooler GPU (« GPU 1 », « GPU 2 »...), par numéro de cooler.</summary>
+    private Dictionary<int, string> _gpuLabels = new();
 
     public ObservableCollectionEx<FanControlItemViewModel> Fans { get; } = new();
 
@@ -286,32 +297,55 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         // MSI). Sans ce filtre, l'onglet les afficherait comme pilotables et NoFansMessage promettrait
         // exactement le contraire de ce que l'app ferait. Le ventilateur du GPU, lui, passe par le
         // pilote graphique (NVAPI/ADLX/IGCL) et reste légitime sur un portable à carte dédiée.
+        // Une carte graphique arrive par deux chemins (voir GpuFanPairing) : ses coolers sont pilotés par l'API du
+        // constructeur, et les commandes que la bibliothèque de capteurs expose pour la même carte ne sont pas
+        // listées une deuxième fois. Elles servent à lire la vitesse de chaque cooler.
+        IReadOnlyList<int> coolerIds = ResolveGpuCoolerIds();
+        GpuFanPairing gpuFans = GpuFanPairing.Pair(coolerIds, _gpuVendor, snapshot.Fans);
+
         List<FanReading> motherboard = MachineInfo.Current.IsLaptop
             ? new List<FanReading>()
-            : snapshot.Fans.Where(f => f.CanControl).ToList();
-        SyncFanList(motherboard);
+            : snapshot.Fans.Where(f => f.CanControl && !gpuFans.Replaced.Contains(f)).ToList();
+        SyncFanList(motherboard, coolerIds);
+
+        var readings = new Dictionary<string, FanReading>();
+        foreach (FanReading fan in motherboard) readings[fan.PercentControlSensorId!] = fan;
+        foreach (GpuFanPair pair in gpuFans.Pairs)
+        {
+            if (pair.Reading is { } reading) readings[GpuControlService.FanId(pair.CoolerId)] = reading;
+        }
 
         foreach (FanControlItemViewModel item in Fans)
         {
-            if (item.IsGpu)
+            if (readings.TryGetValue(item.FanId, out FanReading? reading))
             {
-                item.Rpm = snapshot.Gpu?.FanRpm ?? 0;
+                item.Rpm = reading.Rpm;
+                item.CurrentPercent = reading.PercentControl;
+            }
+            else if (IsGpuCooler(item.FanId) && coolerIds.Count == 1)
+            {
+                // Un seul cooler : la lecture du GPU dans son ensemble est forcément la sienne.
+                item.Rpm = snapshot.Gpu?.FanRpm;
                 item.CurrentPercent = snapshot.Gpu?.FanPercent;
             }
             else
             {
-                FanReading? reading = motherboard.FirstOrDefault(f => f.PercentControlSensorId == item.FanId);
-                item.Rpm = reading?.Rpm ?? 0;
-                item.CurrentPercent = reading?.PercentControl;
+                // Plusieurs coolers sans lecture rapprochée : on ne sait pas lequel tourne à quelle vitesse.
+                item.Rpm = null;
+                item.CurrentPercent = null;
             }
 
             item.Apply(TempFor(item.Source, snapshot));
         }
     }
 
-    private void SyncFanList(List<FanReading> motherboard)
+    private static bool IsGpuCooler(string fanId) => fanId.StartsWith(GpuControlService.FanIdPrefix, StringComparison.Ordinal);
+
+    private void SyncFanList(List<FanReading> motherboard, IReadOnlyList<int> coolerIds)
     {
-        List<string> expected = motherboard.Select(f => f.PercentControlSensorId!).Concat(ResolveGpuFanIds()).ToList();
+        List<string> expected = motherboard.Select(f => f.PercentControlSensorId!)
+            .Concat(coolerIds.Select(GpuControlService.FanId))
+            .ToList();
 
         for (int i = Fans.Count - 1; i >= 0; i--)
         {
@@ -325,22 +359,25 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
             string id = fan.PercentControlSensorId!;
             if (Fans.Any(f => f.FanId == id)) continue;
 
-            FanCurveConfig config = ConfigFor(id, FanTempSource.CpuPackage, ref added);
-            Fans.Add(new FanControlItemViewModel(
-                config, $"{fan.SensorName} — {fan.HardwareName}", isGpu: false, _hardware, Persist, CopyCurveToAll));
+            FanCurveConfig config = ConfigFor(id, DefaultSourceFor(fan.Category), ref added);
+            Fans.Add(new FanControlItemViewModel(config, fan.Label, fan.Category, _hardware, Persist, CopyCurveToAll));
         }
 
-        foreach (string id in ResolveGpuFanIds())
+        foreach (int coolerId in coolerIds)
         {
+            string id = GpuControlService.FanId(coolerId);
             if (Fans.Any(f => f.FanId == id)) continue;
 
             FanCurveConfig config = ConfigFor(id, FanTempSource.GpuCore, ref added);
-            Fans.Add(new FanControlItemViewModel(
-                config, "Ventilateur GPU", isGpu: true, _gpu, Persist, CopyCurveToAll));
+            string label = _gpuLabels.GetValueOrDefault(coolerId, "GPU");
+            Fans.Add(new FanControlItemViewModel(config, label, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll));
         }
 
         if (added) Persist();
     }
+
+    private static FanTempSource DefaultSourceFor(FanCategory category)
+        => category == FanCategory.Gpu ? FanTempSource.GpuCore : FanTempSource.CpuPackage;
 
     /// <summary>Configuration d'un ventilateur, créée au besoin. Pour le GPU, on reprend les réglages
     /// de l'ancien onglet GPU (où vivait la courbe GPU) plutôt que de repartir de zéro.</summary>
@@ -364,17 +401,24 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         return config;
     }
 
-    private IEnumerable<string> ResolveGpuFanIds()
+    private IReadOnlyList<int> ResolveGpuCoolerIds()
     {
-        if (_gpuFanIds is not null) return _gpuFanIds;
+        if (_gpuCoolerIds is not null) return _gpuCoolerIds;
 
-        _gpuFanIds = new List<string>();
+        _gpuCoolerIds = new List<int>();
         if (_gpu.TryInitialize() && _gpu.GetSnapshot() is { } snap)
         {
-            _gpuFanIds.AddRange(snap.Fans.Select(f => GpuControlService.FanId(f.CoolerId)));
+            _gpuVendor = _gpu.Vendor;
+            _gpuCoolerIds.AddRange(snap.Fans.Select(f => f.CoolerId).Distinct().OrderBy(id => id));
+
+            // « GPU 1 », « GPU 2 »... — ou « GPU » pour un cooler seul. Même règle que pour les autres ventilateurs.
+            IReadOnlyList<string> labels = FanIdentification.AssignLabels(_gpuCoolerIds
+                .Select(id => new FanLabelInput(FanCategory.Gpu, $"GPU Fan {id}", NameFromHardware: false, id, HardwareId: null))
+                .ToList());
+            _gpuLabels = _gpuCoolerIds.Zip(labels).ToDictionary(x => x.First, x => x.Second);
         }
 
-        return _gpuFanIds;
+        return _gpuCoolerIds;
     }
 
     private void CopyCurveToAll(FanControlItemViewModel source)
