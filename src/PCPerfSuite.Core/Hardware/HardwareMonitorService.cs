@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using LibreHardwareMonitor.Hardware;
+using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Hardware.Memory;
 using PCPerfSuite.Core.Hardware.Storage;
@@ -246,7 +247,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             Gpu = gpu,
             Memory = CompleteMemory(memory, memoryTemperatures),
             Motherboard = motherboard,
-            Fans = fans,
+            Fans = FanIdentification.Label(fans),
             Disks = disks,
             Network = new NetworkSnapshot { UploadBytesPerSecond = uploadRate, DownloadBytesPerSecond = downloadRate },
             Battery = _lastBattery,
@@ -779,6 +780,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     {
         var fanSensors = hardware.Sensors.Where(s => s.SensorType == SensorType.Fan);
         var controlSensors = hardware.Sensors.Where(s => s.SensorType == SensorType.Control).ToList();
+        bool onGpu = group == SensorGroup.Gpu;
 
         foreach (ISensor fan in fanSensors)
         {
@@ -791,6 +793,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 HardwareName = hardware.Name,
                 Group = group,
                 SensorName = fan.Name,
+                Category = FanIdentification.Categorize(fan.Name, onGpu),
+                Channel = fan.Index,
+                HardwareId = hardware.Identifier.ToString(),
+                // « GPU Fan 1 » est le nom que la bibliothèque donne au canal du pilote graphique, pas celui d'un
+                // connecteur : ces ventilateurs sont numérotés dans leur catégorie, comme ceux sans nom.
+                NameFromHardware = !onGpu && !FanIdentification.IsGenericName(fan.Name),
                 Rpm = fan.Value,
                 PercentControl = matchingControl?.Value,
                 SensorId = fan.Identifier.ToString(),
@@ -811,6 +819,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 HardwareName = hardwareName,
                 Group = SensorGroup.Motherboard,
                 SensorName = fan.Name,
+                Category = FanIdentification.Categorize(fan.Name, onGpu: false, fan.Role),
+                HardwareId = $"laptop/{LaptopFans.Vendor!.ToLowerInvariant()}",
+                NameFromHardware = !FanIdentification.IsGenericName(fan.Name),
                 Rpm = fan.Rpm,
                 PercentControl = fan.Percent,
                 SensorId = $"laptop/{LaptopFans.Vendor!.ToLowerInvariant()}/{fan.Key}",

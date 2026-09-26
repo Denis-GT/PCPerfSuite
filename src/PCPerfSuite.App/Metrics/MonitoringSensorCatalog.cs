@@ -46,14 +46,14 @@ public static class MonitoringSensorCatalog
         foreach (FanReading fan in snapshot.Fans)
         {
             string id = fan.SensorId;
-            yield return MetricCatalog.Numeric($"fan:{id}", Fans, $"{fan.SensorName} ({fan.HardwareName})", "fan", "RPM", "0",
+            yield return MetricCatalog.Numeric($"fan:{id}", Fans, $"{fan.Label} ({fan.HardwareName})", "fan", "RPM", "0",
                 s => s.Hardware.Fans.FirstOrDefault(f => f.SensorId == id)?.Rpm, fan.Group, MetricCatalog.FanHint);
 
             // Le % n'est proposé que pour un ventilateur qui en fournit un (commande de la carte mère, maximum connu
             // du portable) : sinon la tuile afficherait toujours "N/D".
             if (fan.PercentControl is not null)
             {
-                yield return MetricCatalog.Numeric($"fan:{id}:percent", Fans, $"{fan.SensorName} % ({fan.HardwareName})", "fan", "%", "0",
+                yield return MetricCatalog.Numeric($"fan:{id}:percent", Fans, $"{fan.Label} % ({fan.HardwareName})", "fan", "%", "0",
                     s => s.Hardware.Fans.FirstOrDefault(f => f.SensorId == id)?.PercentControl, fan.Group, MetricCatalog.FanHint);
             }
         }
