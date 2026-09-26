@@ -160,12 +160,12 @@
                         <WrapPanel Margin="0,12,0,0">
                             <StackPanel Orientation="Horizontal" Margin="0,0,24,8">
                                 <TextBlock Text="Vitesse min" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100" ShowRange="False"
+                                <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100"
                                                       Value="{Binding MinPercent}" Unit="%"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,24,8">
                                 <TextBlock Text="Vitesse max" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100" ShowRange="False"
+                                <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100"
                                                       Value="{Binding MaxPercent}" Unit="%"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
@@ -188,7 +188,7 @@
                                          Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                <controls:NumberField VerticalAlignment="Center" Minimum="20" Maximum="70" ShowRange="False"
+                                <controls:NumberField VerticalAlignment="Center" Minimum="20" Maximum="70"
                                                       Value="{Binding StopBelowTempC}" Unit="°C"
                                                       IsEnabled="{Binding StopWhenCool}"/>
                                 <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding StopWhenCool}"

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace PCPerfSuite.App.Controls;
 
@@ -30,22 +31,31 @@ public partial class NumberField : UserControl
     public static readonly DependencyProperty UnitProperty = DependencyProperty.Register(
         nameof(Unit), typeof(string), typeof(NumberField), new PropertyMetadata(""));
 
-    /// <summary>Affiche « de 50 à 120 » à côté du champ. À couper quand la plage va de soi (0 à 100 %) et que la
-    /// place manque.</summary>
-    public static readonly DependencyProperty ShowRangeProperty = DependencyProperty.Register(
-        nameof(ShowRange), typeof(bool), typeof(NumberField), new PropertyMetadata(true, OnHintInputChanged));
+    /// <summary>La saisie en cours est hors des bornes (voir <see cref="NumericInput.IsOutOfRangeProperty"/>) : c'est
+    /// alors, et alors seulement, que « de 50 à 120 » est annoncé à côté du champ.</summary>
+    public static readonly DependencyProperty IsInputOutOfRangeProperty = DependencyProperty.Register(
+        nameof(IsInputOutOfRange), typeof(bool), typeof(NumberField), new PropertyMetadata(false, OnHintInputChanged));
 
-    /// <summary>Précision ajoutée après la plage (« = Désactivée »), vide si rien à dire.</summary>
+    /// <summary>Précision affichée en permanence à côté du champ (« 0 = Désactivée »), vide si rien à dire.</summary>
     public static readonly DependencyProperty NoteProperty = DependencyProperty.Register(
         nameof(Note), typeof(string), typeof(NumberField), new PropertyMetadata("", OnHintInputChanged));
 
-    /// <summary>Texte à côté du champ : « de 50 à 120 · note ». Null quand il n'y a rien à afficher.</summary>
+    /// <summary>Texte à côté du champ : « de 50 à 120 · note », la plage seulement hors limites. Null quand il n'y a
+    /// rien à afficher.</summary>
     public static readonly DependencyProperty HintTextProperty = DependencyProperty.Register(
         nameof(HintText), typeof(string), typeof(NumberField), new PropertyMetadata(null));
 
     public NumberField()
     {
         InitializeComponent();
+
+        // Suit l'état « hors limites » du TextBox, que NumericInput tient à jour pendant la saisie.
+        BindingOperations.SetBinding(this, IsInputOutOfRangeProperty, new Binding
+        {
+            Source = Field,
+            Path = new PropertyPath(NumericInput.IsOutOfRangeProperty),
+            Mode = BindingMode.OneWay,
+        });
     }
 
     public double Value
@@ -72,11 +82,7 @@ public partial class NumberField : UserControl
         set => SetValue(StepProperty, value);
     }
 
-    public bool ShowRange
-    {
-        get => (bool)GetValue(ShowRangeProperty);
-        set => SetValue(ShowRangeProperty, value);
-    }
+    public bool IsInputOutOfRange => (bool)GetValue(IsInputOutOfRangeProperty);
 
     public string Unit
     {
@@ -103,8 +109,9 @@ public partial class NumberField : UserControl
     {
         var parts = new List<string>(2);
 
-        // Bornes pas encore renseignées (maximum au plus bas, ou infini) : pas de plage à annoncer.
-        if (ShowRange && double.IsFinite(Maximum) && Maximum > Minimum)
+        // La plage n'est annoncée que si la saisie en sort. Bornes pas encore renseignées (maximum au plus bas, ou
+        // infini) : pas de plage à annoncer.
+        if (IsInputOutOfRange && double.IsFinite(Maximum) && Maximum > Minimum)
         {
             // Bornes arrondies vers l'intérieur, comme NumericInput : la plage annoncée est celle qu'on peut saisir.
             parts.Add(string.Format(CultureInfo.CurrentCulture, "de {0:0} à {1:0}", Math.Ceiling(Minimum), Math.Floor(Maximum)));

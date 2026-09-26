@@ -436,6 +436,79 @@
         </Setter>
     </Style>
 
+    <!-- Bouton qui déroule un panneau (RevealPanel) : le rendu de GhostButton, un chevron après le libellé qui se
+         retourne à l'ouverture, et un état ouvert teinté d'accent — pas d'avertissement : ouvrir un panneau n'a
+         rien d'inquiétant. Le contenu est le libellé. -->
+    <Style x:Key="DropDownToggleButton" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="Padding" Value="14,7,12,7"/>
+        <Setter Property="MinHeight" Value="34"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="{StaticResource ControlRadius}" Padding="{TemplateBinding Padding}"
+                            RenderOptions.ClearTypeHint="Enabled">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                            <TextBlock Text="&#xE70D;" FontFamily="{StaticResource IconFont}" FontSize="10" Margin="8,1,0,0"
+                                       VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"
+                                       Foreground="{TemplateBinding Foreground}">
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform x:Name="ChevronRotation" Angle="0"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#24FFFFFF"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PressedBrush}"/>
+                        </Trigger>
+                        <!-- Déclaré après le survol pour l'emporter, comme dans ToggleActionButton. -->
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentSoftBorderBrush}"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ChevronRotation" Storyboard.TargetProperty="Angle"
+                                                         To="180" Duration="0:0:0.2">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ChevronRotation" Storyboard.TargetProperty="Angle"
+                                                         To="0" Duration="0:0:0.2">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Élément de la navigation latérale : icône + libellé, barre d'accent à gauche quand il est actif.
          Le DataContext est un NavEntry (Title, Icon). -->
     <Style x:Key="NavListItem" TargetType="ListBoxItem">

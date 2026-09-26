@@ -54,6 +54,17 @@ public static class NumericInput
     private static readonly DependencyProperty IsDirtyProperty = DependencyProperty.RegisterAttached(
         "IsDirty", typeof(bool), typeof(NumericInput), new PropertyMetadata(false));
 
+    private static readonly DependencyPropertyKey IsOutOfRangePropertyKey = DependencyProperty.RegisterAttachedReadOnly(
+        "IsOutOfRange", typeof(bool), typeof(NumericInput), new PropertyMetadata(false));
+
+    /// <summary>Vrai quand la saisie en cours est hors des bornes ET qu'aucune suite de chiffres ne peut l'y ramener :
+    /// « 1 » avec un minimum de 100 n'en est pas (on tape « 150 »), « 99 » avec un maximum de 48 en est une. Repasse à
+    /// faux dès que la valeur redevient valide, et à la validation ou à l'abandon de la saisie. Sert aux champs qui
+    /// n'annoncent leur plage qu'en cas d'erreur (voir NumberField).</summary>
+    public static readonly DependencyProperty IsOutOfRangeProperty = IsOutOfRangePropertyKey.DependencyProperty;
+
+    public static bool GetIsOutOfRange(DependencyObject element) => (bool)element.GetValue(IsOutOfRangeProperty);
+
     public static bool GetIsNumeric(DependencyObject element) => (bool)element.GetValue(IsNumericProperty);
     public static void SetIsNumeric(DependencyObject element, bool value) => element.SetValue(IsNumericProperty, value);
 
@@ -136,6 +147,7 @@ public static class NumericInput
                 StopArrowTimer(box);
                 box.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
                 box.SetValue(IsDirtyProperty, false);
+                box.SetValue(IsOutOfRangePropertyKey, false);
                 e.Handled = true;
                 break;
 
@@ -175,7 +187,10 @@ public static class NumericInput
     private static void OnTextChanged(object sender, TextChangedEventArgs e)
     {
         var box = (TextBox)sender;
-        if (box.IsKeyboardFocused) box.SetValue(IsDirtyProperty, true);
+        if (!box.IsKeyboardFocused) return;
+
+        box.SetValue(IsDirtyProperty, true);
+        box.SetValue(IsOutOfRangePropertyKey, ComputeOutOfRange(box));
     }
 
     // ----- Validation -----
@@ -193,6 +208,38 @@ public static class NumericInput
             if (c is >= '0' and <= '9') continue;
             if (c == '-' && i == 0 && allowMinus) continue;
             return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Le texte tapé est-il hors des bornes sans issue ? Ajouter des chiffres ne fait que déplacer la valeur
+    /// dans l'intervalle [v·10^k, v·10^k + 10^k − 1] (en négatif après un « - »), avec k le nombre de chiffres encore
+    /// permis : tant que l'un de ces intervalles touche la plage, on est en train de taper un nombre valide.
+    /// Vide et « - » seul, bornes pas encore renseignées : rien à signaler.</summary>
+    private static bool ComputeOutOfRange(TextBox box)
+    {
+        // Mêmes bornes entières que Clamp.
+        double min = Math.Ceiling(GetMinimum(box));
+        double max = Math.Floor(GetMaximum(box));
+        if (max < min) return false;
+
+        string text = box.Text.Trim();
+        if (!TryParse(text, out double parsed)) return false;
+
+        bool negative = text.StartsWith('-');
+        double magnitude = Math.Abs(parsed);
+        int remaining = Math.Max(0, MaxLength - text.Length);
+
+        for (int k = 0; k <= remaining; k++)
+        {
+            double scale = Math.Pow(10, k);
+            double low = magnitude * scale;
+            double high = low + scale - 1;
+
+            double from = negative ? -high : low;
+            double to = negative ? -low : high;
+            if (from <= max && to >= min) return false;
         }
 
         return true;
@@ -269,6 +316,7 @@ public static class NumericInput
         {
             // Après les écritures ci-dessus : elles déclenchent elles-mêmes TextChanged, pendant que le champ a le focus.
             box.SetValue(IsDirtyProperty, false);
+            box.SetValue(IsOutOfRangePropertyKey, false);
         }
     }
 
