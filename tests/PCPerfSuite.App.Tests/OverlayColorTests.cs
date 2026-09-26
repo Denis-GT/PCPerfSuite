@@ -122,7 +122,9 @@ public class OverlayColorTests
     {
         OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings
         {
+            ValueColor = "#FFD166",
             CategoryColors = new Dictionary<string, string> { ["gpu"] = "#123456" },
+            CategoryValueColors = new Dictionary<string, string> { ["cpu"] = "#654321" },
         });
 
         appearance.ResetColorsCommand.Execute(null);
@@ -130,5 +132,103 @@ public class OverlayColorTests
         var written = new OverlayAppearanceSettings();
         appearance.WriteTo(written);
         Assert.Empty(written.CategoryColors);
+        Assert.Empty(written.CategoryValueColors);
+        Assert.Equal("#FFFFFF", written.ValueColor);
+    }
+
+    private static OverlayColorSlotViewModel ValueSlot(OverlayAppearanceViewModel appearance, string key)
+        => appearance.CategoryValueColors.Single(s => s.Key == key);
+
+    [Fact]
+    public void CategoryValueColors_FollowTheCommonValueColor_UntilTheUserChangesThem()
+    {
+        OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings());
+        Assert.All(appearance.CategoryValueColors, slot => Assert.Equal("#FFFFFF", slot.ColorHex));
+
+        ValueSlot(appearance, "gpu").ColorHex = "#123456";
+        appearance.ValueColor.ColorHex = "#FFD166";
+
+        // Le CPU suivait la couleur commune et la suit encore ; le GPU garde celle qu'on lui a donnée.
+        Assert.Equal("#FFD166", ValueSlot(appearance, "cpu").ColorHex);
+        Assert.Equal("#123456", ValueSlot(appearance, "gpu").ColorHex);
+    }
+
+    [Fact]
+    public void ChangingTheCommonValueColor_RendersOnce()
+    {
+        int changes = 0;
+        var appearance = new OverlayAppearanceViewModel(new OverlayAppearanceSettings(), () => changes++, () => { });
+
+        appearance.ValueColor.ColorHex = "#FFD166";
+
+        // Les catégories qui la suivent se mettent à jour sans déclencher chacune un rendu et un enregistrement.
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void Appearance_RestoresTheSavedValueColors()
+    {
+        OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings
+        {
+            ValueColor = "#FFD166",
+            CategoryValueColors = new Dictionary<string, string> { ["gpu"] = "#123456", ["cpu"] = "  " },
+        });
+
+        Assert.Equal("#123456", ValueSlot(appearance, "gpu").ColorHex);
+        Assert.Equal("#FFD166", ValueSlot(appearance, "cpu").ColorHex);
+    }
+
+    [Fact]
+    public void WriteTo_SavesOnlyTheValueColorsTheUserChanged()
+    {
+        OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings());
+        ValueSlot(appearance, "gpu").ColorHex = "#123456";
+        appearance.ValueColor.ColorHex = "#FFD166";
+
+        var written = new OverlayAppearanceSettings();
+        appearance.WriteTo(written);
+
+        Assert.Equal("#FFD166", written.ValueColor);
+        Assert.Equal(new Dictionary<string, string> { ["gpu"] = "#123456" }, written.CategoryValueColors);
+    }
+
+    [Fact]
+    public void ColorScheme_GivesEachCategoryItsValueColor()
+    {
+        OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings { ValueColor = "#FFD166" });
+        ValueSlot(appearance, "gpu").ColorHex = "#123456";
+
+        OverlayColorScheme colors = appearance.BuildColorScheme();
+
+        Assert.Equal("#123456", colors.ValueColor(Category("gpu")));
+        Assert.Equal("#FFD166", colors.ValueColor(Category("cpu")));
+    }
+
+    [Fact]
+    public void ColorScheme_WithoutCategoryColors_UsesTheCommonColorForAllText()
+    {
+        OverlayAppearanceViewModel appearance = Appearance(new OverlayAppearanceSettings { ValueColor = "#FFD166" });
+        ValueSlot(appearance, "gpu").ColorHex = "#123456";
+        appearance.UseCategoryColors = false;
+
+        OverlayColorScheme colors = appearance.BuildColorScheme();
+
+        Assert.Equal("#FFD166", colors.ValueColor(Category("gpu")));
+        Assert.Equal("#FFD166", colors.CategoryColor(Category("gpu")));
+    }
+
+    [Fact]
+    public void Lines_TakeTheValueColorOfTheirCategory_TheVramLineThatOfTheGpu()
+    {
+        var colors = new OverlayColorScheme
+        {
+            CategoryColor = category => category.OverlayColor,
+            ValueColor = category => category.Key == "gpu" ? "#123456" : "#FFFFFF",
+        };
+
+        List<OverlayLine> lines = OverlayComposer.Build(
+            TestData.Selection("cpu.load", "gpu.load", "gpu.vram.used"), oneLinePerMetric: false, colors);
+
+        Assert.Equal(new[] { "#FFFFFF", "#123456", "#123456" }, lines.Select(l => l.ValueColorHex));
     }
 }

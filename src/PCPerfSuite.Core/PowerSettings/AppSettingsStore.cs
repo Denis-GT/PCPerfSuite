@@ -263,8 +263,13 @@ public sealed class OverlayAppearanceSettings
     /// version de RTSS trop ancienne affiche les balises en clair au lieu de les interpréter.</summary>
     public bool SendColorsToRtss { get; set; } = true;
 
-    /// <summary>Couleur des valeurs (les libellés, eux, prennent la couleur de leur catégorie).</summary>
+    /// <summary>Couleur commune des valeurs : celle de toutes les valeurs quand les couleurs par catégorie sont
+    /// désactivées, et sinon celle des catégories dont la couleur des valeurs n'a pas été changée.</summary>
     public string ValueColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Couleur des valeurs par catégorie, clé = MetricCategory.Key. Ne contient que les catégories dont
+    /// l'utilisateur a changé la couleur des valeurs : les autres suivent <see cref="ValueColor"/>.</summary>
+    public Dictionary<string, string> CategoryValueColors { get; set; } = new();
 
     /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Ne contient que les couleurs que l'utilisateur a
     /// changées : une catégorie absente suit la couleur par défaut du catalogue, y compris quand elle change d'une

@@ -101,7 +101,8 @@ public sealed class OverlayColorScheme
     /// <summary>Couleur du libellé d'une catégorie (CPU, RAM, NET...).</summary>
     public required Func<MetricCategory, string> CategoryColor { get; init; }
 
-    public required string ValueColor { get; init; }
+    /// <summary>Couleur des valeurs d'une catégorie.</summary>
+    public required Func<MetricCategory, string> ValueColor { get; init; }
 }
 
 /// <summary>
@@ -153,7 +154,7 @@ public static class OverlayComposer
                     Title = metric.Label,
                     Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
                     LabelColorHex = colors.CategoryColor(metric.Category),
-                    ValueColorHex = colors.ValueColor,
+                    ValueColorHex = colors.ValueColor(metric.Category),
                     Cells = new[] { new OverlayCell(metric, gaps.SeparatorGap) },
                 })
                 .ToList();
@@ -213,7 +214,7 @@ public static class OverlayComposer
             Title = isVram ? VramTitle : category.Name,
             Label = isVram ? VramLabel : category.OsdLabel,
             LabelColorHex = colors.CategoryColor(category),
-            ValueColorHex = colors.ValueColor,
+            ValueColorHex = colors.ValueColor(category),
             Cells = BuildCategoryCells(metrics, spacing),
         };
     }

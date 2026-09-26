@@ -29,18 +29,15 @@
             </Setter>
         </Style>
 
-        <!-- Une ligne de réglage des couleurs : une seule case (la couleur courante) et le nom. Un clic sur la
-             case ouvre une petite fenêtre : couleurs de base, puis choix précis (carré, teinte, code hex).
-             DataContext : OverlayColorSlotViewModel. -->
-        <DataTemplate x:Key="ColorSlotTemplate">
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <!-- Une case de couleur (la couleur courante). Un clic ouvre une petite fenêtre : couleurs de base, puis choix
+             précis (carré, teinte, code hex). DataContext : OverlayColorSlotViewModel. -->
+        <DataTemplate x:Key="ColorSwatchTemplate">
+            <Grid HorizontalAlignment="Left">
                 <!-- Désactivée pendant que la fenêtre est ouverte : sinon un clic sur la case la ferme (StaysOpen=False,
                      clic hors de la fenêtre) puis la rouvre aussitôt (bascule du ToggleButton). -->
                 <ToggleButton x:Name="Swatch" Style="{StaticResource ColorSlotButton}" Background="{Binding Brush}"
                               ToolTip="Changer la couleur"
                               IsHitTestVisible="{Binding IsOpen, ElementName=ColorPopup, Converter={StaticResource InverseBoolean}}"/>
-                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120" Margin="10,0,0,0"
-                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
 
                 <Popup x:Name="ColorPopup" PlacementTarget="{Binding ElementName=Swatch}" Placement="Bottom"
                        StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
@@ -68,6 +65,27 @@
                         </StackPanel>
                     </Border>
                 </Popup>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Une ligne de réglage des couleurs : une case et le nom. DataContext : OverlayColorSlotViewModel. -->
+        <DataTemplate x:Key="ColorSlotTemplate">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Focusable="False"/>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120" Margin="10,0,0,0"
+                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Une catégorie : la case de son nom en tête de ligne, celle de ses valeurs, puis son nom. Les largeurs
+             suivent les en-têtes « Nom » et « Valeurs » posés au-dessus de la liste. DataContext :
+             OverlayCategoryColorsViewModel. -->
+        <DataTemplate x:Key="CategoryColorsRowTemplate">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <ContentControl Content="{Binding Label}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Width="56" Focusable="False"/>
+                <ContentControl Content="{Binding Value}" ContentTemplate="{StaticResource ColorSwatchTemplate}" Width="56" Focusable="False"/>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" Width="120"
+                           VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -270,15 +288,29 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Couleurs par catégorie" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                    <TextBox Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
+                                    <TextBox Text="Colore le nom en tête de ligne (CPU, RAM, NET…) pour repérer chaque valeur d'un coup d'œil, et au besoin les valeurs de chaque catégorie. Les valeurs dont tu ne changes pas la couleur suivent celle de la ligne « Par défaut »." Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Appearance.UseCategoryColors}" VerticalAlignment="Center"/>
                             </Grid>
 
-                            <ItemsControl ItemsSource="{Binding Appearance.CategoryColors}" ItemTemplate="{StaticResource ColorSlotTemplate}"
-                                          Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource BoolToVisibility}}"/>
+                            <StackPanel Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource BoolToVisibility}}">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Nom" Style="{StaticResource Eyebrow}" FontSize="11" Width="56"/>
+                                    <TextBlock Text="Valeurs" Style="{StaticResource Eyebrow}" FontSize="11" Width="56"/>
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding Appearance.CategoryColorRows}" ItemTemplate="{StaticResource CategoryColorsRowTemplate}"/>
+                                <!-- Couleur commune des valeurs, dans la colonne « Valeurs » : celle que suivent les catégories
+                                     dont on n'a pas changé la couleur des valeurs. -->
+                                <StackPanel Orientation="Horizontal" Margin="56,0,0,8">
+                                    <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSwatchTemplate}"
+                                                    Width="56" Focusable="False"/>
+                                    <TextBlock Text="Par défaut" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
 
-                            <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSlotTemplate}"/>
+                            <!-- Sans couleurs par catégorie, une seule couleur pour tout le texte. -->
+                            <ContentControl Content="{Binding Appearance.ValueColor}" ContentTemplate="{StaticResource ColorSlotTemplate}"
+                                            Visibility="{Binding Appearance.UseCategoryColors, Converter={StaticResource InverseBoolToVisibility}}"/>
 
                             <Button Content="Couleurs par défaut" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                                     Margin="0,4,0,0" Command="{Binding Appearance.ResetColorsCommand}"/>

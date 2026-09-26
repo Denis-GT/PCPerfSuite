@@ -20,7 +20,7 @@ internal static class TestData
     public static OverlayColorScheme Colors { get; } = new()
     {
         CategoryColor = category => category.OverlayColor,
-        ValueColor = "#FFFFFF",
+        ValueColor = _ => "#FFFFFF",
     };
 
     /// <summary>GPU dédié dont tous les capteurs de mémoire répondent.</summary>

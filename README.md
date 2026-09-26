@@ -90,7 +90,8 @@ monter / descendre dans l'onglet, enregistré séparément pour chacun des deux 
 valeurs en viennent), police, taille, **espacements** (entre les valeurs d'une ligne, et
 séparations après le nom de la ligne et autour des débits disque et réseau, en nombre
 d'espaces), **une couleur par catégorie** (CPU, GPU, RAM, NET…)
-pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran
+pour repérer chaque ligne d'un coup d'œil, et au besoin **une couleur pour les valeurs de
+chaque catégorie** (sinon elles suivent une couleur commune), position sur l'écran
 (grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
 l'overlay affichera.
 
