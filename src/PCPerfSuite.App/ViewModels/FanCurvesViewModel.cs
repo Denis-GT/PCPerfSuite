@@ -40,6 +40,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     /// <summary>Null tant qu'aucune vitesse n'a été lue pour ce ventilateur : affiché « -- », jamais « 0 RPM ».</summary>
     [ObservableProperty] private double? rpm;
+
+    /// <summary>0 tr/min alors que la carte alimente le connecteur : probablement rien de branché (voir
+    /// <see cref="EmptyHeaderDetector"/>). Le ventilateur reste pilotable, il est seulement rangé à part.</summary>
+    [ObservableProperty] private bool isEmptyHeader;
     [ObservableProperty] private double? currentPercent;
     [ObservableProperty] private double? targetPercent;
     [ObservableProperty] private double? sourceTempC;
@@ -251,6 +255,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     private readonly GpuControlService _gpu;
     private readonly MonitoringViewModel _monitoring;
     private readonly AppSettings _settings;
+    private readonly EmptyHeaderDetector _emptyHeaders = new();
 
     /// <summary>Coolers GPU exposés par l'API du constructeur, résolus une seule fois : NVAPI ne les renumérote
     /// pas en cours de route, inutile de les relire à chaque relevé.</summary>
@@ -329,6 +334,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
             {
                 item.Rpm = reading.Rpm;
                 item.CurrentPercent = reading.PercentControl;
+                item.IsEmptyHeader = _emptyHeaders.Observe(item.FanId, item.Category, reading.Rpm, reading.PercentControl);
             }
             else if (IsGpuCooler(item.FanId) && coolerIds.Count == 1)
             {
