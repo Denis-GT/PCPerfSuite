@@ -33,6 +33,9 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         Closed += OnClosed;
 
+        // Au retour dans la fenêtre (depuis le navigateur ou un installeur), l'état des logiciels externes est relu.
+        Activated += (_, _) => _viewModel.OnWindowActivated();
+
         // Fermeture de session Windows : ne surtout pas annuler la fermeture, sinon l'arrêt du PC
         // reste bloqué sur PCPerfSuite.
         Application.Current.SessionEnding += (_, _) => _isQuitting = true;

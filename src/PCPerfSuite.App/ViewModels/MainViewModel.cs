@@ -29,6 +29,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly CpuControlViewModel _cpu;
     private readonly OverlayViewModel _overlay;
 
+    /// <summary>Logiciels externes (PawnIO, RTSS) : partagé par l'onglet Processeur, Paramètres et le diagnostic.</summary>
+    private readonly InstallationsViewModel _installations = new();
+
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
 
@@ -67,10 +70,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
-        _cpu = new CpuControlViewModel(_cpuControl, _monitoring);
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _overlay = new OverlayViewModel(_monitoring);
-        AppSettings = new AppSettingsViewModel(new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu));
+        AppSettings = new AppSettingsViewModel(
+            new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _installations), _installations);
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
 
         NavItems = new ObservableCollection<NavEntry>
@@ -103,7 +107,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
         OnPropertyChanged(nameof(IsAppSettingsSelected));
+
+        // L'utilisateur a pu installer quelque chose depuis la dernière fois : on relit à l'ouverture des Paramètres.
+        if (IsAppSettingsSelected) _ = _installations.RefreshAsync();
     }
+
+    /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
+    /// RTSS ou lancé son installeur dans une autre fenêtre. Une relecture du registre, hors du thread d'interface.</summary>
+    public void OnWindowActivated() => _ = _installations.RefreshAsync();
 
     /// <summary>Bouton "Paramètres" : la liste se désélectionne, pour qu'un seul élément paraisse actif.</summary>
     [RelayCommand]
@@ -121,6 +132,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
         _processes.Dispose();
+        _installations.Dispose();
         _fans.Dispose();
         _gpu.Dispose();
         _cpu.Dispose();

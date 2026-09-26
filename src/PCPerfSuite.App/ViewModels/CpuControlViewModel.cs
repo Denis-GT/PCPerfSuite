@@ -224,6 +224,10 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 {
     private readonly CpuControlService _cpu;
     private readonly MonitoringViewModel _monitoring;
+
+    /// <summary>Une seule ligne PawnIO pour toute l'app, celle de Paramètres › Installations : le bouton d'ici lance
+    /// donc le même téléchargement, avec la même progression, et les deux onglets ne se contredisent jamais.</summary>
+    public PawnIoItemViewModel PawnIo { get; }
     private readonly CpuPowerTuningService _powerTuning;
 
     /// <summary>Bloque l'application pendant qu'on repositionne plusieurs curseurs d'un coup.</summary>
@@ -242,7 +246,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string platformText = "";
     [ObservableProperty] private string driverText = "";
 
-    /// <summary>Vrai quand le pilote PawnIO manque : l'interface propose alors de l'installer.</summary>
+    /// <summary>Vrai quand le pilote PawnIO manque ou est inutilisable : l'interface propose alors de l'installer.</summary>
     [ObservableProperty] private bool isDriverMissing;
 
     [ObservableProperty] private bool isPowerLimitAvailable;
@@ -287,10 +291,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double? maxClockMhz;
     [ObservableProperty] private double? loadPercent;
 
-    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring)
+    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo)
     {
         _cpu = cpu;
         _monitoring = monitoring;
+        PawnIo = pawnIo;
         _powerTuning = new CpuPowerTuningService(cpu.Platform);
 
         AppSettings settings = AppSettingsStore.Load();
@@ -301,10 +306,8 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         CpuName = _cpu.Platform.Name;
         PlatformText = $"{_cpu.Platform.VendorLabel} · {_cpu.Backend.Description}";
 
-        DriverText = PawnIoDriver.IsInstalled
-            ? $"Pilote PawnIO {PawnIoDriver.Version} détecté (API {PawnIoDriver.ApiVersion})."
-            : PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.";
-        IsDriverMissing = !PawnIoDriver.IsInstalled && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
+        UpdateDriverStatus();
+        PawnIo.PropertyChanged += OnPawnIoChanged;
 
         CpuCapability capability = _cpu.Backend.PowerLimit;
         IsPowerLimitAvailable = capability.CanWrite;
@@ -618,10 +621,24 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     private static string Plural(int count, string singular, string plural)
         => count > 1 ? $"{count} {plural}" : $"{count} {singular}";
 
-    [RelayCommand]
-    private void OpenDriverSite()
+    /// <summary>Le pilote peut être installé pendant que l'onglet est ouvert : le texte et le bouton suivent, au
+    /// lieu de proposer d'installer ce qui vient de l'être.</summary>
+    private void OnPawnIoChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (!PawnIoDriver.TryOpenDownloadPage(out string? error)) Status = error!;
+        if (e.PropertyName is nameof(PawnIoItemViewModel.StatusText) or nameof(PawnIoItemViewModel.StatusDetail)) UpdateDriverStatus();
+    }
+
+    private void UpdateDriverStatus()
+    {
+        DriverText = PawnIo.State switch
+        {
+            PawnIoState.Ready => $"Pilote PawnIO {PawnIoDriver.Version} détecté (API {PawnIoDriver.ApiVersion}).",
+            PawnIoState.RestartRequired => "Pilote PawnIO installé : relance PCPerfSuite pour qu'il soit utilisé.",
+            _ => PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.",
+        };
+
+        IsDriverMissing = PawnIo.State is PawnIoState.NotInstalled or PawnIoState.Unusable
+                          && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
     }
 
     private void OnEmergencyRestored(string message)
@@ -669,5 +686,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         _cpu.EmergencyRestored -= OnEmergencyRestored;
+        PawnIo.PropertyChanged -= OnPawnIoChanged;
     }
 }

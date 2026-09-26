@@ -12,6 +12,7 @@ using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
+using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.Processes;
 using PCPerfSuite.Core.SystemInfo;
@@ -33,6 +34,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     private readonly ProcessesViewModel _processes;
     private readonly FanCurvesViewModel _fans;
     private readonly GpuControlViewModel _gpu;
+    private readonly InstallationsViewModel _installations;
 
     private MetricSample? _lastSample;
 
@@ -47,13 +49,14 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     [ObservableProperty] private string? copyStatus;
 
     public CompatibilityViewModel(HardwareMonitorService hardware, MonitoringViewModel monitoring,
-        ProcessesViewModel processes, FanCurvesViewModel fans, GpuControlViewModel gpu)
+        ProcessesViewModel processes, FanCurvesViewModel fans, GpuControlViewModel gpu, InstallationsViewModel installations)
     {
         _hardware = hardware;
         _monitoring = monitoring;
         _processes = processes;
         _fans = fans;
         _gpu = gpu;
+        _installations = installations;
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
         Refresh();
@@ -73,6 +76,10 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     [RelayCommand]
     private void Refresh()
     {
+        // Relit l'état des logiciels externes : le rapport doit refléter le PC à cet instant, pas celui de la
+        // dernière fois qu'on a regardé l'onglet Installations.
+        _installations.RefreshNow();
+
         Rows.Clear();
         foreach (CompatibilityRow row in BuildRows()) Rows.Add(row);
 
@@ -110,13 +117,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
         // PawnIO remplace WinRing0 depuis LibreHardwareMonitor 0.9.5 pour l'accès bas niveau (MSR, Super I/O) :
         // sans lui, une grande partie des capteurs CPU/carte mère reste "N/D" même app lancée en administrateur.
-        // Se réinstalle depuis l'onglet Réglages CPU, qui propose déjà le bouton de téléchargement.
-        yield return new CompatibilityRow("Pilote PawnIO", pawnIoInstalled ? $"Installé ({PawnIoDriver.Version})" : "Non installé",
-            pawnIoInstalled
-                ? "Utilisé par LibreHardwareMonitor pour les capteurs bas niveau et par PCPerfSuite pour les limites de puissance CPU."
-                : (PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.")
-                  + " À installer depuis l'onglet « Réglages CPU » (bouton « Installer PawnIO »).",
-            pawnIoInstalled);
+        // S'installe depuis Paramètres › Installations, ou l'onglet Processeur qui partage le même bouton.
+        yield return PawnIoRow();
 
         yield return SessionUser.OtherProfileMessage is { } otherProfile
             ? new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount, otherProfile, false)
@@ -169,9 +171,47 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             yield return DiskNamesRow(snapshot.Disks);
         }
 
-        bool rtss = IsRtssRunning();
-        yield return new CompatibilityRow("RTSS (FPS et overlay en plein écran)", rtss ? "Lancé" : "Non lancé",
-            rtss ? "Les FPS sont lus pendant les jeux." : "Installer et lancer RivaTuner Statistics Server (gratuit, guru3d.com) pour les FPS.", rtss);
+        yield return RtssRow();
+    }
+
+    /// <summary>Distingue « pas installé », « installé depuis, à relancer », « installé mais inutilisable » : ce sont
+    /// trois causes différentes d'un même « N/D », et trois consignes différentes.</summary>
+    private CompatibilityRow PawnIoRow()
+    {
+        const string title = "Pilote PawnIO";
+        PawnIoItemViewModel pawnIo = _installations.PawnIo;
+
+        return pawnIo.State switch
+        {
+            PawnIoState.Ready => new CompatibilityRow(title, pawnIo.StatusText,
+                "Utilisé par LibreHardwareMonitor pour les capteurs bas niveau et par PCPerfSuite pour les limites de puissance CPU.", true),
+            PawnIoState.RestartRequired => new CompatibilityRow(title, $"{pawnIo.StatusText}, redémarrage requis",
+                "Installé depuis le lancement de PCPerfSuite : relance l'app pour qu'elle l'utilise.", false),
+            PawnIoState.Unusable => new CompatibilityRow(title, pawnIo.StatusText,
+                (PawnIoDriver.UnavailableReason ?? "Sa bibliothèque n'a pas pu être chargée.")
+                + " À réinstaller depuis Paramètres › Installations.", false),
+            PawnIoState.Unsupported => new CompatibilityRow(title, "Non disponible",
+                PawnIoDriver.UnavailableReason ?? "PawnIO n'existe que pour les processeurs x64.", false),
+            _ => new CompatibilityRow(title, "Non installé",
+                (PawnIoDriver.UnavailableReason ?? "Pilote PawnIO indisponible.")
+                + " À installer depuis Paramètres › Installations (bouton « Installer »).", false),
+        };
+    }
+
+    private CompatibilityRow RtssRow()
+    {
+        const string title = "RTSS (FPS et overlay en plein écran)";
+        RtssItemViewModel item = _installations.Rtss;
+        RtssStatus rtss = item.Status;
+
+        string detail = !rtss.IsInstalled
+            ? "RTSS n'est pas installé : Paramètres › Installations ouvre sa page de téléchargement officielle (gratuit, guru3d.com) " +
+              "pour les FPS et l'overlay en plein écran."
+            : rtss.IsRunning
+                ? "Les FPS sont lus pendant les jeux."
+                : "RTSS est installé mais pas lancé : à lancer pour lire les FPS et afficher l'overlay en plein écran.";
+
+        return new CompatibilityRow(title, item.StatusText, detail, rtss.IsRunning);
     }
 
     /// <summary>Noms de modèle et lettres des disques, et par qui ils sont fournis : certains contrôleurs NVMe
@@ -397,13 +437,6 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     /// zéro qui laisserait croire à une valeur mesurée.</summary>
     private static string Value(float? value)
         => value?.ToString("0.##", CultureInfo.InvariantCulture) ?? "N/D";
-
-    private static bool IsRtssRunning()
-    {
-        Process[] processes = Process.GetProcessesByName("RTSS");
-        foreach (Process process in processes) process.Dispose();
-        return processes.Length > 0;
-    }
 
     [RelayCommand]
     private void CopyReport()

@@ -33,6 +33,80 @@
                 </Border>
             </StackPanel>
 
+            <!-- Installations : les logiciels externes dont PCPerfSuite a besoin, leur état, et de quoi les installer.
+                 Une ligne par logiciel (nom, état, boutons), puis son utilité dessous. Les TextBox en lecture seule
+                 lisant une propriété sans setter (Name, Purpose) sont en Mode=OneWay : le Mode par défaut d'un TextBox,
+                 TwoWay, refuserait de se lier. -->
+            <StackPanel DataContext="{Binding Installations}"
+                        Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=installations}">
+                <Grid Margin="4,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Logiciels externes" Style="{StaticResource Eyebrow}" FontSize="12" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Vérifier à nouveau" Style="{StaticResource GhostButton}" Command="{Binding RefreshCommand}"
+                            ToolTip="Relit l'état de chaque logiciel, après une installation faite en dehors de PCPerfSuite"/>
+                </Grid>
+                <Border Style="{StaticResource Card}" Padding="20,4">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Items}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
+                                        <StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBox Text="{Binding Name, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"
+                                                             VerticalAlignment="Center"/>
+                                                    <Border x:Name="StatusBadge" Style="{StaticResource BadgeSuccess}" Margin="12,0,0,0" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding StatusText}" Style="{StaticResource BadgeText}"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="{Binding SecondaryLabel}" Style="{StaticResource GhostButton}"
+                                                        Command="{Binding SecondaryCommand}" Margin="12,0,0,0"
+                                                        Visibility="{Binding SecondaryLabel, Converter={StaticResource NullToVisibility}}"/>
+                                                <Button Grid.Column="2" Content="{Binding PrimaryLabel}" Style="{StaticResource AccentButton}"
+                                                        Command="{Binding PrimaryCommand}" Margin="8,0,0,0"
+                                                        Visibility="{Binding PrimaryLabel, Converter={StaticResource NullToVisibility}}"/>
+                                            </Grid>
+                                            <TextBox Text="{Binding Purpose, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"/>
+                                            <TextBox Text="{Binding StatusDetail}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                                     Visibility="{Binding StatusDetail, Converter={StaticResource NullToVisibility}}"/>
+                                            <TextBox Text="{Binding Message}" Style="{StaticResource SelectableCaption}" Margin="0,6,0,0"
+                                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                                     Visibility="{Binding Message, Converter={StaticResource NullToVisibility}}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <!-- Ordre significatif : « non applicable », déclaré après « non installé », l'emporte. -->
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                            <Setter TargetName="StatusBadge" Property="Style" Value="{StaticResource BadgeWarn}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsApplicable}" Value="False">
+                                            <Setter TargetName="StatusBadge" Property="Style" Value="{StaticResource Badge}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                            <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+                            <TextBox Style="{StaticResource SelectableCaption}"
+                                     Text="PawnIO est téléchargé uniquement depuis sa source officielle (le dépôt GitHub de son auteur, en HTTPS), et sa signature est vérifiée avant le lancement de l'installeur. RTSS s'installe depuis la page officielle de Guru3D. Les pilotes graphiques (NVIDIA, AMD, Intel) ne figurent pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
             <!-- Compatibilité de ce PC : ce que PCPerfSuite peut lire et piloter ici, et pourquoi le reste manque. -->
             <StackPanel DataContext="{Binding Compatibility}"
                         Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=compatibility}">

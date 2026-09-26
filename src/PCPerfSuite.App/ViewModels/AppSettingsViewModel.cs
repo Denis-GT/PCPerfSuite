@@ -15,6 +15,7 @@ public sealed partial class AppSettingsViewModel : ObservableObject
     public IReadOnlyList<AppSettingsSection> Sections { get; } = new[]
     {
         new AppSettingsSection("general", "Général"),
+        new AppSettingsSection("installations", "Installations"),
         new AppSettingsSection("compatibility", "Compatibilité de ce PC"),
         new AppSettingsSection("themes", "Thèmes"),
     };
@@ -23,6 +24,9 @@ public sealed partial class AppSettingsViewModel : ObservableObject
 
     /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
     [ObservableProperty] private bool minimizeToTrayOnClose;
+
+    /// <summary>Logiciels externes dont l'app a besoin (PawnIO, RTSS) : état et installation.</summary>
+    public InstallationsViewModel Installations { get; }
 
     /// <summary>Diagnostic "Compatibilité de ce PC".</summary>
     public CompatibilityViewModel Compatibility { get; }
@@ -38,9 +42,10 @@ public sealed partial class AppSettingsViewModel : ObservableObject
             "Effet de verre (Mica / Acrylic) activable ou non.",
         });
 
-    public AppSettingsViewModel(CompatibilityViewModel compatibility)
+    public AppSettingsViewModel(CompatibilityViewModel compatibility, InstallationsViewModel installations)
     {
         Compatibility = compatibility;
+        Installations = installations;
         selectedSection = Sections[0];
 
         // Le champ plutôt que la propriété : passer par la propriété déclencherait l'enregistrement

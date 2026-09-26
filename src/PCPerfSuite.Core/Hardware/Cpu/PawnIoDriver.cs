@@ -1,8 +1,17 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using PCPerfSuite.Core.Installations;
 
 namespace PCPerfSuite.Core.Hardware.Cpu;
+
+/// <summary>Ce que l'installeur de PawnIO a laissé sur ce disque, relu à chaque demande (voir
+/// <see cref="PawnIoDriver.ReadInstallation"/>). <paramref name="Version"/> est celle du produit ("2.2.0").</summary>
+public readonly record struct PawnIoInstallation(string? Version, string? LibraryPath)
+{
+    /// <summary>Vrai si PawnIOLib.dll est présent : c'est ce fichier, et non la seule clé du registre, qui rend
+    /// le pilote utilisable.</summary>
+    public bool IsOnDisk => LibraryPath is not null;
+}
 
 /// <summary>
 /// Accès au pilote PawnIO, le pilote signé qui remplace WinRing0 depuis LibreHardwareMonitor 0.9.5.
@@ -21,10 +30,21 @@ public static class PawnIoDriver
     /// <summary>Page officielle du pilote, proposée à l'utilisateur quand il n'est pas installé.</summary>
     public const string DownloadUrl = "https://pawnio.eu/";
 
+    /// <summary>Lien stable vers la dernière version de l'installeur : c'est celui du bouton « Download » de
+    /// pawnio.eu, publié par l'auteur du pilote sur son dépôt GitHub officiel.</summary>
+    public const string SetupUrl = "https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe";
+
+    /// <summary>Comment télécharger et lancer l'installeur officiel. « -install -silent » est la ligne de commande
+    /// qu'emploient les logiciels qui embarquent PawnIO (LibreHardwareMonitor lance « -install ») ; l'installeur
+    /// est signé par « namazso », l'auteur du pilote, et PCPerfSuite refuse tout fichier qui ne l'est pas.</summary>
+    public static OfficialInstallerSource SetupSource { get; } = new(
+        new Uri(SetupUrl), OfficialInstaller.GitHubHosts, "PawnIO_setup.exe", "-install -silent", "namazso");
+
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO";
 
     private static readonly object LoadLock = new();
     private static bool _probed;
+    private static bool _foundOnDiskAtProbe;
     private static IntPtr _library;
     private static string? _loadError;
 
@@ -55,22 +75,28 @@ public static class PawnIoDriver
         }
     }
 
-    /// <summary>Ouvre la page de téléchargement dans le navigateur par défaut. Partagé entre l'onglet
-    /// réglages CPU et le diagnostic de compatibilité, qui proposent tous les deux d'installer le pilote.</summary>
-    public static bool TryOpenDownloadPage(out string? error)
+    /// <summary>Vrai si ce PC peut faire tourner PawnIO : il n'existe que pour les processeurs x64.</summary>
+    public static bool IsSupportedPlatform => RuntimeInformation.ProcessArchitecture == Architecture.X64;
+
+    /// <summary>Vrai si la bibliothèque était déjà sur le disque quand le pilote a été sondé, au lancement de
+    /// l'app. Avec un fichier présent aujourd'hui mais <see cref="IsInstalled"/> faux, cela distingue un pilote
+    /// installé depuis (il suffit de relancer l'app) d'un pilote installé mais inutilisable (trop ancien, endommagé).</summary>
+    public static bool WasOnDiskAtProbe
     {
-        try
+        get
         {
-            Process.Start(new ProcessStartInfo(DownloadUrl) { UseShellExecute = true });
-            error = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = $"Impossible d'ouvrir le navigateur. L'adresse est : {DownloadUrl} ({ex.Message})";
-            return false;
+            EnsureProbed();
+            return _foundOnDiskAtProbe;
         }
     }
+
+    /// <summary>Relit le registre et le disque, sans passer par le sondage fait une fois au lancement. C'est ce qui
+    /// permet de voir un pilote installé pendant que l'app tourne. Ne lève jamais.</summary>
+    public static PawnIoInstallation ReadInstallation() => LocateInstallation();
+
+    /// <summary>Ouvre la page officielle dans le navigateur par défaut, pour l'utilisateur qui préfère installer
+    /// le pilote lui-même.</summary>
+    public static bool TryOpenDownloadPage(out string? error) => ExternalLink.TryOpen(DownloadUrl, out error);
 
     private static void EnsureProbed()
     {
@@ -79,13 +105,17 @@ public static class PawnIoDriver
             if (_probed) return;
             _probed = true;
 
-            if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            if (!IsSupportedPlatform)
             {
                 _loadError = "PawnIO n'existe que pour les processeurs x64.";
                 return;
             }
 
-            string? path = FindLibraryPath();
+            PawnIoInstallation installation = LocateInstallation();
+            Version = installation.Version;
+
+            string? path = installation.LibraryPath;
+            _foundOnDiskAtProbe = path is not null;
             if (path is null)
             {
                 _loadError = "Le pilote PawnIO n'est pas installé.";
@@ -152,8 +182,11 @@ public static class PawnIoDriver
         }
     }
 
-    private static string? FindLibraryPath()
+    /// <summary>Sans effet de bord : ne touche à aucun état du sondage, pour pouvoir être rappelée à volonté.</summary>
+    private static PawnIoInstallation LocateInstallation()
     {
+        string? version = null;
+
         try
         {
             using RegistryKey? key = Registry.LocalMachine.OpenSubKey(UninstallKey);
@@ -162,13 +195,13 @@ public static class PawnIoDriver
             // "2.2.0.0" est inscrit en quatre composants, on n'en montre que les trois qui parlent.
             if (key?.GetValue("DisplayVersion") as string is { Length: > 0 } displayVersion)
             {
-                Version = string.Join('.', displayVersion.Split('.').Take(3));
+                version = string.Join('.', displayVersion.Split('.').Take(3));
             }
 
             if (key?.GetValue("InstallLocation") as string is { Length: > 0 } location)
             {
                 string fromRegistry = Path.Combine(location, "PawnIOLib.dll");
-                if (File.Exists(fromRegistry)) return fromRegistry;
+                if (File.Exists(fromRegistry)) return new PawnIoInstallation(version, fromRegistry);
             }
         }
         catch
@@ -176,9 +209,16 @@ public static class PawnIoDriver
             // Clé illisible : on retombe sur l'emplacement d'installation par défaut.
         }
 
-        string fallback = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PawnIO", "PawnIOLib.dll");
-        return File.Exists(fallback) ? fallback : null;
+        try
+        {
+            string fallback = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PawnIO", "PawnIOLib.dll");
+            return new PawnIoInstallation(version, File.Exists(fallback) ? fallback : null);
+        }
+        catch
+        {
+            return new PawnIoInstallation(version, null);
+        }
     }
 
     /// <summary>Version d'API, encodée (majeure &lt;&lt; 16) | (mineure &lt;&lt; 8) | correctif.</summary>
