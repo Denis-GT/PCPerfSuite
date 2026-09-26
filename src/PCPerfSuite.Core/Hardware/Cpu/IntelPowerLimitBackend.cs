@@ -157,15 +157,33 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 
     public bool TrySetPowerLimits(float sustainedWatts, float? burstWatts, out string message)
     {
+        float sustained = Math.Clamp(sustainedWatts, _minWatts, _maxWatts);
+        // La limite courte durée n'a de sens qu'au-dessus de la soutenue.
+        float burst = Math.Clamp(burstWatts ?? sustained, sustained, _maxWatts);
+
+        return TryWriteLimits(sustained, burst, out message);
+    }
+
+    /// <summary>
+    /// Ce que « Limites d'origine » réécrit : les valeurs relevées avant toute écriture de l'app, sans le
+    /// plafond du maximum proposé. Ce plafond borne ce que l'utilisateur peut saisir ; le lui appliquer ici
+    /// réécrivait 400 W à la place des 4095 W que la carte mère avait posés, tout en annonçant les avoir
+    /// rétablis. Le plancher et l'ordre PL2 ≥ PL1 restent : une limite à 0 W, activée, brideraient le PC.
+    /// </summary>
+    public static (float Sustained, float Burst) RestoreTargets(float defaultSustained, float defaultBurst, float minWatts)
+    {
+        float sustained = Math.Max(defaultSustained, minWatts);
+        return (sustained, Math.Max(defaultBurst, sustained));
+    }
+
+    /// <summary>Écrit les deux limites telles quelles (les appelants ont déjà borné), puis les relit.</summary>
+    private bool TryWriteLimits(float sustained, float burst, out string message)
+    {
         if (_locked)
         {
             message = "Limites verrouillées par le BIOS/UEFI : elles ne sont modifiables qu'après un redémarrage, et seulement si le BIOS ne les reverrouille pas.";
             return false;
         }
-
-        float sustained = Math.Clamp(sustainedWatts, _minWatts, _maxWatts);
-        // La limite courte durée n'a de sens qu'au-dessus de la soutenue.
-        float burst = Math.Clamp(burstWatts ?? sustained, sustained, _maxWatts);
 
         if (!TryReadMsr(_msr, MsrPkgPowerLimit, out ulong current))
         {
@@ -212,9 +230,10 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 
     public bool TryRestoreDefaults(out string message)
     {
-        if (!TrySetPowerLimits(_defaultSustainedWatts, _defaultBurstWatts, out message)) return false;
+        (float sustained, float burst) = RestoreTargets(_defaultSustainedWatts, _defaultBurstWatts, _minWatts);
+        if (!TryWriteLimits(sustained, burst, out message)) return false;
 
-        message = $"Limites d'origine rétablies ({_defaultSustainedWatts:0} W / {_defaultBurstWatts:0} W).";
+        message = $"Limites d'origine rétablies ({sustained:0} W / {burst:0} W).";
         return true;
     }
 
