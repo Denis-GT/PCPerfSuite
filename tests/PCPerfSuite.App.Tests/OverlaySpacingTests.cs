@@ -1,6 +1,7 @@
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Overlay;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.Tests;
 
@@ -117,6 +118,74 @@ public class OverlaySpacingTests
             "<A=3>CPU<A>  <A=-2>45<A><A=1>%<A> <A=-2>62<A><A=2>°C<A>\n" +
             "<A=3>GPU<A>  <A=-3>250<A><A=2> W<A> <A=-4>1950<A><A=4> MHz<A>",
             text);
+    }
+
+    /// <summary>Réglage volontairement éloigné des valeurs par défaut : 3 espaces entre les valeurs, 5 aux séparations.</summary>
+    private static readonly OverlaySpacing Custom = new(ValueSpaces: 3, SeparatorSpaces: 5);
+
+    private static OverlayLine SingleLine(OverlaySpacing spacing, params string[] ids)
+        => Assert.Single(OverlayComposer.Build(TestData.Selection(ids), oneLinePerMetric: false, TestData.Colors, spacing: spacing));
+
+    [Fact]
+    public void DefaultSpacing_IsOneBetweenValuesAndTwoForSeparators_AsInTheSettings()
+    {
+        var settings = new OverlayAppearanceSettings();
+
+        Assert.Equal(Tight, OverlaySpacing.Default.ValueGap);
+        Assert.Equal(Wide, OverlaySpacing.Default.SeparatorGap);
+        Assert.Equal(OverlaySpacing.Default, new OverlaySpacing(settings.ValueSpacing, settings.SeparatorSpacing));
+    }
+
+    [Fact]
+    public void CustomSpacing_AppliesAfterTheLabelAndBetweenValues()
+    {
+        OverlayLine cpu = SingleLine(Custom, "cpu.load", "cpu.temp.package", "cpu.power");
+
+        Assert.Equal(new[] { "     ", "   ", "   " }, Gaps(cpu));
+    }
+
+    [Fact]
+    public void CustomSpacing_AppliesAroundRates()
+    {
+        OverlayLine disk = SingleLine(Custom, "storage.load", "storage.read", "storage.temp.max");
+
+        Assert.Equal(new[] { "     ", "     ", "     " }, Gaps(disk));
+    }
+
+    [Fact]
+    public void CustomSeparator_PrecedesEachGameLabel_WhichStaysOneSpaceFromItsValue()
+    {
+        OverlayLine jeu = SingleLine(Custom, "game.fps", "game.fps.avg");
+
+        Assert.Equal(new[] { "     FPS", "     MOY" }, jeu.Cells.Select(c => c.PrefixText));
+        Assert.Equal(new[] { " ", " " }, Gaps(jeu));
+    }
+
+    [Fact]
+    public void RtssText_UsesTheCustomSpacing()
+    {
+        var hardware = new HardwareSnapshot
+        {
+            Cpu = new CpuSnapshot { LoadPercent = 45, PackageTempC = 62, PowerWatts = 180 },
+            GroupsEverRead = Enum.GetValues<SensorGroup>(),
+        };
+        List<OverlayLine> lines = OverlayComposer.Build(
+            TestData.Selection("cpu.load", "cpu.temp.package", "cpu.power"), oneLinePerMetric: false, TestData.Colors, spacing: Custom);
+
+        OverlayComposer.Update(lines, TestData.Sample(hardware));
+        string text = OverlayComposer.ToRtssText(lines, withColors: false, sizePercent: 100, new RtssColumnWidths());
+
+        Assert.Equal("<A=3>CPU<A>     <A=-2>45<A><A=1>%<A>   <A=-2>62<A><A=2>°C<A>   <A=-3>180<A><A=2> W<A>", text);
+    }
+
+    [Fact]
+    public void Spacing_StaysWithinItsBounds()
+    {
+        // Un fichier de réglages modifié à la main ne doit ni coller deux valeurs, ni étirer une ligne hors de l'écran.
+        var spacing = new OverlaySpacing(ValueSpaces: 0, SeparatorSpaces: 50);
+
+        Assert.Equal(OverlaySpacing.MinSpaces, spacing.ValueGap.Length);
+        Assert.Equal(OverlaySpacing.MaxSpaces, spacing.SeparatorGap.Length);
     }
 
     [Fact]

@@ -7,8 +7,8 @@
          la largeur du plus large de toutes les lignes, pour que les valeurs commencent au même endroit ; chaque
          valeur et chaque unité, la plus large vue jusqu'ici pour cette métrique seulement (StickyWidth, dont la
          portée est posée par le conteneur) : les valeurs ne se décalent plus d'un relevé à l'autre, sans hériter
-         de la largeur des autres lignes. Les espacements sont des espaces (Gap, choisis par OverlayComposer),
-         pour suivre la taille de police. -->
+         de la largeur des autres lignes. Les espacements sont des espaces (Gap et PrefixText, choisis par
+         OverlayComposer d'après les réglages d'espacement), pour suivre la taille de police. -->
     <DataTemplate x:Key="OverlayLineTemplate">
         <StackPanel Orientation="Horizontal" TextElement.FontWeight="SemiBold" Typography.NumeralAlignment="Tabular">
             <TextBlock Text="{Binding Label}" Foreground="{Binding LabelBrush}" controls:StickyWidth.Group="label"/>
@@ -21,7 +21,7 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding Prefix, StringFormat='  {0}'}"
+                            <TextBlock Text="{Binding PrefixText}"
                                        Foreground="{Binding DataContext.LabelBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">

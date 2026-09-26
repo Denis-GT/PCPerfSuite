@@ -94,6 +94,8 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     [ObservableProperty] private FontFamily selectedFont;
     [ObservableProperty] private double fontSize;
     [ObservableProperty] private int rtssSizePercent;
+    [ObservableProperty] private int valueSpacing;
+    [ObservableProperty] private int separatorSpacing;
     [ObservableProperty] private bool useCategoryColors;
     [ObservableProperty] private bool sendColorsToRtss;
     [ObservableProperty] private double backgroundOpacity;
@@ -120,6 +122,8 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
 
         fontSize = Math.Clamp(settings.FontSize, 10, 48);
         rtssSizePercent = Math.Clamp(settings.RtssSizePercent, 50, 200);
+        valueSpacing = Math.Clamp(settings.ValueSpacing, OverlaySpacing.MinSpaces, OverlaySpacing.MaxSpaces);
+        separatorSpacing = Math.Clamp(settings.SeparatorSpacing, OverlaySpacing.MinSpaces, OverlaySpacing.MaxSpaces);
         useCategoryColors = settings.UseCategoryColors;
         sendColorsToRtss = settings.SendColorsToRtss;
         backgroundOpacity = Math.Clamp(settings.BackgroundOpacity, 0, 1);
@@ -156,11 +160,16 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
         };
     }
 
+    /// <summary>Espacements à appliquer aux lignes, en nombre d'espaces.</summary>
+    public OverlaySpacing BuildSpacing() => new(ValueSpacing, SeparatorSpacing);
+
     public void WriteTo(OverlayAppearanceSettings settings)
     {
         settings.FontFamily = SelectedFont.Source;
         settings.FontSize = FontSize;
         settings.RtssSizePercent = RtssSizePercent;
+        settings.ValueSpacing = ValueSpacing;
+        settings.SeparatorSpacing = SeparatorSpacing;
         settings.UseCategoryColors = UseCategoryColors;
         settings.SendColorsToRtss = SendColorsToRtss;
         settings.BackgroundOpacity = BackgroundOpacity;
@@ -197,6 +206,10 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
     partial void OnSelectedFontChanged(FontFamily value) => Changed();
     partial void OnFontSizeChanged(double value) => Changed();
     partial void OnRtssSizePercentChanged(int value) => _onChanged();
+
+    // Les espacements élargissent ou resserrent les lignes : la fenêtre ancrée à droite ou en bas doit être replacée.
+    partial void OnValueSpacingChanged(int value) => Changed();
+    partial void OnSeparatorSpacingChanged(int value) => Changed();
     partial void OnUseCategoryColorsChanged(bool value) => _onChanged();
     partial void OnSendColorsToRtssChanged(bool value) => _onChanged();
     partial void OnBackgroundOpacityChanged(double value)

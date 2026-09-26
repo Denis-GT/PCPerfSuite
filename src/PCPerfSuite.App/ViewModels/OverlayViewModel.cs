@@ -319,7 +319,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
             Lines.Clear();
             foreach (OverlayLine line in OverlayComposer.Build(
-                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), CurrentOrder, _unavailableMemoryIds))
+                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), CurrentOrder, _unavailableMemoryIds,
+                         Appearance.BuildSpacing()))
             {
                 Lines.Add(line);
             }

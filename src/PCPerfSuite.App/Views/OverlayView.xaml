@@ -243,6 +243,24 @@
                     <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
                              Text="Police et taille s'appliquent à la fenêtre PCPerfSuite et à l'aperçu ci-dessous. Dans RTSS, la police est celle configurée dans RTSS ; seule la taille lui est transmise (en %, réglage plus bas)."/>
 
+                    <!-- Espacements : en nombre d'espaces, pour suivre la taille du texte dans la fenêtre comme dans RTSS.
+                         Bornes : OverlaySpacing.MinSpaces et MaxSpaces. -->
+                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Espacements" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="Entre les valeurs" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="8"
+                                                      Value="{Binding Appearance.ValueSpacing}" Unit="esp."/>
+                                <TextBlock Text="Séparations" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="28,0,10,0"/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="8"
+                                                      Value="{Binding Appearance.SeparatorSpacing}" Unit="esp."/>
+                            </StackPanel>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                     Text="En nombre d'espaces, dans la fenêtre comme dans RTSS. « Entre les valeurs » écarte deux valeurs d'une même ligne (1 par défaut). « Séparations » s'applique après le nom de la ligne, avant chaque libellé de la ligne JEU (MOY, 1%…) et autour des débits disque et réseau, dont la largeur varie (2 par défaut)."/>
+                        </StackPanel>
+                    </Border>
+
                     <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,16,0,0">
                         <StackPanel>
                             <Grid Margin="0,0,0,12">

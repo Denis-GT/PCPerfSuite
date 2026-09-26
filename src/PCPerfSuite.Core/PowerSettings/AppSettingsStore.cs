@@ -249,6 +249,13 @@ public sealed class OverlayAppearanceSettings
     /// &lt;S=...&gt;). 100 = taille RTSS d'origine.</summary>
     public int RtssSizePercent { get; set; } = 100;
 
+    /// <summary>Espaces entre deux valeurs d'une même ligne (« CPU  45% 62°C »).</summary>
+    public int ValueSpacing { get; set; } = 1;
+
+    /// <summary>Espaces des séparations : après le nom de la ligne, avant chaque libellé de la ligne JEU (MOY, 1%…)
+    /// et de chaque côté d'un débit disque ou réseau.</summary>
+    public int SeparatorSpacing { get; set; } = 2;
+
     /// <summary>Colore le nom de chaque ligne (CPU, RAM, NET...) avec la couleur de sa catégorie.</summary>
     public bool UseCategoryColors { get; set; } = true;
 

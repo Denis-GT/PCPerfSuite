@@ -56,7 +56,7 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
   (PL1/PL2 sur Intel, PPT/STAPM sur AMD), avec relecture systématique de ce que le processeur a
   réellement retenu et sécurité thermique. Détail plus bas.
 - **Overlay** — métriques affichées par-dessus les jeux, via RTSS et/ou une fenêtre
-  transparente dessinée par l'app, avec police, taille, couleurs et position réglables.
+  transparente dessinée par l'app, avec police, taille, espacements, couleurs et position réglables.
   Détail plus bas.
 - **Zone de notification** — la croix ne quitte pas l'app, elle la range près de l'horloge :
   le monitoring, les courbes de ventilation et l'overlay continuent de tourner pendant que tu
@@ -87,7 +87,9 @@ par métrique ou une ligne par catégorie façon Afterburner, **l'ordre des lign
 monter / descendre dans l'onglet, enregistré séparément pour chacun des deux modes),
 **cadence propre à l'overlay**
 (indépendante de celle du Monitoring, sans pouvoir aller plus vite que lui puisque les
-valeurs en viennent), police, taille, **une couleur par catégorie** (CPU, GPU, RAM, NET…)
+valeurs en viennent), police, taille, **espacements** (entre les valeurs d'une ligne, et
+séparations après le nom de la ligne et autour des débits disque et réseau, en nombre
+d'espaces), **une couleur par catégorie** (CPU, GPU, RAM, NET…)
 pour repérer chaque ligne d'un coup d'œil, couleur des valeurs, position sur l'écran
 (grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
 l'overlay affichera.

@@ -9,11 +9,12 @@ namespace PCPerfSuite.App.Overlay;
 /// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
 public sealed partial class OverlayCell : ObservableObject
 {
-    public OverlayCell(MetricDefinition metric, string? prefix = null, string gap = OverlayComposer.WideGap, bool showUnit = true)
+    public OverlayCell(MetricDefinition metric, string gap, string? prefix = null, string prefixGap = "", bool showUnit = true)
     {
         Metric = metric;
-        Prefix = prefix;
         Gap = gap;
+        Prefix = prefix;
+        PrefixText = prefix is null ? null : prefixGap + prefix;
         ShowUnit = showUnit;
         ValueGroup = $"value.{metric.Id}";
         UnitGroup = $"unit.{metric.Id}";
@@ -25,11 +26,15 @@ public sealed partial class OverlayCell : ObservableObject
     /// cellules.</summary>
     public string? Prefix { get; }
 
+    /// <summary>Le sous-libellé tel qu'il s'affiche, précédé de la séparation qui l'écarte de ce qui précède ; null
+    /// sans sous-libellé.</summary>
+    public string? PrefixText { get; }
+
     /// <summary>Faux quand le libellé de la cellule tient lieu d'unité (« MOY 138 » et non « MOY 138 FPS »).</summary>
     public bool ShowUnit { get; }
 
     /// <summary>Espaces entre ce qui précède (libellé de ligne, cellule ou sous-libellé) et la valeur. Choisis par
-    /// <see cref="OverlayComposer"/> : resserrés dans une même ligne, sauf autour des débits disque et réseau.</summary>
+    /// <see cref="OverlayComposer"/> d'après les réglages d'espacement (<see cref="OverlaySpacing"/>).</summary>
     public string Gap { get; }
 
     /// <summary>Noms des colonnes de la valeur et de l'unité (voir StickyWidth et <see cref="RtssColumnWidths"/>) :
@@ -73,6 +78,23 @@ public sealed class OverlayLine
     private Brush? _valueBrush;
 }
 
+/// <summary>Espacements d'une ligne d'overlay, en nombre d'espaces : ils suivent la taille du texte, dans la fenêtre
+/// comme dans RTSS. Réglables dans l'apparence de l'overlay ; bornés ici aussi, pour qu'un fichier de réglages
+/// modifié à la main ne colle pas deux valeurs ni n'étire une ligne hors de l'écran.</summary>
+/// <param name="ValueSpaces">Entre deux valeurs d'une même ligne : « CPU  45% 62°C 95 W ».</param>
+/// <param name="SeparatorSpaces">Séparations : après le nom de la ligne, avant chaque libellé de la ligne JEU (MOY,
+/// 1%…) et de chaque côté d'un débit disque ou réseau, dont la largeur varie d'un relevé à l'autre.</param>
+public sealed record OverlaySpacing(int ValueSpaces, int SeparatorSpaces)
+{
+    public const int MinSpaces = 1;
+    public const int MaxSpaces = 8;
+
+    public static OverlaySpacing Default { get; } = new(1, 2);
+
+    public string ValueGap { get; } = new(' ', Math.Clamp(ValueSpaces, MinSpaces, MaxSpaces));
+    public string SeparatorGap { get; } = new(' ', Math.Clamp(SeparatorSpaces, MinSpaces, MaxSpaces));
+}
+
 /// <summary>Couleurs à appliquer à une ligne d'overlay.</summary>
 public sealed class OverlayColorScheme
 {
@@ -102,25 +124,26 @@ public static class OverlayComposer
     /// <summary>Nom de la ligne VRAM dans la liste d'ordre des lignes.</summary>
     private const string VramTitle = "Mémoire du GPU (VRAM)";
 
-    /// <summary>Deux espaces : après le libellé de la ligne, entre deux groupes de valeurs, et de chaque côté d'un
-    /// débit, dont la largeur et l'unité changent d'un relevé à l'autre.</summary>
-    public const string WideGap = "  ";
-
-    /// <summary>Une espace : entre deux valeurs d'un même groupe, et entre un sous-libellé et sa valeur.</summary>
-    public const string TightGap = " ";
+    /// <summary>Une espace entre un sous-libellé (« MOY ») et sa valeur, quel que soit le réglage : ils vont ensemble,
+    /// et c'est la séparation placée avant le sous-libellé qui les écarte du reste.</summary>
+    private const string SubLabelGap = " ";
 
     /// <param name="lineOrder">Ordre des lignes : clés de catégorie, ou identifiants de métrique en mode une ligne
     /// par métrique (voir <see cref="OverlayLineOrder"/>). Null : l'ordre du catalogue.</param>
     /// <param name="unavailableMemoryIds">Métriques des lignes VRAM et RAM que ce PC ne fournit pas (voir
     /// <see cref="UnavailableMemoryIds"/>) : une de ces lignes qui n'a plus que celles-là disparaît, libellé
     /// compris. Null : rien n'est retiré.</param>
+    /// <param name="spacing">Espacements réglés par l'utilisateur. Null : ceux par défaut.</param>
     public static List<OverlayLine> Build(
         IReadOnlyList<MetricDefinition> metrics,
         bool oneLinePerMetric,
         OverlayColorScheme colors,
         IReadOnlyList<string>? lineOrder = null,
-        IReadOnlySet<string>? unavailableMemoryIds = null)
+        IReadOnlySet<string>? unavailableMemoryIds = null,
+        OverlaySpacing? spacing = null)
     {
+        OverlaySpacing gaps = spacing ?? OverlaySpacing.Default;
+
         if (oneLinePerMetric)
         {
             List<OverlayLine> perMetric = metrics
@@ -131,19 +154,19 @@ public static class OverlayComposer
                     Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
                     LabelColorHex = colors.CategoryColor(metric.Category),
                     ValueColorHex = colors.ValueColor,
-                    Cells = new[] { new OverlayCell(metric) },
+                    Cells = new[] { new OverlayCell(metric, gaps.SeparatorGap) },
                 })
                 .ToList();
 
             return lineOrder is null ? perMetric : OverlayLineOrder.Sort(perMetric, line => line.Key, lineOrder);
         }
 
-        // Façon Afterburner : une ligne par catégorie, ex. "GPU  45%  62°C  180 W". La mémoire du GPU quitte la
+        // Façon Afterburner : une ligne par catégorie, ex. "GPU  45% 62°C 180 W". La mémoire du GPU quitte la
         // ligne GPU pour sa propre ligne VRAM, rangée sous GPU par défaut.
         IReadOnlySet<string> unavailable = unavailableMemoryIds ?? new HashSet<string>();
         List<OverlayLine> perCategory = metrics
             .GroupBy(LineKey)
-            .Select(group => BuildCategoryLine(group.Key, group.ToArray(), colors, unavailable))
+            .Select(group => BuildCategoryLine(group.Key, group.ToArray(), colors, unavailable, gaps))
             .OfType<OverlayLine>()
             .ToList();
 
@@ -178,7 +201,7 @@ public static class OverlayComposer
     /// ligne qui a au moins une valeur garde les autres, « N/D » compris : on ne laisse pas de trou sans explication.
     /// Seules les métriques de ces deux lignes figurent dans <paramref name="unavailable"/>.</summary>
     private static OverlayLine? BuildCategoryLine(
-        string key, MetricDefinition[] metrics, OverlayColorScheme colors, IReadOnlySet<string> unavailable)
+        string key, MetricDefinition[] metrics, OverlayColorScheme colors, IReadOnlySet<string> unavailable, OverlaySpacing spacing)
     {
         if (metrics.All(m => unavailable.Contains(m.Id))) return null;
 
@@ -191,7 +214,7 @@ public static class OverlayComposer
             Label = isVram ? VramLabel : category.OsdLabel,
             LabelColorHex = colors.CategoryColor(category),
             ValueColorHex = colors.ValueColor,
-            Cells = BuildCategoryCells(metrics),
+            Cells = BuildCategoryCells(metrics, spacing),
         };
     }
 
@@ -199,7 +222,7 @@ public static class OverlayComposer
     /// chaque FPS porte son libellé (« FPS 144  MOY 138  1% 95  0.1% 80  6.9 ms »), chaque valeur forme son propre
     /// groupe : le temps de frame, qui n'en a pas, reste ainsi séparé du dernier libellé plutôt que de s'y coller. Une
     /// valeur dont le libellé (<see cref="MetricDefinition.LineLabel"/>) tient lieu d'unité n'affiche pas cette unité.</summary>
-    private static OverlayCell[] BuildCategoryCells(MetricDefinition[] metrics)
+    private static OverlayCell[] BuildCategoryCells(MetricDefinition[] metrics, OverlaySpacing spacing)
     {
         bool labelled = metrics.Any(m => m.LineLabel is not null);
         var cells = new OverlayCell[metrics.Length];
@@ -209,22 +232,24 @@ public static class OverlayComposer
             string? prefix = metric.LineLabel;
             cells[i] = new OverlayCell(
                 metric,
+                GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup: labelled, hasPrefix: prefix is not null, spacing),
                 prefix,
-                GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup: labelled, hasPrefix: prefix is not null),
+                prefixGap: spacing.SeparatorGap,
                 showUnit: prefix is null);
         }
         return cells;
     }
 
-    /// <summary>Espaces avant la valeur d'une cellule. Une espace entre valeurs d'un même groupe ; deux après le
-    /// libellé de la ligne, avant un nouveau groupe, et de chaque côté d'un débit (disque, réseau), dont la largeur
-    /// varie : c'est ce qui les garde lisibles. Après un sous-libellé, une espace : c'est lui qui apporte les deux
-    /// espaces de séparation.</summary>
+    /// <summary>Espaces avant la valeur d'une cellule. L'espacement entre valeurs au sein d'un groupe ; une séparation
+    /// après le libellé de la ligne, avant un nouveau groupe, et de chaque côté d'un débit (disque, réseau), dont la
+    /// largeur varie : c'est ce qui les garde lisibles. Après un sous-libellé, une seule espace : la séparation est
+    /// placée avant lui (<see cref="OverlayCell.PrefixText"/>).</summary>
     /// <param name="previous">La métrique de la cellule précédente, null pour la première de la ligne.</param>
-    private static string GapBefore(MetricDefinition metric, MetricDefinition? previous, bool opensGroup, bool hasPrefix)
+    private static string GapBefore(
+        MetricDefinition metric, MetricDefinition? previous, bool opensGroup, bool hasPrefix, OverlaySpacing spacing)
     {
-        if (hasPrefix) return TightGap;
-        return previous is null || opensGroup || metric.IsRate || previous.IsRate ? WideGap : TightGap;
+        if (hasPrefix) return SubLabelGap;
+        return previous is null || opensGroup || metric.IsRate || previous.IsRate ? spacing.SeparatorGap : spacing.ValueGap;
     }
 
     public static void Update(IEnumerable<OverlayLine> lines, MetricSample sample)
@@ -265,7 +290,7 @@ public static class OverlayComposer
 
             foreach (OverlayCell cell in line.Cells)
             {
-                if (!string.IsNullOrEmpty(cell.Prefix)) AppendColored(text, "  " + cell.Prefix, line.LabelColorHex, withColors);
+                if (cell.PrefixText is { } prefix) AppendColored(text, prefix, line.LabelColorHex, withColors);
 
                 int valueWidth = widths.Grow(cell.ValueGroup, cell.Value.Length);
                 int unitWidth = widths.Grow(cell.UnitGroup, cell.Unit.Length);
