@@ -42,9 +42,10 @@ avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
 - **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
   onglets : Général (zone de notification), Compatibilité de ce PC (voir plus bas) et Thèmes
   (à venir).
-- **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit : ceux de la carte
+- **Ventilateurs** — **tous** les ventilateurs pilotables au même endroit, rangés par catégorie
+  (processeur, pompe, carte graphique, boîtier…) sur deux colonnes : ceux de la carte
   mère (via les capteurs de contrôle que LibreHardwareMonitor sait écrire sur ton Super I/O) **et
-  celui du GPU** (NVAPI, ADLX ou IGCL selon la marque). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
+  ceux du GPU** (NVAPI, ADLX ou IGCL selon la marque). Modes Auto / Manuel / Courbe, presets, et par ventilateur : source de
   température (CPU, GPU, la plus chaude des deux, carte mère), hystérésis, vitesses mini/maxi et
   arrêt complet à froid. Détail plus bas.
 - **GPU** — overclocking NVIDIA, AMD Radeon et Intel Arc : décalage d'horloge cœur et
@@ -205,7 +206,8 @@ Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
   à fond.
 - **Arrêt complet à froid (0 RPM)** sous une température au choix — désactivé par défaut, tous les
   ventilateurs ne redémarrant pas proprement.
-- **Appliquer à tous** recopie une courbe et ses réglages sur les autres ventilateurs.
+- **Appliquer à tous** recopie une courbe et ses réglages sur les autres ventilateurs, jamais sur
+  une pompe.
 
 Sécurité : par défaut **rien n'est réappliqué au démarrage et tout est rendu au pilote en
 quittant**. La case « Appliquer au démarrage » rend l'overclock persistant dans les deux
@@ -214,6 +216,30 @@ l'écran ou fait planter le pilote sans rien casser : un redémarrage remet tout
 et l'overclock n'est pas réappliqué tant que cette case est décochée. Monte par paliers de
 15 à 25 MHz et teste entre chaque. Chaque réglage refusé par le pilote est signalé dans
 l'onglet plutôt que d'échouer en silence.
+
+### Identifier ses ventilateurs
+
+Une carte mère ne dit le nom de ses connecteurs (« CPU Fan », « AIO Pump ») que si
+LibreHardwareMonitor a une table pour ce modèle. Sinon la puce ne donne qu'un numéro de canal, et
+l'app ne peut pas deviner ce qui y est branché : le ventilateur est numéroté (« Ventilateur 6 ») et
+rangé dans « Non identifiés ». Ce qu'on peut faire :
+
+- **Repérer** fait tourner le ventilateur à 100 % pendant 5 secondes pour le retrouver dans le
+  boîtier (sur un PC de bureau seulement), puis le rend à son mode.
+- Le **crayon** de chaque carte permet de la **renommer** et de changer sa **catégorie** (processeur,
+  pompe, boîtier…). Le choix est enregistré par ventilateur ; « Revenir à la détection » l'efface.
+- Les **connecteurs sans ventilateur détecté** (0 tr/min alors que la carte les alimente) sont
+  regroupés dans une section repliée, et restent pilotables : un ventilateur sans fil de vitesse
+  (2 broches, ou branché sur un hub) lit aussi 0 tr/min.
+- Une carte graphique n'apparaît qu'une fois par ventilateur, même si le pilote et
+  LibreHardwareMonitor la décrivent tous les deux.
+- Une **pompe** ne s'arrête jamais (pas d'arrêt complet à froid) et ne descend pas sous 30 %.
+
+Ce que le logiciel ne peut pas savoir : à quel connecteur physique correspond un canal sans nom ;
+combien de ventilateurs sont branchés sur un hub (un seul fil de vitesse remonte, et une seule
+commande les pilote tous) ; si un ventilateur sans fil de vitesse est présent ou non ; et, sans
+nom, si un connecteur porte une pompe. Paramètres › Compatibilité de ce PC détaille ce qui a été
+détecté sur ta machine.
 
 ## Compatibilité et capteurs non disponibles
 
@@ -277,6 +303,7 @@ Prérequis : SDK .NET 8.
 cd PCPerfSuite
 dotnet restore
 dotnet build -c Release
+dotnet test
 ```
 
 Puis lance `src\PCPerfSuite.App\bin\Release\net8.0-windows\PCPerfSuite.exe` (clic droit →
