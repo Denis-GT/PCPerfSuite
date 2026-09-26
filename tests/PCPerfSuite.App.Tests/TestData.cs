@@ -23,18 +23,26 @@ internal static class TestData
         ValueColor = "#FFFFFF",
     };
 
-    /// <summary>Relevé d'un PC de bureau bien équipé : GPU dédié, RAM, disques lus.</summary>
+    /// <summary>GPU dédié dont tous les capteurs de mémoire répondent.</summary>
+    public static GpuSnapshot Gpu => new() { VramUsedMb = 8200, VramTotalMb = 16000, MemoryClockMhz = 9501, MemoryJunctionTempC = 70 };
+
+    /// <summary>RAM lue normalement.</summary>
+    public static MemorySnapshot Memory => new() { UsedGb = 12.4f, TotalGb = 32, LoadPercent = 39 };
+
+    /// <summary>Relevé d'un PC de bureau bien équipé : GPU dédié et RAM lus, tous les groupes de capteurs déjà lus une fois.</summary>
     public static MetricSample Sample(HardwareSnapshot? hardware = null, RtssFrameStats? game = null) => new()
     {
-        Hardware = hardware ?? Hardware(),
+        Hardware = hardware ?? Hardware(Gpu, Memory),
         Game = game,
         LocalTime = new DateTime(2026, 9, 26, 12, 0, 0),
     };
 
-    public static HardwareSnapshot Hardware(GpuSnapshot? gpu = null, MemorySnapshot? memory = null) => new()
+    /// <summary>Un PC dont tous les groupes ont déjà été lus : une valeur nulle y vaut « N/D » (ce PC ne la fournit pas),
+    /// pas « -- » (pas encore lue). <paramref name="gpu"/> nul : pas de GPU dédié.</summary>
+    public static HardwareSnapshot Hardware(GpuSnapshot? gpu, MemorySnapshot memory) => new()
     {
-        Gpu = gpu ?? new GpuSnapshot { VramUsedMb = 8200, VramTotalMb = 16000, MemoryClockMhz = 9501, MemoryJunctionTempC = 70 },
-        Memory = memory ?? new MemorySnapshot { UsedGb = 12.4f, TotalGb = 32, LoadPercent = 39 },
+        Gpu = gpu,
+        Memory = memory,
         GroupsEverRead = Enum.GetValues<SensorGroup>(),
     };
 }

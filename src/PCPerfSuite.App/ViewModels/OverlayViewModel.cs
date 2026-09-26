@@ -62,6 +62,10 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     /// Chacun est complété à chaque reconstruction avec ce que le catalogue a gagné entre-temps.</summary>
     private List<string> _categoryOrder;
     private List<string> _metricOrder;
+
+    /// <summary>Valeurs de la ligne MEM que ce PC ne fournit pas au dernier rendu : quand cet ensemble change (un
+    /// GPU dédié de portable qui se réveille, par exemple), la ligne est reconstruite.</summary>
+    private HashSet<string> _unavailableMemoryIds = new();
     private bool _structureDirty = true;
     private int _samplesSinceRender;
     private long _lastRenderTimestamp;
@@ -298,6 +302,16 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     {
         if (_lastSample is null) return;
 
+        // Seule la ligne MEM dépend du relevé pour sa structure, et seulement en mode une ligne par catégorie.
+        HashSet<string> unavailable = OneLinePerMetric
+            ? new HashSet<string>()
+            : OverlayComposer.UnavailableMemoryIds(Metrics.Selected, _lastSample);
+        if (!unavailable.SetEquals(_unavailableMemoryIds))
+        {
+            _unavailableMemoryIds = unavailable;
+            _structureDirty = true;
+        }
+
         if (_structureDirty)
         {
             _structureDirty = false;
@@ -308,7 +322,8 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
 
             Lines.Clear();
             foreach (OverlayLine line in OverlayComposer.Build(
-                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels, CurrentOrder))
+                         Metrics.Selected, OneLinePerMetric, Appearance.BuildColorScheme(), MemorySubLabels, CurrentOrder,
+                         _unavailableMemoryIds))
             {
                 Lines.Add(line);
             }
