@@ -1,11 +1,38 @@
+using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.Core.Hardware;
 
 public sealed class FanReading
 {
+    private string? _label;
+
     public required string HardwareName { get; init; }
+
+    /// <summary>Nom brut du capteur, tel que le matériel le donne (« Fan #6 », « CPU Fan »). Pour l'affichage,
+    /// préférer <see cref="Label"/>.</summary>
     public required string SensorName { get; init; }
+
+    /// <summary>Ce que refroidit ce ventilateur, déduit de son nom.</summary>
+    public FanCategory Category { get; init; } = FanCategory.Unidentified;
+
+    /// <summary>Libellé lisible, numéroté dans la catégorie quand le matériel n'a donné aucun vrai nom. Vaut le nom
+    /// brut tant que <see cref="FanIdentification.Label"/> n'est pas passé.</summary>
+    public string Label
+    {
+        get => _label ?? SensorName;
+        init => _label = value;
+    }
+
+    /// <summary>Numéro du canal dans la puce ou le pilote, null quand la source n'en donne pas (portables).</summary>
+    public int? Channel { get; init; }
+
+    /// <summary>Identifiant de la puce ou du pilote qui porte ce canal.</summary>
+    public string? HardwareId { get; init; }
+
+    /// <summary>Le nom identifie vraiment le connecteur (« CPU Fan »), au lieu d'être un simple numéro de canal.</summary>
+    public bool NameFromHardware { get; init; }
+
     public float? Rpm { get; init; }
     public float? PercentControl { get; init; }
 
@@ -20,6 +47,15 @@ public sealed class FanReading
     public SensorGroup Group { get; init; } = SensorGroup.Motherboard;
 
     public bool CanControl => PercentControlSensorId is not null;
+
+    /// <summary>Copie de ce relevé avec un autre libellé. Une copie plutôt qu'une écriture : le relevé est partagé
+    /// entre threads et ne change plus une fois produit.</summary>
+    internal FanReading WithLabel(string label)
+    {
+        var copy = (FanReading)MemberwiseClone();
+        copy._label = label;
+        return copy;
+    }
 }
 
 public sealed class CpuSnapshot

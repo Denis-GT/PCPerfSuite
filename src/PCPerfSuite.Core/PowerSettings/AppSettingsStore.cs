@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Overlay;
 
 namespace PCPerfSuite.Core.PowerSettings;
@@ -29,6 +30,9 @@ public sealed class AppSettings
 
     /// <summary>Courbes de ventilation configurées par l'utilisateur, une par capteur de contrôle piloté.</summary>
     public List<FanCurveConfig> FanCurves { get; set; } = new();
+
+    /// <summary>Noms et catégories choisis par l'utilisateur pour ses ventilateurs, un par identifiant de ventilateur.</summary>
+    public List<FanIdentityOverride> FanIdentities { get; set; } = new();
 
     /// <summary>Réglages de contrôle GPU (limite de puissance, overclocking, ventilateurs NVAPI).</summary>
     public GpuControlSettings Gpu { get; set; } = new();
