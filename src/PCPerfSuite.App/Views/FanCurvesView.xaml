@@ -150,10 +150,23 @@
                         </WrapPanel>
 
                         <Border Style="{StaticResource InsetTile}" Padding="8">
-                            <controls:FanCurveEditor Points="{Binding Points}" CurrentTempC="{Binding SourceTempC}"/>
+                            <controls:FanCurveEditor Points="{Binding Points}" CurrentTempC="{Binding SourceTempC}"
+                                                     SelectedIndex="{Binding SelectedPointIndex, Mode=TwoWay}"/>
                         </Border>
-                        <TextBox Text="Glisse un point pour le déplacer, double-clic pour en ajouter un, clic droit pour en retirer un."
-                                 Style="{StaticResource SelectableCaption}" Margin="0,6,0,0"/>
+
+                        <!-- Ajouter / retirer sans souris précise : « Ajouter » coupe le plus grand écart en deux, « Retirer »
+                             enlève le point sélectionné (clic sur un point). -->
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="Ajouter un point" Style="{StaticResource GhostButton}" Margin="0,0,6,4"
+                                    Command="{Binding AddPointCommand}"
+                                    ToolTip="Ajoute un point au milieu du plus grand écart, sans changer la forme de la courbe"/>
+                            <Button Content="Retirer le point" Style="{StaticResource GhostButton}" Margin="0,0,10,4"
+                                    Command="{Binding RemovePointCommand}"
+                                    ToolTip="Retire le point sélectionné : clique d'abord sur un point de la courbe"/>
+                            <TextBlock Text="{Binding PointCountText}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                        </WrapPanel>
+                        <TextBox Text="Clique un point pour le sélectionner, glisse-le pour le déplacer. Double-clic sur la courbe pour en ajouter un à cet endroit ; clic droit sur un point ou touche Suppr pour le retirer."
+                                 Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
 
                         <!-- Réglages de régulation -->
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,14,0,0"/>
@@ -217,6 +230,85 @@
                     Visibility="{Binding Fans.Count, Converter={StaticResource ZeroCountToVisibility}}">
                 <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
                          Text="{Binding NoFansMessage, Mode=OneTime}" TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- ============ Profils ============ -->
+            <!-- Même carte que les profils de Réglages CPU. En haut de page : avec plusieurs ventilateurs, la page est
+                 longue, et une carte en bas passerait inaperçue. -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
+                    Visibility="{Binding ShowProfiles, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <TextBlock Text="Profils" Style="{StaticResource H2}"/>
+                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                             Text="Enregistre les courbes de tous les ventilateurs sous un nom — mode, courbe, température suivie et réglages de chacun — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine, ou d'avant qu'on débranche un ventilateur, s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBox Style="{StaticResource GlassTextBox}" Width="220" MaxLength="40"
+                                 controls:TextBoxBehaviors.CommitOnEnter="True"
+                                 Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Button Content="Enregistrer les réglages actuels" Style="{StaticResource AccentButton}"
+                                Margin="8,0,0,0" Command="{Binding SaveProfileCommand}"/>
+                    </StackPanel>
+
+                    <TextBlock Text="Aucun profil enregistré pour l'instant." Style="{StaticResource Caption}" Margin="0,12,0,0"
+                               Visibility="{Binding Profiles.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+
+                    <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,12,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:FanProfileViewModel}">
+                                <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <StackPanel Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVisibility}}">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <!-- Entrée valide le nom, Échap l'abandonne. -->
+                                            <TextBox Style="{StaticResource GlassTextBox}" MaxLength="40"
+                                                     controls:TextBoxBehaviors.FocusWhenVisible="True"
+                                                     Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}"
+                                                     Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBox.InputBindings>
+                                                    <KeyBinding Key="Return" Command="{Binding CommitRenameCommand}"/>
+                                                    <KeyBinding Key="Escape" Command="{Binding CancelRenameCommand}"/>
+                                                </TextBox.InputBindings>
+                                            </TextBox>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVisibility}}">
+                                            <Button Content="Appliquer" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
+                                                    Command="{Binding DataContext.ApplyProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="&#xE70F;" Style="{StaticResource IconButton}" Margin="0,0,2,0" ToolTip="Renommer ce profil"
+                                                    Command="{Binding StartRenameCommand}"/>
+                                            <Button Content="&#xE74D;" Style="{StaticResource IconButton}" ToolTip="Supprimer ce profil"
+                                                    Command="{Binding DataContext.DeleteProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                    Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVisibility}}">
+                                            <Button Content="&#xE73E;" Style="{StaticResource IconButton}" Margin="0,0,2,0" ToolTip="Valider le nouveau nom (Entrée)"
+                                                    Command="{Binding CommitRenameCommand}"/>
+                                            <Button Content="&#xE711;" Style="{StaticResource IconButton}" ToolTip="Annuler (Échap)"
+                                                    Command="{Binding CancelRenameCommand}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBox Text="{Binding ProfileStatus}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                             TextWrapping="Wrap"
+                             Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
+                </StackPanel>
             </Border>
 
             <ItemsControl ItemsSource="{Binding Groups}">

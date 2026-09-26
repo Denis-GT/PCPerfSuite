@@ -34,11 +34,23 @@ public sealed class FanCurveEditor : FrameworkElement
 
     public static readonly DependencyProperty MinTempCProperty = DependencyProperty.Register(
         nameof(MinTempC), typeof(double), typeof(FanCurveEditor),
-        new FrameworkPropertyMetadata(20.0, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata((double)FanCurveMath.MinTempC, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty MaxTempCProperty = DependencyProperty.Register(
         nameof(MaxTempC), typeof(double), typeof(FanCurveEditor),
-        new FrameworkPropertyMetadata(85.0, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata((double)FanCurveMath.MaxTempC, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Rang (dans <see cref="Points"/>) du point sélectionné, -1 si aucun. Lié au ViewModel, dont les boutons
+    /// « Ajouter » et « Retirer » agissent sur ce point.</summary>
+    public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
+        nameof(SelectedIndex), typeof(int), typeof(FanCurveEditor),
+        new FrameworkPropertyMetadata(-1, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    public int SelectedIndex
+    {
+        get => (int)GetValue(SelectedIndexProperty);
+        set => SetValue(SelectedIndexProperty, value);
+    }
 
     public System.Collections.ObjectModel.ObservableCollection<FanCurvePoint>? Points
     {
@@ -73,12 +85,10 @@ public sealed class FanCurveEditor : FrameworkElement
     private const double TopPad = 8, BottomPad = 20, SidePad = 14;
     private const double HandleRadius = 6;
 
-    /// <summary>Écart minimal entre deux points, pour qu'un point ne puisse pas en croiser un autre
-    /// (la courbe resterait dessinable, mais deviendrait impossible à rattraper à la souris).</summary>
-    private const double MinTempGap = 2;
-
-    private const int MinPoints = 2;
-    private const int MaxPoints = 12;
+    // Écart minimal entre deux points et nombre de points : voir FanCurveMath, que partagent l'éditeur et les profils.
+    private const double MinTempGap = FanCurveMath.MinTempGap;
+    private const int MinPoints = FanCurveMath.MinPoints;
+    private const int MaxPoints = FanCurveMath.MaxPoints;
 
     private int _dragIndex = -1;
     private double _dragMinTemp;
@@ -96,6 +106,10 @@ public sealed class FanCurveEditor : FrameworkElement
     {
         Height = 150;
         Cursor = Cursors.Hand;
+
+        // Focusable : la touche Suppr retire le point sélectionné.
+        Focusable = true;
+        FocusVisualStyle = null;
     }
 
     private static void OnPointsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -105,7 +119,38 @@ public sealed class FanCurveEditor : FrameworkElement
         if (e.NewValue is INotifyCollectionChanged newCol) newCol.CollectionChanged += control.OnCollectionChanged;
     }
 
-    private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateVisual();
+    /// <summary>Garde la sélection sur le même point quand la liste change (un point est ajouté ou retiré avant lui), et
+    /// l'efface quand la liste est remplacée (préréglage, profil, « Appliquer à tous ») : le rang n'y veut plus rien dire.</summary>
+    private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        int selected = SelectedIndex;
+
+        if (selected >= 0)
+        {
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Add when e.NewStartingIndex <= selected:
+                    SelectedIndex = selected + e.NewItems!.Count;
+                    break;
+                case NotifyCollectionChangedAction.Remove when e.OldStartingIndex < selected:
+                    SelectedIndex = selected - e.OldItems!.Count;
+                    break;
+                case NotifyCollectionChangedAction.Remove when e.OldStartingIndex == selected:
+                    SelectedIndex = -1;
+                    break;
+                case NotifyCollectionChangedAction.Reset:
+                case NotifyCollectionChangedAction.Replace:
+                case NotifyCollectionChangedAction.Move:
+                    SelectedIndex = -1;
+                    break;
+            }
+        }
+
+        InvalidateVisual();
+    }
+
+    private FanCurvePoint? SelectedPoint
+        => Points is { } all && SelectedIndex >= 0 && SelectedIndex < all.Count ? all[SelectedIndex] : null;
 
     private Rect PlotArea => new(
         SidePad, TopPad,
@@ -175,18 +220,30 @@ public sealed class FanCurveEditor : FrameworkElement
 
         FanCurvePoint? dragged = _dragIndex >= 0 && Points is { } all && _dragIndex < all.Count ? all[_dragIndex] : null;
 
+        FanCurvePoint? selected = SelectedPoint;
+        double lastLabelRight = double.NegativeInfinity;
+
         foreach (FanCurvePoint p in points)
         {
+            bool isSelected = ReferenceEquals(p, selected);
             Point screen = ToScreen(plot, p);
-            dc.DrawEllipse(Brushes.White, new Pen(CurveBrush, 2), screen, HandleRadius, HandleRadius);
+            dc.DrawEllipse(isSelected ? CurveBrush : Brushes.White, new Pen(CurveBrush, 2), screen, HandleRadius, HandleRadius);
 
             var label = new FormattedText(
                 $"{p.TempC:0}°", System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                 _typeface, 10.5, AxisTextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
-            dc.DrawText(label, new Point(screen.X - label.Width / 2, plot.Bottom + 4));
+            double labelLeft = screen.X - label.Width / 2;
 
-            // Le point qu'on déplace affiche sa valeur complète, les autres resteraient illisibles.
-            if (!ReferenceEquals(p, dragged)) continue;
+            // Avec beaucoup de points, les étiquettes se chevauchent : on saute celle qui marcherait sur la précédente.
+            // Le point sélectionné ou déplacé garde toujours la sienne.
+            if (isSelected || ReferenceEquals(p, dragged) || labelLeft >= lastLabelRight + 2)
+            {
+                dc.DrawText(label, new Point(labelLeft, plot.Bottom + 4));
+                lastLabelRight = labelLeft + label.Width;
+            }
+
+            // Le point qu'on déplace, ou qu'on a sélectionné, affiche sa valeur complète, les autres resteraient illisibles.
+            if (!isSelected && !ReferenceEquals(p, dragged)) continue;
 
             var value = new FormattedText(
                 $"{p.TempC:0}° / {p.Percent:0}%", System.Globalization.CultureInfo.CurrentUICulture,
@@ -207,8 +264,11 @@ public sealed class FanCurveEditor : FrameworkElement
         Point p = e.GetPosition(this);
         int closest = FindClosest(points, plot, p, out double bestDist);
 
+        Focus();
+
         if (closest >= 0 && bestDist <= HandleRadius * 3)
         {
+            SelectedIndex = closest;
             _dragIndex = closest;
             ComputeDragBounds(points, closest);
             CaptureMouse();
@@ -216,19 +276,44 @@ public sealed class FanCurveEditor : FrameworkElement
             return;
         }
 
-        if (e.ClickCount == 2) AddPoint(points, plot, p);
+        if (e.ClickCount == 2)
+        {
+            AddPoint(points, plot, p);
+            return;
+        }
+
+        // Un clic dans le vide désélectionne : « Retirer le point » n'agit alors sur rien, plutôt que sur un point oublié.
+        SelectedIndex = -1;
     }
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseRightButtonUp(e);
         var points = Points;
-        if (points is null || points.Count <= MinPoints) return;
+        if (points is null || !FanCurveMath.CanRemovePoint(points.Count)) return;
 
         int closest = FindClosest(points, PlotArea, e.GetPosition(this), out double bestDist);
         if (closest < 0 || bestDist > HandleRadius * 3) return;
 
-        points.RemoveAt(closest);
+        RemovePoint(points, closest);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key != Key.Delete || Points is not { } points) return;
+
+        e.Handled = true;
+        if (FanCurveMath.CanRemovePoint(points.Count) && SelectedIndex >= 0 && SelectedIndex < points.Count)
+        {
+            RemovePoint(points, SelectedIndex);
+        }
+    }
+
+    /// <summary>La sélection suit toute seule (voir OnCollectionChanged) : le point retiré la perd, les autres la gardent.</summary>
+    private void RemovePoint(System.Collections.ObjectModel.ObservableCollection<FanCurvePoint> points, int index)
+    {
+        points.RemoveAt(index);
         InvalidateVisual();
         RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
     }
@@ -257,7 +342,9 @@ public sealed class FanCurveEditor : FrameworkElement
         (float tempC, float percent) = FromScreen(plot, p);
         if (points.Any(existing => Math.Abs(existing.TempC - tempC) < MinTempGap)) return;
 
-        points.Add(new FanCurvePoint { TempC = tempC, Percent = percent });
+        // À sa place dans l'ordre des températures, et sélectionné : on le voit, et on peut le retirer aussitôt.
+        int index = FanCurveMath.InsertSorted(points, new FanCurvePoint { TempC = tempC, Percent = percent });
+        SelectedIndex = index;
         InvalidateVisual();
         RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
     }

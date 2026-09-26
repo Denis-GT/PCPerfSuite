@@ -157,6 +157,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
             ? new CompatibilityRow("Pilotage des ventilateurs", $"{_fans.Fans.Count} pilotable(s)", "Onglet Ventilateurs.", true)
             : new CompatibilityRow("Pilotage des ventilateurs", "Non disponible", _fans.NoFansMessage, false);
 
+        yield return FanProfilesRow();
+
         if (snapshot is not null) yield return MemoryRow(snapshot.Memory);
 
         yield return ProcessCpuScaleRow();
@@ -319,6 +321,15 @@ public sealed partial class CompatibilityViewModel : ObservableObject
                 count > 0 ? "Via la carte mère et le GPU." : "La carte mère n'expose pas ses ventilateurs, ou sa puce de gestion n'est pas reconnue.",
                 count > 0),
         };
+    }
+
+    /// <summary>Les profils de ventilation, et ce que le dernier profil chargé n'a pas pu appliquer (ventilateur absent de ce
+    /// PC, réglage corrigé) : c'est ce qu'il faut pour comprendre « mon profil ne fait pas ce que j'attendais ».</summary>
+    private CompatibilityRow FanProfilesRow()
+    {
+        int count = _fans.ProfileCount;
+        string detail = _fans.LastProfileReport ?? "Aucun profil chargé depuis le lancement de l'app.";
+        return new CompatibilityRow("Profils de ventilation", count == 0 ? "Aucun" : $"{count} enregistré(s)", detail, true);
     }
 
     /// <summary>Comment les ventilateurs ont été identifiés : ce que la carte mère a nommé, ce qui n'est qu'un numéro de canal

@@ -82,6 +82,37 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public ObservableCollection<FanCurvePoint> Points { get; }
 
+    /// <summary>Rang du point sélectionné dans l'éditeur, -1 si aucun. « Retirer le point » agit sur lui.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemovePointCommand))]
+    private int selectedPointIndex = -1;
+
+    public string PointCountText => $"{Points.Count} points (de {FanCurveMath.MinPoints} à {FanCurveMath.MaxPoints})";
+
+    private bool CanAddPoint() => FanCurveMath.TryCreatePoint(Points.ToList()) is not null;
+
+    private bool CanRemovePoint()
+        => FanCurveMath.CanRemovePoint(Points.Count) && SelectedPointIndex >= 0 && SelectedPointIndex < Points.Count;
+
+    /// <summary>Ajoute un point sans changer la forme de la courbe (au milieu du plus grand écart), puis le sélectionne
+    /// pour qu'on n'ait plus qu'à le déplacer. Pour le placer à un endroit précis : double-clic sur la courbe.</summary>
+    [RelayCommand(CanExecute = nameof(CanAddPoint))]
+    private void AddPoint()
+    {
+        if (FanCurveMath.TryCreatePoint(Points.ToList()) is not { } point) return;
+
+        SelectedPointIndex = FanCurveMath.InsertSorted(Points, point);
+        NotifyPointsEdited();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRemovePoint))]
+    private void RemovePoint()
+    {
+        Points.RemoveAt(SelectedPointIndex);
+        SelectedPointIndex = -1;
+        NotifyPointsEdited();
+    }
+
     /// <summary>Null tant qu'aucune vitesse n'a été lue pour ce ventilateur : affiché « -- », jamais « 0 RPM ».</summary>
     [ObservableProperty] private double? rpm;
 
@@ -134,7 +165,16 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             ? chosen
             : detectedCategory;
 
-        Points = new ObservableCollection<FanCurvePoint>(config.Points);
+        // Dans l'ordre des températures : les courbes d'avant l'insertion « à sa place » pouvaient avoir un point
+        // ajouté en fin de liste, et le rang du point sélectionné doit être son rang sur la courbe.
+        Points = new ObservableCollection<FanCurvePoint>(config.Points.OrderBy(p => p.TempC));
+        Points.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(PointCountText));
+            AddPointCommand.NotifyCanExecuteChanged();
+            RemovePointCommand.NotifyCanExecuteChanged();
+        };
+
         mode = config.Mode;
         manualPercent = config.ManualPercent;
         source = config.Source;
@@ -318,6 +358,65 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         NotifyPointsEdited();
     }
 
+    /// <summary>La configuration en place, copiée, pour l'enregistrer dans un profil.</summary>
+    public FanCurveConfig Capture()
+    {
+        FanCurveConfig copy = _config.Clone();
+
+        // La courbe affichée fait foi : la configuration ne la reçoit qu'à la fin d'un geste (NotifyPointsEdited).
+        copy.Points = Points.Select(p => new FanCurvePoint { TempC = p.TempC, Percent = p.Percent }).ToList();
+        return copy;
+    }
+
+    /// <summary>
+    /// Pose la configuration d'un profil, déjà ramenée dans les limites de l'onglet (voir
+    /// <see cref="FanProfileMatcher.Sanitize"/>). Tout passe par les propriétés, donc par le chemin d'un clic :
+    /// la consigne suit au relevé suivant, avec la protection thermique du GPU et le plancher d'une pompe. Rien
+    /// n'est écrit ici sur le matériel en dehors de ce que le mode choisi ferait de toute façon.
+    /// </summary>
+    /// <returns>Ce qui n'a pas pu être posé tel quel — vide quand le profil s'applique entièrement.</returns>
+    public IReadOnlyList<string> ApplyFromProfile(FanCurveConfig entry, bool hasGpu)
+    {
+        var notes = new List<string>();
+
+        FanTempSource tempSource = entry.Source;
+        if (!hasGpu && tempSource is FanTempSource.GpuCore or FanTempSource.HottestOfCpuGpu)
+        {
+            tempSource = FanTempSource.CpuPackage;
+            notes.Add("pas de GPU sur ce PC, température du CPU suivie à la place");
+        }
+
+        Points.Clear();
+        foreach (FanCurvePoint p in entry.Points) Points.Add(new FanCurvePoint { TempC = p.TempC, Percent = p.Percent });
+
+        // Le maximum d'abord au plus haut : chaque borne repousse l'autre si elle la dépasse, et poser le minimum
+        // puis le maximum dans le mauvais ordre laisserait une valeur du profil écrasée par l'ancienne.
+        MaxPercent = 100;
+        MinPercent = entry.MinPercent;
+        MaxPercent = entry.MaxPercent;
+
+        HysteresisC = entry.HysteresisC;
+        ManualPercent = entry.ManualPercent;
+        Source = tempSource;
+
+        if (entry.StopBelowTempC is { } stop && CanStopWhenCool)
+        {
+            StopBelowTempC = stop;
+            StopWhenCool = true;
+        }
+        else
+        {
+            StopWhenCool = false;
+            if (entry.StopBelowTempC is not null) notes.Add("arrêt à froid ignoré, jamais proposé pour une pompe");
+        }
+
+        NotifyPointsEdited();
+
+        // Le mode en dernier : les consignes ci-dessus sont alors en place avant que la régulation reparte.
+        Mode = entry.Mode;
+        return notes;
+    }
+
     partial void OnModeChanged(FanControlMode value)
     {
         // Choisir un mode reprend la main sur le repérage ; la suite (Auto rend le ventilateur, les autres modes
@@ -421,6 +520,51 @@ public sealed record FanCategoryChoice(FanCategory Category, string Title)
     }.Select(category => new FanCategoryChoice(category, FanCategoryInfo.Title(category))).ToList();
 }
 
+/// <summary>Un profil de ventilation enregistré, tel qu'affiché dans la liste des profils. Le résumé est calculé par
+/// l'onglet, seul à savoir quels ventilateurs existent sur CETTE machine ; le renommage se fait sur place.</summary>
+public sealed partial class FanProfileViewModel : ObservableObject
+{
+    private readonly Action<FanProfileViewModel> _commitRename;
+
+    public FanProfile Model { get; }
+
+    public string Name => Model.Name;
+
+    [ObservableProperty] private string summary;
+
+    /// <summary>Le nom est en cours de modification : la ligne montre alors une zone de texte.</summary>
+    [ObservableProperty] private bool isRenaming;
+
+    [ObservableProperty] private string editName = "";
+
+    public FanProfileViewModel(FanProfile model, string summary, Action<FanProfileViewModel> commitRename)
+    {
+        Model = model;
+        this.summary = summary;
+        _commitRename = commitRename;
+    }
+
+    /// <summary>Le nom est validé par l'onglet, seul à connaître les autres profils : un nom vide ou déjà pris est refusé.</summary>
+    public void Rename(string name)
+    {
+        Model.Name = name;
+        OnPropertyChanged(nameof(Name));
+    }
+
+    [RelayCommand]
+    private void StartRename()
+    {
+        EditName = Name;
+        IsRenaming = true;
+    }
+
+    [RelayCommand]
+    private void CommitRename() => _commitRename(this);
+
+    [RelayCommand]
+    private void CancelRename() => IsRenaming = false;
+}
+
 /// <summary>
 /// Pilotage des ventilateurs (onglet "Ventilateurs") : tous les ventilateurs pilotables au même
 /// endroit — ceux de la carte mère via LibreHardwareMonitor et ceux du GPU via NVAPI — avec pour
@@ -474,6 +618,24 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private bool hasGpu;
 
+    /// <summary>Profils enregistrés par l'utilisateur : toutes les courbes sous un nom.</summary>
+    public ObservableCollection<FanProfileViewModel> Profiles { get; } = new();
+
+    [ObservableProperty] private string newProfileName = "";
+
+    /// <summary>Null tant qu'aucun profil n'a été touché : la ligne d'état ne s'affiche qu'ensuite.</summary>
+    [ObservableProperty] private string? profileStatus;
+
+    /// <summary>La carte des profils n'a rien à montrer sans ventilateur ni profil.</summary>
+    public bool ShowProfiles => Fans.Count > 0 || Profiles.Count > 0;
+
+    /// <summary>Le premier relevé est passé : on sait quels ventilateurs existent ici, et donc lesquels manquent à un
+    /// profil. Avant, un profil s'afficherait « absent de ce PC » pour tous ses ventilateurs.</summary>
+    private bool _hasSnapshot;
+
+    /// <summary>Un profil est en cours d'application : les enregistrements sont regroupés en un seul, à la fin.</summary>
+    private bool _applyingProfile;
+
     // Ce que le diagnostic « Compatibilité de ce PC » demande à cet onglet : c'est lui qui sait comment les ventilateurs
     // ont été identifiés, rapprochés et rangés.
 
@@ -497,6 +659,13 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     /// <summary>Ventilateurs dont l'utilisateur a corrigé le nom ou la catégorie.</summary>
     public int CustomizedCount => Fans.Count(f => f.HasCustomIdentity);
+
+    /// <summary>Profils de ventilation enregistrés.</summary>
+    public int ProfileCount => Profiles.Count;
+
+    /// <summary>Ce que le dernier profil chargé n'a pas pu appliquer (ventilateurs absents, réglages corrigés), null
+    /// tant qu'aucun profil n'a été chargé depuis le lancement de l'app.</summary>
+    public string? LastProfileReport { get; private set; }
 
     /// <summary>Cette lecture décrit un ventilateur que l'API du constructeur pilote déjà : elle n'est pas listée.</summary>
     public bool IsGpuDuplicate(FanReading reading) => _lastGpuPairing.Replaced.Any(r => r.SensorId == reading.SensorId);
@@ -539,8 +708,242 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         _monitoring = monitoring;
         _settings = AppSettingsStore.Load();
 
+        // Un fichier édité à la main peut contenir des profils vides ou sans liste : on les remet d'aplomb plutôt
+        // que de planter au premier affichage.
+        _settings.FanProfiles.RemoveAll(p => p is null);
+        foreach (FanProfile profile in _settings.FanProfiles)
+        {
+            profile.Name = string.IsNullOrWhiteSpace(profile.Name) ? "Profil" : profile.Name;
+            profile.Fans ??= new List<FanCurveConfig>();
+            profile.FanNames ??= new Dictionary<string, string>();
+            Profiles.Add(new FanProfileViewModel(profile, BuildProfileSummary(profile), CommitProfileRename));
+        }
+
+        Fans.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowProfiles));
+        Profiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(ShowProfiles));
+            OnPropertyChanged(nameof(ProfileCount));
+        };
+
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
     }
+
+    // ---- Profils ----
+
+    /// <summary>Enregistre toutes les courbes en place sous un nom. Un profil du même nom est remplacé, à sa place
+    /// dans la liste, pour pouvoir le mettre à jour sans le supprimer d'abord.</summary>
+    [RelayCommand]
+    private void SaveProfile()
+    {
+        if (Fans.Count == 0)
+        {
+            ProfileStatus = "Aucun ventilateur pilotable pour l'instant : rien à enregistrer.";
+            return;
+        }
+
+        string name = NewProfileName.Trim();
+        if (name.Length == 0) name = NextDefaultProfileName();
+
+        var profile = new FanProfile { Name = name };
+        foreach (FanControlItemViewModel item in Fans)
+        {
+            profile.Fans.Add(item.Capture());
+            profile.FanNames[item.FanId] = item.DisplayName;
+        }
+
+        var created = new FanProfileViewModel(profile, BuildProfileSummary(profile), CommitProfileRename);
+        FanProfileViewModel? existing = FindProfile(name);
+        if (existing is null) Profiles.Add(created);
+        else Profiles[Profiles.IndexOf(existing)] = created;
+
+        NewProfileName = "";
+        ProfileStatus = existing is null ? $"Profil « {name} » enregistré." : $"Profil « {name} » mis à jour.";
+        PersistProfiles();
+    }
+
+    /// <summary>
+    /// Applique un profil. Il a pu être écrit sur une autre machine, ou avant qu'on débranche un ventilateur : ce
+    /// qui n'existe pas ici est ignoré, et le message dit quoi et pourquoi plutôt que de passer sous silence. Les
+    /// ventilateurs que le profil ne mentionne pas restent tels quels. Rien de ce que le profil contient ne peut
+    /// atteindre un ventilateur qui n'est pas listé dans l'onglet — donc jamais le contrôleur embarqué d'un portable.
+    /// </summary>
+    [RelayCommand]
+    private void ApplyProfile(FanProfileViewModel? profile)
+    {
+        if (profile is null) return;
+
+        if (Fans.Count == 0)
+        {
+            ProfileStatus = $"Profil « {profile.Name} » non appliqué : aucun ventilateur pilotable. {NoFansMessage}";
+            LastProfileReport = ProfileStatus;
+            return;
+        }
+
+        FanProfileMatch match = FanProfileMatcher.Match(profile.Model, Fans.Select(f => f.FanId).ToList());
+
+        var notApplied = new List<string>();
+        var adjusted = new List<string>();
+        int applied = 0;
+
+        // Un seul enregistrement du fichier de réglages pour tout le profil, pas un par propriété modifiée.
+        _applyingProfile = true;
+        try
+        {
+            foreach (FanCurveConfig entry in match.Applicable)
+            {
+                FanControlItemViewModel item = Fans.First(f => f.FanId == entry.ControlSensorId);
+                SanitizedFanCurve sanitized = FanProfileMatcher.Sanitize(entry);
+
+                if (sanitized.Config is not { } config)
+                {
+                    notApplied.Add($"« {item.DisplayName} » ({string.Join(", ", sanitized.Notes)})");
+                    continue;
+                }
+
+                var notes = new List<string>(sanitized.Notes);
+                notes.AddRange(item.ApplyFromProfile(config, HasGpu));
+                applied++;
+
+                if (notes.Count > 0) adjusted.Add($"« {item.DisplayName} » ({string.Join(", ", notes)})");
+            }
+        }
+        finally
+        {
+            _applyingProfile = false;
+            Persist();
+        }
+
+        foreach (FanCurveConfig entry in match.Missing)
+        {
+            notApplied.Add($"« {ProfileFanName(profile.Model, entry.ControlSensorId)} » ({AbsenceReason(entry.ControlSensorId)})");
+        }
+
+        var parts = new List<string>
+        {
+            applied == 0 ? "aucun ventilateur réglé" : Plural(applied, "ventilateur réglé", "ventilateurs réglés"),
+        };
+
+        if (notApplied.Count > 0) parts.Add($"non appliqué : {string.Join(", ", notApplied)}");
+        if (adjusted.Count > 0) parts.Add($"réglages corrigés : {string.Join(", ", adjusted)}");
+
+        if (match.NotInProfile.Count > 0)
+        {
+            IEnumerable<string> names = match.NotInProfile.Select(id => $"« {Fans.First(f => f.FanId == id).DisplayName} »");
+            parts.Add($"pas dans ce profil, laissé(s) tel(s) quel(s) : {string.Join(", ", names)}");
+        }
+
+        ProfileStatus = $"Profil « {profile.Name} » : {string.Join(" · ", parts)}.";
+        LastProfileReport = ProfileStatus;
+    }
+
+    [RelayCommand]
+    private void DeleteProfile(FanProfileViewModel? profile)
+    {
+        if (profile is null) return;
+
+        Profiles.Remove(profile);
+        ProfileStatus = $"Profil « {profile.Name} » supprimé.";
+        PersistProfiles();
+    }
+
+    /// <summary>Valide le nouveau nom d'un profil. Un nom vide ou déjà pris est refusé et la zone de texte reste
+    /// ouverte, avec la raison, pour qu'on puisse le corriger sans tout retaper.</summary>
+    private void CommitProfileRename(FanProfileViewModel profile)
+    {
+        if (!profile.IsRenaming) return;
+
+        string name = profile.EditName.Trim();
+        if (name.Length == 0)
+        {
+            ProfileStatus = "Le nom d'un profil ne peut pas être vide.";
+            return;
+        }
+
+        if (string.Equals(name, profile.Name, StringComparison.Ordinal))
+        {
+            profile.IsRenaming = false;
+            return;
+        }
+
+        FanProfileViewModel? clash = FindProfile(name);
+        if (clash is not null && !ReferenceEquals(clash, profile))
+        {
+            ProfileStatus = $"Un profil « {clash.Name} » existe déjà : choisis un autre nom.";
+            return;
+        }
+
+        string previous = profile.Name;
+        profile.Rename(name);
+        profile.IsRenaming = false;
+        ProfileStatus = $"Profil « {previous} » renommé en « {name} ».";
+        PersistProfiles();
+    }
+
+    private FanProfileViewModel? FindProfile(string name)
+        => Profiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.CurrentCultureIgnoreCase));
+
+    private string NextDefaultProfileName()
+    {
+        int number = Profiles.Count + 1;
+        while (FindProfile($"Profil {number}") is not null) number++;
+        return $"Profil {number}";
+    }
+
+    /// <summary>Le nom d'un ventilateur tel qu'il s'appelait à l'enregistrement du profil, faute de mieux son identifiant.</summary>
+    private static string ProfileFanName(FanProfile profile, string fanId)
+        => profile.FanNames.TryGetValue(fanId, out string? name) && !string.IsNullOrWhiteSpace(name) ? name : fanId;
+
+    /// <summary>Pourquoi un ventilateur d'un profil n'existe pas sur ce PC, en distinguant ce que la règle de
+    /// compatibilité demande : limite de la machine, app lancée sans administrateur, ou simplement absent.</summary>
+    private static string AbsenceReason(string fanId)
+    {
+        if (IsGpuCooler(fanId)) return "cooler de carte graphique non détecté sur ce PC";
+        if (MachineInfo.Current.IsLaptop) return "ventilateur de carte mère, non piloté sur un portable";
+        if (!ElevationHelper.IsAdministrator()) return "PCPerfSuite n'est pas lancé en administrateur";
+        return "absent de ce PC";
+    }
+
+    /// <summary>Résumé d'un profil dans les termes de CETTE machine : le nom actuel du ventilateur quand il existe ici,
+    /// celui de l'enregistrement sinon, avec la mention « absent de ce PC » une fois les ventilateurs connus.</summary>
+    private string BuildProfileSummary(FanProfile profile)
+    {
+        var parts = new List<string>();
+        foreach (FanCurveConfig? entry in profile.Fans)
+        {
+            if (entry is null || string.IsNullOrEmpty(entry.ControlSensorId)) continue;
+
+            FanControlItemViewModel? item = Fans.FirstOrDefault(f => f.FanId == entry.ControlSensorId);
+            string name = item?.DisplayName ?? ProfileFanName(profile, entry.ControlSensorId);
+            string absent = _hasSnapshot && item is null ? " (absent de ce PC)" : "";
+
+            parts.Add($"{name} : {DescribeMode(entry)}{absent}");
+        }
+
+        return parts.Count == 0 ? "Ce profil ne contient aucun ventilateur." : string.Join("  •  ", parts);
+    }
+
+    private static string DescribeMode(FanCurveConfig entry) => entry.Mode switch
+    {
+        FanControlMode.Auto => "Auto",
+        FanControlMode.Manual => $"Manuel {entry.ManualPercent:0} %",
+        FanControlMode.Curve => $"Courbe ({entry.Points?.Count ?? 0} points)",
+        _ => "mode inconnu",
+    };
+
+    private void RefreshProfileSummaries()
+    {
+        foreach (FanProfileViewModel profile in Profiles) profile.Summary = BuildProfileSummary(profile.Model);
+    }
+
+    private void PersistProfiles()
+    {
+        _settings.FanProfiles = Profiles.Select(p => p.Model).ToList();
+        Persist();
+    }
+
+    private static string Plural(int count, string singular, string plural)
+        => count > 1 ? $"{count} {plural}" : $"{count} {singular}";
 
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
@@ -595,6 +998,14 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         }
 
         RebuildGroups();
+
+        // Les résumés de profils disent quels ventilateurs manquent : ils ne le savent qu'à partir d'ici, même sur
+        // un PC sans aucun ventilateur (où la composition ne change jamais, et RebuildGroups ne fait donc rien).
+        if (!_hasSnapshot)
+        {
+            _hasSnapshot = true;
+            RefreshProfileSummaries();
+        }
     }
 
     /// <summary>Range les ventilateurs par catégorie, puis les connecteurs sans ventilateur détecté à part. Ne touche
@@ -605,6 +1016,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         string signature = string.Join("|", Fans.Select(f => $"{f.FanId}/{(int)f.Category}/{f.IsEmptyHeader}"));
         if (signature == _groupSignature) return;
         _groupSignature = signature;
+
+        // Un ventilateur est apparu ou a disparu : les profils l'affichent (ou le marquent absent) en conséquence.
+        if (_hasSnapshot) RefreshProfileSummaries();
 
         var wanted = new List<FanGroupViewModel>();
 
@@ -769,6 +1183,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
         Persist();
         RebuildGroups();
+
+        // Le nom d'un ventilateur ne change pas la composition des sections, mais il figure dans les résumés de profils.
+        RefreshProfileSummaries();
     }
 
     /// <summary>Le pilote graphique rend TOUS les coolers d'un coup (NVAPI RestoreCoolerSettingsToDefault, IGCL
@@ -815,9 +1232,13 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     /// ventilation, le reste (GPU, overlay, monitoring) appartient aux autres ViewModels.</summary>
     private void Persist()
     {
+        // Appliquer un profil modifie des dizaines de propriétés : l'enregistrement se fait une fois, à la fin.
+        if (_applyingProfile) return;
+
         AppSettings settings = AppSettingsStore.Load();
         settings.FanCurves = _settings.FanCurves;
         settings.FanIdentities = _settings.FanIdentities;
+        settings.FanProfiles = _settings.FanProfiles;
         AppSettingsStore.Save(settings);
     }
 

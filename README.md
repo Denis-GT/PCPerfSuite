@@ -202,8 +202,10 @@ Cet étage a besoin du pilote **PawnIO** (voir « Points d'attention ») : sans 
 Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
 
 - **Modes** Auto (firmware) / Manuel / Courbe, et presets Silencieux / Équilibré / Perf.
-- **Éditeur de courbe** : on glisse un point dans les deux axes, on en ajoute un au double-clic,
-  on en retire un au clic droit (de 2 à 12 points).
+- **Éditeur de courbe** : on clique un point pour le sélectionner et on le glisse dans les deux
+  axes. On en ajoute un au double-clic (à l'endroit voulu) ou avec « Ajouter un point » (au milieu
+  du plus grand écart, sans changer la forme de la courbe) ; on en retire un au clic droit, avec
+  Suppr ou avec « Retirer le point » (de 2 à 16 points).
 - **Source de température** par ventilateur : CPU, GPU, la plus chaude des deux (le bon choix pour
   un ventilateur de boîtier) ou la carte mère.
 - **Hystérésis** en °C : le ventilateur ne ralentit qu'une fois la température retombée d'autant,
@@ -214,6 +216,15 @@ Chaque ventilateur pilotable a sa carte, carte mère comme GPU :
   ventilateurs ne redémarrant pas proprement.
 - **Appliquer à tous** recopie une courbe et ses réglages sur les autres ventilateurs, jamais sur
   une pompe.
+- **Profils** : les courbes de tous les ventilateurs s'enregistrent sous un nom (mode, courbe,
+  température suivie et réglages de chacun) et se rappellent en un clic ; on peut les renommer et
+  les supprimer, et un profil du même nom est remplacé. Un profil venu d'une autre machine, ou
+  d'avant qu'on débranche un ventilateur, s'applique quand même : ce qui n'existe pas ici est
+  ignoré, et l'app dit quoi et pourquoi (ventilateur absent, portable, app sans administrateur).
+  Les valeurs douteuses d'un profil (mode inconnu, pourcentage hors plage, points désordonnés) sont
+  ramenées dans les limites plutôt que posées telles quelles, et les ventilateurs que le profil ne
+  mentionne pas restent tels quels. Sur un portable, un profil n'atteint jamais le contrôleur
+  embarqué : seuls les ventilateurs listés dans l'onglet sont pilotés.
 
 Sécurité : par défaut **rien n'est réappliqué au démarrage et tout est rendu au pilote en
 quittant**. La case « Appliquer au démarrage » rend l'overclock persistant dans les deux
