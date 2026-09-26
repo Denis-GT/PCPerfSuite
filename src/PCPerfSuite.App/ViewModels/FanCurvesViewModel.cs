@@ -20,6 +20,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     private readonly FanCurveRegulator _regulator = new();
     private readonly Action _persist;
     private readonly Action<FanControlItemViewModel> _copyToAll;
+    private readonly Action<FanControlItemViewModel> _autoRestored;
 
     /// <summary>Dernière consigne effectivement envoyée au ventilateur, pour ne pas la repousser
     /// identique à chaque relevé. Null : rien n'est posé, le ventilateur est au firmware.</summary>
@@ -57,12 +58,14 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         FanCategory category,
         IFanController controller,
         Action persist,
-        Action<FanControlItemViewModel> copyToAll)
+        Action<FanControlItemViewModel> copyToAll,
+        Action<FanControlItemViewModel> autoRestored)
     {
         _config = config;
         _controller = controller;
         _persist = persist;
         _copyToAll = copyToAll;
+        _autoRestored = autoRestored;
 
         FanId = config.ControlSensorId;
         DisplayName = displayName;
@@ -128,6 +131,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         _lastSentPercent = null;
     }
 
+    /// <summary>Oublie la dernière consigne envoyée : la prochaine sera renvoyée même si elle vaut la même. Sert
+    /// quand le matériel a perdu la consigne sans que ce ventilateur y soit pour rien.</summary>
+    public void ForgetSentPercent() => _lastSentPercent = null;
+
     /// <summary>Recopie la courbe et les réglages de régulation d'un autre ventilateur.</summary>
     public void CopyFrom(FanControlItemViewModel other)
     {
@@ -149,6 +156,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         {
             _controller.TrySetAuto(FanId);
             TargetPercent = null;
+            _autoRestored(this);
         }
 
         // Le firmware a repris la main (ou va la reprendre) : la prochaine consigne doit repartir,
@@ -360,7 +368,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
             if (Fans.Any(f => f.FanId == id)) continue;
 
             FanCurveConfig config = ConfigFor(id, DefaultSourceFor(fan.Category), ref added);
-            Fans.Add(new FanControlItemViewModel(config, fan.Label, fan.Category, _hardware, Persist, CopyCurveToAll));
+            Fans.Add(new FanControlItemViewModel(config, fan.Label, fan.Category, _hardware, Persist, CopyCurveToAll, OnFanRestoredToAuto));
         }
 
         foreach (int coolerId in coolerIds)
@@ -370,7 +378,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
             FanCurveConfig config = ConfigFor(id, FanTempSource.GpuCore, ref added);
             string label = _gpuLabels.GetValueOrDefault(coolerId, "GPU");
-            Fans.Add(new FanControlItemViewModel(config, label, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll));
+            Fans.Add(new FanControlItemViewModel(config, label, FanCategory.Gpu, _gpu, Persist, CopyCurveToAll, OnFanRestoredToAuto));
         }
 
         if (added) Persist();
@@ -419,6 +427,22 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         }
 
         return _gpuCoolerIds;
+    }
+
+    /// <summary>Le pilote graphique rend TOUS les coolers d'un coup (NVAPI RestoreCoolerSettingsToDefault, IGCL
+    /// ctlFanSetDefaultMode sur chaque ventilateur) : repasser un cooler en Auto libère aussi ceux qui étaient en
+    /// Manuel ou en Courbe. Les autres oublient leur dernière consigne pour que le prochain relevé la renvoie ;
+    /// sans ça, un cooler resté à « Manuel 60 % » à l'écran repartait sur la régulation du pilote sans un mot,
+    /// puisque la consigne n'est renvoyée que si elle change. Les commandes de la carte mère, elles, se rendent
+    /// une par une.</summary>
+    private void OnFanRestoredToAuto(FanControlItemViewModel restored)
+    {
+        if (!IsGpuCooler(restored.FanId)) return;
+
+        foreach (FanControlItemViewModel other in Fans)
+        {
+            if (!ReferenceEquals(other, restored) && IsGpuCooler(other.FanId)) other.ForgetSentPercent();
+        }
     }
 
     private void CopyCurveToAll(FanControlItemViewModel source)
