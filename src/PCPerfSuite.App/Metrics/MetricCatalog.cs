@@ -96,15 +96,18 @@ public sealed class MetricDefinition
 /// </summary>
 public static class MetricCatalog
 {
-    internal static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF", "#2FA3E0");
-    internal static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B", "#4CB85F");
-    internal static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF", "#9A62E0");
-    internal static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D", "#E0932B");
-    internal static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166", "#E0B030");
-    internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0", "#25B5A0");
-    internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C", "#E0587A");
-    internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8", "#8C97B3");
-    internal static readonly MetricCategory Power = new("power", "Énergie", "PWR", "#FFE066", "#E0C030");
+    // Couleurs d'overlay : 75 % de la luminosité de la version précédente, teinte et saturation inchangées.
+    // Les anciennes valeurs sont listées dans OverlayColorDefaults, pour que les réglages déjà enregistrés
+    // qui n'avaient pas été personnalisés suivent le nouveau défaut.
+    internal static readonly MetricCategory Cpu = new("cpu", "CPU", "CPU", "#4CC2FF", "#237AA8");
+    internal static readonly MetricCategory Gpu = new("gpu", "GPU", "GPU", "#7BE38B", "#398A47");
+    internal static readonly MetricCategory Ram = new("ram", "RAM", "RAM", "#C08CFF", "#744AA8");
+    internal static readonly MetricCategory Motherboard = new("mb", "Carte mère", "CM", "#FFB74D", "#A86E20");
+    internal static readonly MetricCategory Storage = new("storage", "Stockage", "DISQUE", "#FFD166", "#A88424");
+    internal static readonly MetricCategory Network = new("net", "Réseau", "NET", "#4DD9C0", "#1C8878");
+    internal static readonly MetricCategory Game = new("game", "Jeu (RTSS)", "JEU", "#FF7A9C", "#A8425C");
+    internal static readonly MetricCategory Sys = new("sys", "Système", "SYS", "#B7C0D8", "#697186");
+    internal static readonly MetricCategory Power = new("power", "Énergie", "PWR", "#FFE066", "#A89024");
 
     /// <summary>1 Mo/s : plancher des graphiques de débit disque.</summary>
     internal const double DiskRateFloor = 1_048_576;

@@ -135,7 +135,7 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
                 c.Key,
                 c.Name,
                 c.OverlayColor,
-                saved.TryGetValue(c.Key, out string? color) ? color : c.OverlayColor,
+                OverlayColorDefaults.Resolve(c, saved.GetValueOrDefault(c.Key)),
                 onChanged))
             .ToList();
     }
@@ -168,7 +168,12 @@ public sealed partial class OverlayAppearanceViewModel : ObservableObject
         settings.MarginX = MarginX;
         settings.MarginY = MarginY;
         settings.ValueColor = ValueColor.ColorHex;
-        settings.CategoryColors = CategoryColors.ToDictionary(slot => slot.Key, slot => slot.ColorHex);
+
+        // Seules les couleurs que l'utilisateur a changées sont enregistrées : les autres suivent le défaut du
+        // catalogue, qui peut évoluer d'une version à l'autre (voir OverlayColorDefaults).
+        settings.CategoryColors = CategoryColors
+            .Where(slot => !OverlayColorDefaults.SameColor(slot.ColorHex, slot.DefaultColorHex))
+            .ToDictionary(slot => slot.Key, slot => slot.ColorHex);
     }
 
     [RelayCommand]
