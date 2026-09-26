@@ -9,21 +9,20 @@ namespace PCPerfSuite.App.Overlay;
 /// qui change réellement est redessiné, et la mise en page ne bouge pas.</summary>
 public sealed partial class OverlayCell : ObservableObject
 {
-    public OverlayCell(
-        MetricDefinition metric, int column, string? prefix = null, string gap = OverlayComposer.WideGap, bool showUnit = true)
+    public OverlayCell(MetricDefinition metric, string? prefix = null, string gap = OverlayComposer.WideGap, bool showUnit = true)
     {
         Metric = metric;
         Prefix = prefix;
         Gap = gap;
         ShowUnit = showUnit;
-        ValueGroup = $"value{column}";
-        UnitGroup = $"unit{column}";
+        ValueGroup = $"value.{metric.Id}";
+        UnitGroup = $"unit.{metric.Id}";
     }
 
     public MetricDefinition Metric { get; }
 
-    /// <summary>Sous-libellé affiché avant la valeur (« VRAM », « RAM » sur la ligne MEM, « MOY », « 1% » sur la ligne
-    /// JEU) ; null pour la plupart des cellules.</summary>
+    /// <summary>Sous-libellé affiché avant la valeur (« MOY », « 1% » sur la ligne JEU) ; null pour la plupart des
+    /// cellules.</summary>
     public string? Prefix { get; }
 
     /// <summary>Faux quand le libellé de la cellule tient lieu d'unité (« MOY 138 » et non « MOY 138 FPS »).</summary>
@@ -33,7 +32,10 @@ public sealed partial class OverlayCell : ObservableObject
     /// <see cref="OverlayComposer"/> : resserrés dans une même ligne, sauf autour des débits disque et réseau.</summary>
     public string Gap { get; }
 
-    /// <summary>Noms des colonnes partagées d'une ligne à l'autre (voir StickyWidth).</summary>
+    /// <summary>Noms des colonnes de la valeur et de l'unité (voir StickyWidth et <see cref="RtssColumnWidths"/>) :
+    /// propres à la métrique, donc à sa ligne. Partagées d'une ligne à l'autre, elles alignaient les valeurs, mais
+    /// chacune prenait la largeur de la plus large de sa colonne sur toutes les lignes (un débit réseau sous une
+    /// charge CPU) : l'écart entre deux valeurs d'une ligne en dépendait bien plus que des espaces.</summary>
     public string ValueGroup { get; }
     public string UnitGroup { get; }
 
@@ -51,8 +53,8 @@ public sealed partial class OverlayCell : ObservableObject
 
 public sealed class OverlayLine
 {
-    /// <summary>Clé stable de la ligne dans l'ordre enregistré : clé de catégorie (« ram » pour la ligne MEM) ou
-    /// identifiant de métrique en mode une ligne par métrique.</summary>
+    /// <summary>Clé stable de la ligne dans l'ordre enregistré : clé de catégorie (« vram » pour la ligne de la
+    /// mémoire du GPU) ou identifiant de métrique en mode une ligne par métrique.</summary>
     public required string Key { get; init; }
 
     /// <summary>Nom lisible de la ligne, pour la liste qui règle leur ordre.</summary>
@@ -126,7 +128,7 @@ public static class OverlayComposer
                     Label = $"{metric.Category.OsdLabel} {metric.OsdLabel}",
                     LabelColorHex = colors.CategoryColor(metric.Category),
                     ValueColorHex = colors.ValueColor,
-                    Cells = new[] { new OverlayCell(metric, 0) },
+                    Cells = new[] { new OverlayCell(metric) },
                 })
                 .ToList();
 
@@ -232,7 +234,6 @@ public static class OverlayComposer
             string? prefix = prefixFor(metric);
             cells[i] = new OverlayCell(
                 metric,
-                i,
                 prefix,
                 GapBefore(metric, i == 0 ? null : metrics[i - 1], opensGroup(metric), prefix is not null),
                 showUnit: metric.LineLabel is null);
@@ -274,7 +275,8 @@ public static class OverlayComposer
     /// déteindre sur le texte des autres applications qui partagent l'OSD.
     ///
     /// Les largeurs de champ viennent de <paramref name="widths"/>, qui ne font que grandir : comme dans la
-    /// fenêtre, une valeur qui change de longueur ne décale plus la suite de la ligne.
+    /// fenêtre, une valeur qui change de longueur ne décale plus la suite de la ligne. Seul le libellé partage sa
+    /// largeur avec les autres lignes ; chaque valeur a la sienne (<see cref="OverlayCell.ValueGroup"/>).
     /// </summary>
     public static string ToRtssText(IReadOnlyList<OverlayLine> lines, bool withColors, int sizePercent, RtssColumnWidths widths)
     {

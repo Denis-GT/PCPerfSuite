@@ -100,11 +100,11 @@ public class OverlayComposerTests
     {
         var widths = new RtssColumnWidths();
 
-        Assert.Equal(5, widths.Grow("value0", 5));
-        Assert.Equal(5, widths.Grow("value0", 3));
-        Assert.Equal(7, widths.Grow("value0", 7));
+        Assert.Equal(5, widths.Grow("value.cpu.load", 5));
+        Assert.Equal(5, widths.Grow("value.cpu.load", 3));
+        Assert.Equal(7, widths.Grow("value.cpu.load", 7));
 
         widths.Reset();
-        Assert.Equal(2, widths.Grow("value0", 2));
+        Assert.Equal(2, widths.Grow("value.cpu.load", 2));
     }
 }

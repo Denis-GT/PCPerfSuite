@@ -102,6 +102,32 @@ public class OverlaySpacingTests
     }
 
     [Fact]
+    public void RtssText_ValuesDoNotTakeTheWidthOfTheOtherLines()
+    {
+        var hardware = new HardwareSnapshot
+        {
+            Cpu = new CpuSnapshot { LoadPercent = 45, PackageTempC = 62 },
+            Gpu = new GpuSnapshot { CoreClockMhz = 1950, PowerWatts = 250 },
+            GroupsEverRead = Enum.GetValues<SensorGroup>(),
+        };
+        MetricSample sample = TestData.Sample(hardware);
+        List<OverlayLine> lines = OverlayComposer.Build(
+            TestData.Selection("cpu.load", "cpu.temp.package", "gpu.clock.core", "gpu.power"), oneLinePerMetric: false, TestData.Colors);
+        var widths = new RtssColumnWidths();
+
+        OverlayComposer.Update(lines, sample);
+        OverlayComposer.ToRtssText(lines, withColors: false, sizePercent: 100, widths);
+        string text = OverlayComposer.ToRtssText(lines, withColors: false, sizePercent: 100, widths);
+
+        // Au rendu suivant, les valeurs CPU (« 45% », « 62°C ») ne s'élargissent pas à celles du GPU placées en
+        // dessous (« 250 W », « 1950 MHz ») : seuls les libellés de ligne partagent leur largeur.
+        Assert.Equal(
+            "<A=3>CPU<A>  <A=-2>45<A><A=1>%<A> <A=-2>62<A><A=2>°C<A>\n" +
+            "<A=3>GPU<A>  <A=-3>250<A><A=2> W<A> <A=-4>1950<A><A=4> MHz<A>",
+            text);
+    }
+
+    [Fact]
     public void RtssText_MemoryLine_PutsOneSpaceBetweenSubLabelAndValue()
     {
         MetricSample sample = TestData.Sample();
