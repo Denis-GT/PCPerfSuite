@@ -34,11 +34,11 @@ public sealed class FanCurveEditor : FrameworkElement
 
     public static readonly DependencyProperty MinTempCProperty = DependencyProperty.Register(
         nameof(MinTempC), typeof(double), typeof(FanCurveEditor),
-        new FrameworkPropertyMetadata(20.0, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata((double)FanCurveMath.MinTempC, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty MaxTempCProperty = DependencyProperty.Register(
         nameof(MaxTempC), typeof(double), typeof(FanCurveEditor),
-        new FrameworkPropertyMetadata(85.0, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata((double)FanCurveMath.MaxTempC, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public System.Collections.ObjectModel.ObservableCollection<FanCurvePoint>? Points
     {
@@ -73,12 +73,10 @@ public sealed class FanCurveEditor : FrameworkElement
     private const double TopPad = 8, BottomPad = 20, SidePad = 14;
     private const double HandleRadius = 6;
 
-    /// <summary>Écart minimal entre deux points, pour qu'un point ne puisse pas en croiser un autre
-    /// (la courbe resterait dessinable, mais deviendrait impossible à rattraper à la souris).</summary>
-    private const double MinTempGap = 2;
-
-    private const int MinPoints = 2;
-    private const int MaxPoints = 12;
+    // Écart minimal entre deux points et nombre de points : voir FanCurveMath, que partagent l'éditeur et les profils.
+    private const double MinTempGap = FanCurveMath.MinTempGap;
+    private const int MinPoints = FanCurveMath.MinPoints;
+    private const int MaxPoints = FanCurveMath.MaxPoints;
 
     private int _dragIndex = -1;
     private double _dragMinTemp;

@@ -34,6 +34,9 @@ public sealed class AppSettings
     /// <summary>Noms et catégories choisis par l'utilisateur pour ses ventilateurs, un par identifiant de ventilateur.</summary>
     public List<FanIdentityOverride> FanIdentities { get; set; } = new();
 
+    /// <summary>Profils de ventilation enregistrés par l'utilisateur : toutes les courbes sous un nom.</summary>
+    public List<FanProfile> FanProfiles { get; set; } = new();
+
     /// <summary>Réglages de contrôle GPU (limite de puissance, overclocking, ventilateurs NVAPI).</summary>
     public GpuControlSettings Gpu { get; set; } = new();
 
