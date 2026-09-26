@@ -436,6 +436,20 @@
         </Setter>
     </Style>
 
+    <!-- Clignotement d'attention (Attention.IsBlinking) : le calque « Pulse » du modèle passe progressivement à
+         l'orange puis revient, en boucle. Un calque plutôt que la couleur de fond elle-même : les pinceaux du thème
+         sont partagés et figés, donc non animables. 30 images par seconde suffisent à un fondu lent, et une
+         animation sans fin garde le rendu actif : autant qu'elle coûte peu. Chaque modèle qui l'utilise doit
+         avoir un élément nommé « Pulse » (Border, Opacity 0). -->
+    <Storyboard x:Key="AttentionBlink" RepeatBehavior="Forever" AutoReverse="True" Timeline.DesiredFrameRate="30">
+        <DoubleAnimation Storyboard.TargetName="Pulse" Storyboard.TargetProperty="Opacity"
+                         From="0" To="0.55" Duration="0:0:0.9">
+            <DoubleAnimation.EasingFunction>
+                <SineEase EasingMode="EaseInOut"/>
+            </DoubleAnimation.EasingFunction>
+        </DoubleAnimation>
+    </Storyboard>
+
     <!-- Élément de la navigation latérale : icône + libellé, barre d'accent à gauche quand il est actif.
          Le DataContext est un NavEntry (Title, Icon). -->
     <Style x:Key="NavListItem" TargetType="ListBoxItem">
@@ -480,7 +494,8 @@
     </Style>
 
     <!-- Bouton de la barre latérale hors de la liste (Paramètres, en bas) : même rendu que NavListItem.
-         Content est un NavEntry (Title, Icon) ; Tag à True le montre actif. -->
+         Content est un NavEntry (Title, Icon) ; Tag à True le montre actif ; Attention.IsBlinking à True le fait
+         clignoter (calque « Pulse », posé sous le fond que sa teinte traverse tant qu'il est transparent). -->
     <Style x:Key="NavButton" TargetType="Button">
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -490,6 +505,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Grid Margin="10,1">
+                        <Border x:Name="Pulse" Background="{StaticResource WarnBrush}" Opacity="0" IsHitTestVisible="False"
+                                CornerRadius="{StaticResource ControlRadius}"/>
                         <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,9">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -506,8 +523,18 @@
                         <Border x:Name="Indicator" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left"
                                 Background="{StaticResource AccentBrush}" Visibility="Hidden"/>
                     </Grid>
-                    <!-- Ordre significatif : l'état actif, déclaré après le survol, l'emporte. -->
+                    <!-- Ordre significatif : l'état actif, déclaré après le survol, l'emporte. Le texte passe au clair
+                         pendant le clignotement : le gris secondaire manquerait de contraste sur l'orange. -->
                     <ControlTemplate.Triggers>
+                        <Trigger Property="controls:Attention.IsBlinking" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="Blink" Storyboard="{StaticResource AttentionBlink}"/>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="Blink"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
                             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -1209,7 +1236,8 @@
     </Style>
 
     <!-- Sélecteur segmenté (position de l'overlay, famille de processus...) : une ListBox
-         horizontale dont l'élément sélectionné prend la couleur d'accent. -->
+         horizontale dont l'élément sélectionné prend la couleur d'accent. Attention.IsBlinking à True le fait
+         clignoter (calque « Pulse », sous le fond) : l'onglet Installations de Paramètres s'en sert. -->
     <Style x:Key="PillItem" TargetType="ListBoxItem">
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         <Setter Property="FontSize" Value="12"/>
@@ -1218,11 +1246,24 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="10,5" Margin="1"
-                            RenderOptions.ClearTypeHint="Enabled">
-                        <ContentPresenter HorizontalAlignment="Center"/>
-                    </Border>
+                    <Grid Margin="1">
+                        <Border x:Name="Pulse" Background="{StaticResource WarnBrush}" Opacity="0" IsHitTestVisible="False"
+                                CornerRadius="{StaticResource ControlRadius}"/>
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="10,5"
+                                RenderOptions.ClearTypeHint="Enabled">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="controls:Attention.IsBlinking" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="Blink" Storyboard="{StaticResource AttentionBlink}"/>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="Blink"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
                         </Trigger>

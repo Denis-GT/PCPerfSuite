@@ -36,6 +36,12 @@ public partial class MainWindow : Window
         // Au retour dans la fenêtre (depuis le navigateur ou un installeur), l'état des logiciels externes est relu.
         Activated += (_, _) => _viewModel.OnWindowActivated();
 
+        // Le clignotement s'arrête quand la fenêtre est rangée dans la zone de notification ou réduite : personne ne
+        // le verrait, et l'animation entretiendrait le rendu pour rien.
+        IsVisibleChanged += (_, _) => UpdateWindowShown();
+        StateChanged += (_, _) => UpdateWindowShown();
+        UpdateWindowShown();
+
         // Fermeture de session Windows : ne surtout pas annuler la fermeture, sinon l'arrêt du PC
         // reste bloqué sur PCPerfSuite.
         Application.Current.SessionEnding += (_, _) => _isQuitting = true;
@@ -72,6 +78,8 @@ public partial class MainWindow : Window
         _viewModel.Dispose();
         Application.Current.Shutdown();
     }
+
+    private void UpdateWindowShown() => _viewModel.IsWindowShown = IsVisible && WindowState != WindowState.Minimized;
 
     private void RestoreFromTray()
     {

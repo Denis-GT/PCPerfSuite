@@ -3,8 +3,22 @@ using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.App.ViewModels;
 
-/// <summary>Sous-onglet des Paramètres. <paramref name="Key"/> désigne le panneau à afficher dans AppSettingsView.</summary>
-public sealed record AppSettingsSection(string Key, string Title);
+/// <summary>Sous-onglet des Paramètres. <see cref="Key"/> désigne le panneau à afficher dans AppSettingsView ;
+/// <see cref="NeedsAttention"/> fait clignoter l'onglet (voir Attention.IsBlinking) et <see cref="ToolTip"/> dit pourquoi.</summary>
+public sealed partial class AppSettingsSection : ObservableObject
+{
+    public AppSettingsSection(string key, string title)
+    {
+        Key = key;
+        Title = title;
+    }
+
+    public string Key { get; }
+    public string Title { get; }
+
+    [ObservableProperty] private bool needsAttention;
+    [ObservableProperty] private string? toolTip;
+}
 
 /// <summary>
 /// "Paramètres" (bouton en bas de la barre latérale) : les réglages de PCPerfSuite lui-même, par sous-onglets.
@@ -21,6 +35,10 @@ public sealed partial class AppSettingsViewModel : ObservableObject
     };
 
     [ObservableProperty] private AppSettingsSection selectedSection;
+
+    /// <summary>Vrai quand la page Paramètres est affichée et la fenêtre visible : posé par <see cref="MainViewModel"/>.
+    /// Un onglet ne clignote que s'il peut être vu.</summary>
+    [ObservableProperty] private bool isPageShown;
 
     /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
     [ObservableProperty] private bool minimizeToTrayOnClose;
@@ -51,6 +69,22 @@ public sealed partial class AppSettingsViewModel : ObservableObject
         // Le champ plutôt que la propriété : passer par la propriété déclencherait l'enregistrement
         // du fichier au démarrage, avant toute action de l'utilisateur.
         minimizeToTrayOnClose = AppSettingsStore.Load().Window?.MinimizeToTrayOnClose ?? true;
+
+        Installations.PropertyChanged += (_, _) => UpdateAttention();
+        UpdateAttention();
+    }
+
+    partial void OnIsPageShownChanged(bool value) => UpdateAttention();
+
+    partial void OnSelectedSectionChanged(AppSettingsSection value) => UpdateAttention();
+
+    /// <summary>L'onglet Installations clignote tant qu'un logiciel manque, que les Paramètres sont sous les yeux de
+    /// l'utilisateur, et qu'il n'est pas déjà dessus : une fois l'onglet ouvert, c'est son contenu qui parle.</summary>
+    private void UpdateAttention()
+    {
+        AppSettingsSection section = Sections.First(s => s.Key == "installations");
+        section.NeedsAttention = Installations.HasMissing && IsPageShown && !ReferenceEquals(SelectedSection, section);
+        section.ToolTip = Installations.MissingSummary;
     }
 
     partial void OnMinimizeToTrayOnCloseChanged(bool value)

@@ -11,7 +11,15 @@
 
             <!-- Sous-onglets : ajouter une section dans AppSettingsViewModel.Sections, puis son panneau ci-dessous. -->
             <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
-                     DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+                     DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16">
+                <!-- Un onglet peut clignoter et porter une info-bulle (Installations, tant qu'un logiciel manque). -->
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource PillItem}">
+                        <Setter Property="controls:Attention.IsBlinking" Value="{Binding NeedsAttention}"/>
+                        <Setter Property="ToolTip" Value="{Binding ToolTip}"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
 
             <!-- Général -->
             <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=general}">

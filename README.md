@@ -266,6 +266,12 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   L'état est aussi repris dans « Compatibilité de ce PC ». Rien n'est jamais installé sans action
   de ta part.
 
+  **Rappel visuel** : tant qu'un de ces logiciels n'est pas installé, le bouton Paramètres de la
+  barre latérale clignote (son fond passe progressivement à l'orange, puis revient), avec une
+  info-bulle qui dit quoi installer et pourquoi ; une fois dans Paramètres, c'est l'onglet
+  Installations qui clignote. Tout s'arrête dès que tout est installé, et aussi quand la fenêtre
+  est rangée dans la zone de notification ou réduite.
+
 **Ventilateurs des portables** : ils sont gérés par le contrôleur embarqué du constructeur, que
 LibreHardwareMonitor ne voit pas. L'app les lit (en lecture seule, jamais pilotés) via l'interface
 WMI de la marque, comme son utilitaire officiel :
