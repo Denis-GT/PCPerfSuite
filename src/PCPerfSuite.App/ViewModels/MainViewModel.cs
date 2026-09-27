@@ -120,7 +120,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// pas dépendre d'une chaîne.</summary>
     partial void OnCurrentPageChanged(NavEntry? value)
     {
-        _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+        _isProcessesPageSelected = ReferenceEquals(value?.ViewModel, _processes);
         OnPropertyChanged(nameof(IsAppSettingsSelected));
         UpdateAttention();
 
@@ -135,13 +135,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnIsWindowShownChanged(bool value) => UpdateAttention();
 
+    /// <summary>Vrai quand l'onglet Processus est celui sélectionné, indépendamment de la visibilité de la
+    /// fenêtre (voir <see cref="UpdateAttention"/>, qui combine les deux pour <see cref="ProcessesViewModel.IsActive"/>).</summary>
+    private bool _isProcessesPageSelected;
+
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
-    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, et celui de l'onglet Installations.</summary>
+    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, celui de l'onglet Installations, et le
+    /// relevé de l'onglet Processus.</summary>
     private void UpdateAttention()
     {
         OnPropertyChanged(nameof(IsAppSettingsBlinking));
         OnPropertyChanged(nameof(AppSettingsToolTip));
         AppSettings.IsPageShown = IsAppSettingsSelected && IsWindowShown;
+
+        // Fenêtre rangée dans la zone de notification ou réduite : l'énumération complète des processus
+        // (bien plus coûteuse qu'un relevé de capteurs) ne sert à personne, même si l'onglet Processus
+        // était le dernier affiché.
+        _processes.IsActive = _isProcessesPageSelected && IsWindowShown;
     }
 
     /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
