@@ -146,6 +146,43 @@ public class FanProfileTests
     }
 
     [Fact]
+    public void Acceleration_et_deceleration_sont_ramenees_dans_leur_plage()
+    {
+        FanCurveConfig entry = Config("a");
+        entry.RampUpPercentPerSecond = 500;
+        entry.RampDownPercentPerSecond = 0;
+
+        SanitizedFanCurve sanitized = FanProfileMatcher.Sanitize(entry);
+
+        Assert.Equal(FanSpeedRamp.MaxPercentPerSecond, sanitized.Config!.RampUpPercentPerSecond);
+        Assert.Equal(FanSpeedRamp.MinPercentPerSecond, sanitized.Config.RampDownPercentPerSecond);
+        Assert.Contains(sanitized.Notes, note => note.Contains("accélération"));
+    }
+
+    [Fact]
+    public void Une_acceleration_non_numerique_redevient_immediate()
+    {
+        FanCurveConfig entry = Config("a");
+        entry.RampUpPercentPerSecond = float.NaN;
+
+        Assert.Equal(FanSpeedRamp.MaxPercentPerSecond, FanProfileMatcher.Sanitize(entry).Config!.RampUpPercentPerSecond);
+    }
+
+    [Fact]
+    public void Une_acceleration_et_une_deceleration_valides_sont_gardees_telles_quelles()
+    {
+        FanCurveConfig entry = Config("a");
+        entry.RampUpPercentPerSecond = 20;
+        entry.RampDownPercentPerSecond = 3;
+
+        SanitizedFanCurve sanitized = FanProfileMatcher.Sanitize(entry);
+
+        Assert.Empty(sanitized.Notes);
+        Assert.Equal(20, sanitized.Config!.RampUpPercentPerSecond);
+        Assert.Equal(3, sanitized.Config.RampDownPercentPerSecond);
+    }
+
+    [Fact]
     public void Les_points_sont_tries_bornes_et_espaces()
     {
         FanCurveConfig entry = Config("a");
@@ -248,6 +285,8 @@ public class FanProfileTests
     {
         FanCurveConfig original = Config("a");
         original.StopBelowTempC = 40;
+        original.RampUpPercentPerSecond = 25;
+        original.RampDownPercentPerSecond = 4;
 
         FanCurveConfig clone = original.Clone();
         clone.Points[0].Percent = 99;
@@ -259,6 +298,24 @@ public class FanProfileTests
         Assert.Equal(FanControlMode.Curve, original.Mode);
         Assert.Equal("a", clone.ControlSensorId);
         Assert.Equal(40, clone.StopBelowTempC);
+        Assert.Equal(25, clone.RampUpPercentPerSecond);
+        Assert.Equal(4, clone.RampDownPercentPerSecond);
+    }
+
+    [Fact]
+    public void Une_courbe_enregistree_avant_la_rampe_change_de_regime_immediatement()
+    {
+        // Fichier écrit par une version qui ne connaissait pas l'accélération et la décélération : le ventilateur doit
+        // se comporter exactement comme avant.
+        const string json = """
+            { "FanCurves": [ { "ControlSensorId": "/lpc/nct6798d/0/control/1", "Mode": 2,
+                "Points": [ { "TempC": 30, "Percent": 30 }, { "TempC": 70, "Percent": 100 } ] } ] }
+            """;
+
+        FanCurveConfig fan = Assert.Single(JsonSerializer.Deserialize<AppSettings>(json)!.FanCurves);
+
+        Assert.Equal(FanSpeedRamp.MaxPercentPerSecond, fan.RampUpPercentPerSecond);
+        Assert.Equal(FanSpeedRamp.MaxPercentPerSecond, fan.RampDownPercentPerSecond);
     }
 
     [Fact]

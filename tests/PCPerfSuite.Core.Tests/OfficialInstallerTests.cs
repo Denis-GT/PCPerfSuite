@@ -79,6 +79,63 @@ public class OfficialInstallerTests
         Assert.Contains("HTTPS", error);
     }
 
+    [Theory]
+    [InlineData("https://github.com/namazso/PawnIO.Setup/releases/tag/2.2.0", "2.2.0")]
+    [InlineData("https://github.com/namazso/PawnIO.Setup/releases/tag/v2.1.0", "2.1.0")]
+    [InlineData("https://github.com/namazso/PawnIO.Setup/releases/tag/2.2.0/", "2.2.0")]
+    public void La_version_publiee_se_lit_dans_la_redirection_de_la_derniere_version(string location, string expected)
+    {
+        Assert.Equal(Version.Parse(expected), OfficialInstaller.ReleaseVersionFromLocation(new Uri(location)));
+    }
+
+    [Theory]
+    [InlineData("https://github.com/namazso/PawnIO.Setup/releases")]
+    [InlineData("https://github.com/namazso/PawnIO.Setup/releases/tag/nightly")]
+    [InlineData("https://github.com/login?return_to=releases/tag/2.2.0")]
+    public void Une_redirection_sans_numero_de_version_ne_donne_aucune_version(string location)
+    {
+        Assert.Null(OfficialInstaller.ReleaseVersionFromLocation(new Uri(location)));
+    }
+
+    [Theory]
+    [InlineData("2.2.0", "2.2.0", true)]
+    [InlineData("2.2.0", "2.2.0.0", true)]
+    [InlineData("2.2", "2.2.0", true)]
+    [InlineData("2.3.0", "2.2.0", true)]
+    [InlineData("2.1.0", "2.2.0", false)]
+    [InlineData("2.2.0", "2.2.1", false)]
+    public void PawnIO_est_a_jour_quand_sa_version_atteint_la_derniere_publiee(string installed, string latest, bool expected)
+    {
+        Assert.Equal(expected, PawnIoDriver.IsUpToDate(installed, Version.Parse(latest)));
+    }
+
+    [Theory]
+    [InlineData(null, "2.2.0")]
+    [InlineData("", "2.2.0")]
+    [InlineData("inconnue", "2.2.0")]
+    [InlineData("2.2.0", null)]
+    public void Dans_le_doute_PawnIO_n_est_pas_declare_a_jour(string? installed, string? latest)
+    {
+        Assert.False(PawnIoDriver.IsUpToDate(installed, latest is null ? null : Version.Parse(latest)));
+    }
+
+    [Fact]
+    public void Un_code_de_sortie_connu_de_Windows_est_explique()
+    {
+        // ERROR_ALREADY_EXISTS, que l'installeur de PawnIO rend pour une version déjà en place. Le texte dépend de la
+        // langue de Windows : seule sa présence est vérifiée.
+        string text = OfficialInstaller.DescribeExitCode(PawnIoDriver.SetupAlreadyInstalledExitCode);
+
+        Assert.StartsWith("code 183 : ", text);
+        Assert.True(text.Length > "code 183 : ".Length);
+    }
+
+    [Fact]
+    public void Un_code_de_sortie_inconnu_de_Windows_reste_affiche_seul()
+    {
+        Assert.Equal("code 987654", OfficialInstaller.DescribeExitCode(987654));
+    }
+
     [Fact]
     public void La_page_de_telechargement_de_RTSS_est_en_HTTPS()
     {

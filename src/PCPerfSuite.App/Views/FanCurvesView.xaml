@@ -191,13 +191,30 @@
                                 <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="100"
                                                       Value="{Binding MaxPercent}" Unit="%"/>
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,24,8">
                                 <TextBlock Text="Hystérésis" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
                                            ToolTip="Le ventilateur ne ralentit qu'après cette baisse de température : évite qu'il monte et descende en boucle."/>
                                 <controls:NumberField VerticalAlignment="Center" Minimum="0" Maximum="10"
                                                       Value="{Binding HysteresisC}" Unit="°C"/>
                             </StackPanel>
                         </WrapPanel>
+
+                        <!-- Vitesse de changement de régime : voir FanSpeedRamp. 100 %/s = pas de limite. -->
+                        <WrapPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,24,8">
+                                <TextBlock Text="Accélération" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                           ToolTip="De combien de points la vitesse peut monter chaque seconde. 100 %/s : immédiat."/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="100"
+                                                      Value="{Binding RampUpPercentPerSecond}" Unit="%/s"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,24,8">
+                                <TextBlock Text="Décélération" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                           ToolTip="De combien de points la vitesse peut descendre chaque seconde. 100 %/s : immédiat."/>
+                                <controls:NumberField VerticalAlignment="Center" Minimum="1" Maximum="100"
+                                                      Value="{Binding RampDownPercentPerSecond}" Unit="%/s"/>
+                            </StackPanel>
+                        </WrapPanel>
+                        <TextBox Text="{Binding RampNote, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,0,0,8"/>
 
                         <!-- Pas d'arrêt complet pour une pompe : voir CanStopWhenCool. -->
                         <Grid Margin="0,4,0,0" Visibility="{Binding CanStopWhenCool, Converter={StaticResource BoolToVisibility}}">
@@ -222,6 +239,7 @@
                         <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0">
                             <Run Text="Consigne actuelle : "/>
                             <Run Text="{Binding TargetPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
+                            <Run Text="{Binding TransitionText, Mode=OneWay}"/>
                             <Run Text="  —  température suivie : "/>
                             <Run Text="{Binding SourceTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
                         </TextBlock>

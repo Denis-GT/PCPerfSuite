@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,7 +20,11 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     private readonly IFanController _controller;
     private readonly FanCurveConfig _config;
     private readonly FanCurveRegulator _regulator = new();
+    private readonly FanSpeedRamp _ramp = new();
     private readonly Action _persist;
+
+    /// <summary>Horloge monotone commune aux rampes : c'est le temps réellement écoulé entre deux relevés qui compte.</summary>
+    private static readonly Stopwatch Clock = Stopwatch.StartNew();
     private readonly Action<FanControlItemViewModel> _copyToAll;
     private readonly Action<FanControlItemViewModel> _autoRestored;
     private readonly Action<FanControlItemViewModel> _identityChanged;
@@ -70,7 +75,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Ce que refroidit ce ventilateur : la catégorie détectée (voir <see cref="FanIdentification"/>), ou celle
     /// que l'utilisateur a choisie.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(IsCpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity))]
+    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(IsCpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity), nameof(RampNote))]
     private FanCategory category;
 
     /// <summary>Le panneau de correction du nom et de la catégorie est ouvert.</summary>
@@ -156,6 +161,19 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     [ObservableProperty] private bool stopWhenCool;
     [ObservableProperty] private double stopBelowTempC;
 
+    /// <summary>Accélération et décélération maximales, en points de % par seconde (voir <see cref="FanSpeedRamp"/>).</summary>
+    [ObservableProperty] private double rampUpPercentPerSecond;
+    [ObservableProperty] private double rampDownPercentPerSecond;
+
+    /// <summary>« → 80% » pendant que la rampe mène la consigne vers celle de la courbe, vide une fois arrivée.</summary>
+    [ObservableProperty] private string transitionText = "";
+
+    /// <summary>Explication sous l'accélération et la décélération. La protection thermique n'existe que pour le GPU.</summary>
+    public string RampNote =>
+        "Vitesse de changement de régime, en points de % par seconde : une descente lente rend les changements bien moins " +
+        "audibles. 100 %/s = immédiat. Un ventilateur à l'arrêt repart directement à sa consigne." +
+        (IsGpu ? $" Au-delà de {GpuCriticalTempC:0} °C, le passage à 100 % n'attend pas." : "");
+
     /// <param name="identity">Nom et catégorie déjà corrigés par l'utilisateur, null si rien n'a été touché.</param>
     /// <param name="identityChanged">Appelé quand l'utilisateur corrige le nom ou la catégorie : à enregistrer, et à ranger.</param>
     public FanControlItemViewModel(
@@ -208,6 +226,8 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         maxPercent = config.MaxPercent;
         stopWhenCool = config.StopBelowTempC is not null;
         stopBelowTempC = config.StopBelowTempC ?? 40;
+        rampUpPercentPerSecond = BoundRamp(config.RampUpPercentPerSecond);
+        rampDownPercentPerSecond = BoundRamp(config.RampDownPercentPerSecond);
 
         EnforcePumpRules();
     }
@@ -307,6 +327,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         _controller.TrySetAuto(FanId);
         _autoRestored(this);
         _lastSentPercent = null;
+        _ramp.Reset();
         TargetPercent = null;
     }
 
@@ -331,6 +352,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         if (IsLocating)
         {
             TargetPercent = 100;
+            TransitionText = "";
             return;
         }
 
@@ -370,10 +392,38 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             _ => null,
         };
 
-        if (target is not null && IsGpu && tempC is { } temp && temp >= GpuCriticalTempC) target = 100;
-        if (target is not null && IsCpu && tempC is { } cpuTemp && cpuTemp >= CpuCriticalTempC) target = 100;
-        if (target is { } requested && IsPump && requested < PumpMinPercent) target = PumpMinPercent;
-        if (target is { } requestedCpu && IsCpu && requestedCpu < CpuMinPercent) target = CpuMinPercent;
+        // Le plancher d'une pompe ou du CPU avant la rampe, pour qu'ils visent une consigne réellement atteignable.
+        target = WithPumpFloor(target);
+        target = WithCpuFloor(target);
+
+        // Mode Courbe : la consigne rejoint celle de la courbe au rythme réglé. Le mode Manuel, lui, applique
+        // exactement la valeur tapée.
+        float? wanted = target;
+        TimeSpan now = Clock.Elapsed;
+        if (Mode == FanControlMode.Curve && target is { } curve)
+        {
+            target = _ramp.Step(curve, (float)RampUpPercentPerSecond, (float)RampDownPercentPerSecond, (float?)CurrentPercent, now);
+        }
+
+        if (target is not null && IsGpu && tempC is { } temp && temp >= GpuCriticalTempC)
+        {
+            // La protection thermique n'attend pas la rampe.
+            target = wanted = 100;
+            _ramp.Jump(100, now);
+        }
+
+        if (target is not null && IsCpu && tempC is { } cpuTemp && cpuTemp >= CpuCriticalTempC)
+        {
+            // Même garde-fou, côté CPU : voir GpuCriticalTempC.
+            target = wanted = 100;
+            _ramp.Jump(100, now);
+        }
+
+        // Et après : une rampe partie d'une vitesse lue sous le plancher ne doit pas y laisser la pompe ou le CPU.
+        target = WithPumpFloor(target);
+        target = WithCpuFloor(target);
+
+        TransitionText = target is { } sent && wanted is { } aim && Math.Abs(aim - sent) >= 1 ? $"  → {aim:0}%" : "";
 
         if (target is { } percent)
         {
@@ -395,8 +445,20 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     }
 
     /// <summary>En dessous de cet écart, la consigne est considérée comme inchangée : les ventilateurs
-    /// se pilotent par paliers de quelques pour cent, un demi-point ne change rien à leur vitesse.</summary>
+    /// se pilotent par paliers de quelques pour cent, un demi-point ne change rien à leur vitesse.
+    /// Une rampe lente avance par pas plus petits : ils s'additionnent jusqu'à franchir cet écart.</summary>
     private const float MinPercentChange = 0.5f;
+
+    private float? WithPumpFloor(float? percent)
+        => percent is { } requested && IsPump && requested < PumpMinPercent ? PumpMinPercent : percent;
+
+    private float? WithCpuFloor(float? percent)
+        => percent is { } requested && IsCpu && requested < CpuMinPercent ? CpuMinPercent : percent;
+
+    private static double BoundRamp(float value)
+        => float.IsFinite(value)
+            ? Math.Clamp(value, FanSpeedRamp.MinPercentPerSecond, FanSpeedRamp.MaxPercentPerSecond)
+            : FanSpeedRamp.MaxPercentPerSecond;
 
     public void RestoreAuto()
     {
@@ -407,6 +469,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         if (Mode == FanControlMode.Auto && !wasLocating) return;
         _controller.TrySetAuto(FanId);
         _lastSentPercent = null;
+        _ramp.Reset();
     }
 
     /// <summary>Oublie la dernière consigne envoyée : la prochaine sera renvoyée même si elle vaut la même. Sert
@@ -424,6 +487,8 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         MaxPercent = other.MaxPercent;
         StopWhenCool = other.StopWhenCool;
         StopBelowTempC = other.StopBelowTempC;
+        RampUpPercentPerSecond = other.RampUpPercentPerSecond;
+        RampDownPercentPerSecond = other.RampDownPercentPerSecond;
         NotifyPointsEdited();
     }
 
@@ -465,6 +530,8 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         MaxPercent = entry.MaxPercent;
 
         HysteresisC = entry.HysteresisC;
+        RampUpPercentPerSecond = entry.RampUpPercentPerSecond;
+        RampDownPercentPerSecond = entry.RampDownPercentPerSecond;
         ManualPercent = entry.ManualPercent;
         Source = tempSource;
 
@@ -501,9 +568,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         }
 
         // Le firmware a repris la main (ou va la reprendre) : la prochaine consigne doit repartir,
-        // même si elle vaut la dernière qu'on avait posée.
+        // même si elle vaut la dernière qu'on avait posée. La rampe, elle, repart de la vitesse lue.
         _lastSentPercent = null;
         _regulator.Reset();
+        _ramp.Reset();
         _persist();
     }
 
@@ -538,6 +606,19 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     {
         _config.MaxPercent = (float)value;
         if (value < MinPercent) MinPercent = value;
+        _persist();
+    }
+
+    // Pas de remise à zéro de la rampe : elle repart de la consigne en cours au nouveau rythme, sans à-coup.
+    partial void OnRampUpPercentPerSecondChanged(double value)
+    {
+        _config.RampUpPercentPerSecond = (float)value;
+        _persist();
+    }
+
+    partial void OnRampDownPercentPerSecondChanged(double value)
+    {
+        _config.RampDownPercentPerSecond = (float)value;
         _persist();
     }
 
@@ -731,6 +812,26 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     /// <summary>Profils de ventilation enregistrés.</summary>
     public int ProfileCount => Profiles.Count;
+
+    /// <summary>Ventilateurs en mode Courbe dont le changement de régime est limité, null si aucun : un ventilateur qui
+    /// « réagit lentement » dans un signalement s'explique souvent par là.</summary>
+    public string? RampSummary
+    {
+        get
+        {
+            List<string> limited = Fans
+                .Where(f => f.Mode == FanControlMode.Curve
+                            && (f.RampUpPercentPerSecond < FanSpeedRamp.MaxPercentPerSecond
+                                || f.RampDownPercentPerSecond < FanSpeedRamp.MaxPercentPerSecond))
+                .Select(f => $"{f.DisplayName} (accélération {DescribeRamp(f.RampUpPercentPerSecond)}, " +
+                             $"décélération {DescribeRamp(f.RampDownPercentPerSecond)})")
+                .ToList();
+
+            return limited.Count == 0 ? null : $"Changement de régime limité : {string.Join(", ", limited)}.";
+
+            static string DescribeRamp(double rate) => rate >= FanSpeedRamp.MaxPercentPerSecond ? "immédiate" : $"{rate:0} %/s";
+        }
+    }
 
     /// <summary>Ce que le dernier profil chargé n'a pas pu appliquer (ventilateurs absents, réglages corrigés), null
     /// tant qu'aucun profil n'a été chargé depuis le lancement de l'app.</summary>

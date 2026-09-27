@@ -108,6 +108,16 @@ public static class FanProfileMatcher
         float hysteresis = Bound(entry.HysteresisC, 0, MaxHysteresisC, 3, ref hysteresisFixed);
         if (hysteresisFixed) notes.Add($"hystérésis ramenée dans 0-{MaxHysteresisC:0} °C");
 
+        bool rampFixed = false;
+        float rampUp = Bound(entry.RampUpPercentPerSecond, FanSpeedRamp.MinPercentPerSecond, FanSpeedRamp.MaxPercentPerSecond,
+            FanSpeedRamp.MaxPercentPerSecond, ref rampFixed);
+        float rampDown = Bound(entry.RampDownPercentPerSecond, FanSpeedRamp.MinPercentPerSecond, FanSpeedRamp.MaxPercentPerSecond,
+            FanSpeedRamp.MaxPercentPerSecond, ref rampFixed);
+        if (rampFixed)
+        {
+            notes.Add($"accélération et décélération ramenées dans {FanSpeedRamp.MinPercentPerSecond:0}-{FanSpeedRamp.MaxPercentPerSecond:0} %/s");
+        }
+
         float? stop = null;
         if (entry.StopBelowTempC is { } rawStop)
         {
@@ -142,6 +152,8 @@ public static class FanProfileMatcher
             MinPercent = min,
             MaxPercent = max,
             StopBelowTempC = stop,
+            RampUpPercentPerSecond = rampUp,
+            RampDownPercentPerSecond = rampDown,
         };
 
         return new SanitizedFanCurve(sanitized, notes);

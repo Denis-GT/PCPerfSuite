@@ -184,7 +184,8 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return FanIdentificationRow(snapshot);
 
         yield return _fans.Fans.Count > 0
-            ? new CompatibilityRow("Pilotage des ventilateurs", $"{_fans.Fans.Count} pilotable(s)", "Onglet Ventilateurs.", true)
+            ? new CompatibilityRow("Pilotage des ventilateurs", $"{_fans.Fans.Count} pilotable(s)",
+                _fans.RampSummary is { } ramps ? $"Onglet Ventilateurs. {ramps}" : "Onglet Ventilateurs.", true)
             : new CompatibilityRow("Pilotage des ventilateurs", "Non disponible", _fans.NoFansMessage, false);
 
         yield return FanProfilesRow();
