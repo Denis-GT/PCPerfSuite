@@ -22,7 +22,6 @@ public sealed partial class CacheItemViewModel : ObservableObject
 
     public string Name => Category.Name;
     public string Description => Category.Description;
-    public bool RequiresAdmin => Category.RequiresAdmin;
 
     /// <summary>Glyphe Segoe Fluent Icons illustrant la catégorie.</summary>
     public string Icon => char.ConvertFromUtf32(Category.Id switch
