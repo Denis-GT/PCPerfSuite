@@ -70,7 +70,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Ce que refroidit ce ventilateur : la catégorie détectée (voir <see cref="FanIdentification"/>), ou celle
     /// que l'utilisateur a choisie.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity))]
+    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(IsCpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity))]
     private FanCategory category;
 
     /// <summary>Le panneau de correction du nom et de la catégorie est ouvert.</summary>
@@ -88,9 +88,9 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public bool IsPump => Category == FanCategory.Pump;
 
-    /// <summary>L'arrêt complet à froid n'est pas proposé pour une pompe : sans circulation, le liquide ne refroidit plus
-    /// rien et le processeur chauffe en quelques secondes.</summary>
-    public bool CanStopWhenCool => !IsPump;
+    /// <summary>L'arrêt complet à froid n'est pas proposé pour une pompe (sans circulation, le liquide ne
+    /// refroidit plus rien) ni pour le CPU (voir <see cref="CpuMinPercent"/>).</summary>
+    public bool CanStopWhenCool => !IsPump && !IsCpu;
 
     /// <summary>Explication affichée sous le mode d'une pompe, jamais pour un ventilateur.</summary>
     public string PumpNote => $"Pompe : PCPerfSuite ne l'arrête jamais et ne la descend pas sous {PumpMinPercent:0} %.";
@@ -98,6 +98,12 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Ventilateur du GPU, piloté par l'API du constructeur ou par la bibliothèque de capteurs : il a la
     /// protection thermique du GPU et la température du GPU comme source par défaut.</summary>
     public bool IsGpu => Category == FanCategory.Gpu;
+
+    /// <summary>Ventilateur du processeur : a, comme le GPU, une protection thermique indépendante des
+    /// réglages (voir <see cref="CpuCriticalTempC"/>) et un plancher en mode Manuel (voir
+    /// <see cref="CpuMinPercent"/>) — rien ne les garantissait avant (M6 du rapport de revue), alors
+    /// qu'un 0 % ou une courbe mal réglée sur le CPU chauffe en quelques secondes.</summary>
+    public bool IsCpu => Category == FanCategory.Cpu;
 
     public ObservableCollection<FanCurvePoint> Points { get; }
 
@@ -245,6 +251,15 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// protection du VBIOS qui joue ce rôle.</summary>
     private const float GpuCriticalTempC = 88f;
 
+    /// <summary>Même garde-fou que <see cref="GpuCriticalTempC"/>, côté processeur : la plupart des CPU
+    /// commencent à limiter leurs fréquences (throttle) autour de 100 °C, donc à 95 °C le ventilateur
+    /// passe à fond quel que soit le mode choisi.</summary>
+    private const float CpuCriticalTempC = 95f;
+
+    /// <summary>Un ventilateur CPU en mode Manuel ne descend jamais sous ce plancher : à la différence
+    /// d'un ventilateur de boîtier, il refroidit un composant qui chauffe même au repos.</summary>
+    public const float CpuMinPercent = 20f;
+
     /// <summary>Durée pendant laquelle « Repérer » fait tourner un ventilateur à fond.</summary>
     public static readonly TimeSpan LocateDuration = TimeSpan.FromSeconds(5);
 
@@ -356,7 +371,9 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         };
 
         if (target is not null && IsGpu && tempC is { } temp && temp >= GpuCriticalTempC) target = 100;
+        if (target is not null && IsCpu && tempC is { } cpuTemp && cpuTemp >= CpuCriticalTempC) target = 100;
         if (target is { } requested && IsPump && requested < PumpMinPercent) target = PumpMinPercent;
+        if (target is { } requestedCpu && IsCpu && requestedCpu < CpuMinPercent) target = CpuMinPercent;
 
         if (target is { } percent)
         {
