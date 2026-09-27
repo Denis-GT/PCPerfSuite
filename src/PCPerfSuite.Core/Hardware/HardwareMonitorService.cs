@@ -105,7 +105,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             IsPsuEnabled = true,
         };
 
-        _openTask = Task.Run(() => _computer.Open());
+        _openTask = Task.Run(() =>
+        {
+            _computer.Open();
+            // Avant que IsReady ne passe à vrai, donc avant toute écriture de l'app : l'état trouvé en arrivant.
+            FanChipDiagnostic.Record(_computer, "démarrage, avant toute écriture de l'app");
+        });
 
         LaptopFans = new LaptopFanService(MachineInfo.Current);
     }
@@ -1152,6 +1157,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         {
             try
             {
+                // Les ventilateurs pilotés viennent d'être rendus au BIOS (FanCurvesViewModel.Dispose) : l'état
+                // que l'app laisse derrière elle, à comparer avec celui du démarrage suivant.
+                FanChipDiagnostic.Record(_computer, "fermeture, après le retour des ventilateurs au BIOS");
+
                 if (!RunWithIsaBus(CloseBusTimeout, _computer.Close))
                 {
                     FanReleaseProblem = "le verrou d'accès à la puce des ventilateurs est resté occupé par un autre "
