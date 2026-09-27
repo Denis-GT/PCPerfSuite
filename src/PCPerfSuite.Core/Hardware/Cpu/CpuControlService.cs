@@ -93,6 +93,10 @@ public sealed class CpuControlService : IDisposable
         return ok;
     }
 
+    /// <summary>Vrai tant qu'une limite a été relevée : <see cref="NoteTemperature"/> doit alors recevoir la
+    /// température à chaque relevé, fenêtre cachée comprise (voir le mode éco du monitoring).</summary>
+    public bool NeedsTemperatureWatch => _limitsRaised;
+
     /// <summary>
     /// À appeler à chaque relevé du monitoring, avec la température du package. Rend le processeur à ses
     /// limites d'origine s'il reste au plafond thermique assez longtemps.

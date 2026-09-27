@@ -109,12 +109,35 @@ internal sealed class SensorReadSchedule
         get { lock (_sync) return _manualInterval ?? _baseInterval; }
     }
 
+    private bool _isSuspended;
+
+    /// <summary>Groupe mis en pause (mode éco, fenêtre cachée) : il n'est plus relu, sans rien oublier de sa
+    /// cadence, une fois lu au moins une fois. À la reprise, il est relu dès le tick suivant pour que l'affichage
+    /// ne reste pas en retard.</summary>
+    public bool IsSuspended
+    {
+        get { lock (_sync) return _isSuspended; }
+        set
+        {
+            lock (_sync)
+            {
+                if (_isSuspended && !value) _lastReadEpoch = -1;
+                _isSuspended = value;
+            }
+        }
+    }
+
     /// <param name="epoch">Change avec la durée du tick : les numéros de tick repartent alors de zéro et le
     /// groupe est relu tout de suite.</param>
     public bool IsDue(long epoch, long tick, TimeSpan tickInterval)
     {
         lock (_sync)
         {
+            // Même en pause, un groupe est lu une première fois : LibreHardwareMonitor ne déclare les ventilateurs
+            // d'une puce qu'à sa première lecture. Sans elle, une app démarrée cachée (session Windows) ne verrait
+            // jamais les ventilateurs dont les courbes ont besoin, et ne saurait donc pas qu'il faut les relire.
+            if (_isSuspended && _readCount > 0) return false;
+
             return _readCount == 0
                 || epoch != _lastReadEpoch
                 || tick - _lastReadTick >= PeriodTicks(tickInterval);

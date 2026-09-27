@@ -91,6 +91,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
         _installations.PropertyChanged += (_, _) => UpdateAttention();
+        AppSettings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AppSettingsViewModel.EcoModeWhenHidden)) UpdateEcoMode();
+        };
 
         NavItems = new ObservableCollection<NavEntry>
         {
@@ -106,6 +110,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         };
 
         SelectedNavItem = NavItems[0];
+
+        // Démarrage dans la zone de notification (session Windows) : la fenêtre n'est jamais affichée, le mode éco
+        // doit donc s'appliquer d'emblée. Au démarrage normal, il cesse dès l'affichage de la fenêtre.
+        UpdateEcoMode();
     }
 
     /// <summary>Un choix dans la liste l'affiche ; la désélection (passage aux Paramètres) ne change rien.</summary>
@@ -133,7 +141,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnIsWindowShownChanged(bool value) => UpdateAttention();
+    partial void OnIsWindowShownChanged(bool value)
+    {
+        UpdateAttention();
+        UpdateEcoMode();
+    }
+
+    /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, et réglage activé. Seuls
+    /// l'overlay, les courbes de ventilateurs et la sécurité thermique du CPU continuent d'être nourris.</summary>
+    private void UpdateEcoMode()
+        => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
+            new IBackgroundSensorConsumer[] { _overlay, _fans, _cpu });
 
     /// <summary>Vrai quand l'onglet Processus est celui sélectionné, indépendamment de la visibilité de la
     /// fenêtre (voir <see cref="UpdateAttention"/>, qui combine les deux pour <see cref="ProcessesViewModel.IsActive"/>).</summary>

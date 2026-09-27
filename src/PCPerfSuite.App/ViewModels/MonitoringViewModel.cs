@@ -759,6 +759,10 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Figé avant la lecture : un relevé pris en mode éco (disques, réseau, mémoire non relus) doit être appliqué
+        // comme tel, même si la fenêtre réapparaît entre-temps, sans quoi l'affichage perdrait un instant ces cartes.
+        bool takenInBackground = _isBackgroundMode;
+
         HardwareSnapshot snapshot;
         try
         {
@@ -780,7 +784,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
             try
             {
                 SkippedTicks += skipped;
-                ApplyTick(snapshot);
+                ApplyTick(snapshot, takenInBackground);
             }
             finally
             {
@@ -789,8 +793,85 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         }, DispatcherPriority.Normal);
     }
 
-    private void ApplyTick(HardwareSnapshot snapshot)
+    private IReadOnlyList<IBackgroundSensorConsumer> _backgroundConsumers = Array.Empty<IBackgroundSensorConsumer>();
+    private HashSet<SensorGroup>? _backgroundGroups;
+
+    /// <summary>Mode éco en arrière-plan : la fenêtre est cachée, seuls les groupes de capteurs dont ont besoin
+    /// l'overlay, les courbes de ventilateurs et la sécurité thermique sont relus, et l'interface n'est plus mise
+    /// à jour. Les abonnés reçoivent toujours chaque relevé ; ceux qui ne font que de l'affichage l'ignorent.</summary>
+    public bool IsBackgroundMode => _isBackgroundMode;
+
+    /// <summary>Écrit par le thread de l'interface, lu aussi par celui des relevés.</summary>
+    private volatile bool _isBackgroundMode;
+
+    /// <summary>Entre en mode éco ou en sort. Les besoins de <paramref name="consumers"/> sont relus à chaque
+    /// relevé : un overlay activé ou un ventilateur passé en courbe fenêtre cachée est pris en compte au suivant.</summary>
+    public void SetBackgroundMode(bool on, IReadOnlyList<IBackgroundSensorConsumer> consumers)
     {
+        _backgroundConsumers = consumers;
+        if (on == IsBackgroundMode) return;
+
+        _backgroundGroups = null;
+        if (on)
+        {
+            // Le mode d'abord, la pause des groupes ensuite : un relevé incomplet n'est jamais pris pour un complet.
+            _isBackgroundMode = true;
+            UpdateBackgroundGroups();
+        }
+        else
+        {
+            // Tous les groupes en pause sont relus dès le prochain relevé : l'affichage rattrape tout de suite.
+            // Dans l'ordre inverse de l'entrée, pour la même raison.
+            _hardware.SetBackgroundGroups(null);
+            _isBackgroundMode = false;
+            UpdateTimerInterval();
+        }
+    }
+
+    /// <summary>Recalcule les groupes de capteurs nécessaires en mode éco, et ne touche au relevé que s'ils ont changé.</summary>
+    private void UpdateBackgroundGroups()
+    {
+        var required = new HashSet<SensorGroup>();
+        foreach (IBackgroundSensorConsumer consumer in _backgroundConsumers)
+        {
+            consumer.AddRequiredGroups(required);
+        }
+
+        if (_backgroundGroups is not null && _backgroundGroups.SetEquals(required)) return;
+
+        _backgroundGroups = required;
+        _hardware.SetBackgroundGroups(required);
+        UpdateTimerInterval();
+    }
+
+    /// <summary>Relevé appliqué en mode éco : rien pour l'interface (tuiles, courbes, disques, temps de lecture),
+    /// seulement la diffusion aux abonnés, dont l'overlay, les courbes de ventilateurs et leur chien de garde.</summary>
+    private void ApplyBackgroundTick(HardwareSnapshot snapshot)
+    {
+        try
+        {
+            var sample = new MetricSample { Hardware = snapshot, Game = snapshot.Game, LocalTime = DateTime.Now };
+            _lastSample = sample;
+            InvokeEachSafely(SnapshotUpdated, snapshot);
+            InvokeEachSafely(MetricsUpdated, sample);
+
+            // Relevé pris juste avant la réouverture : le mode éco est déjà levé, rien à remettre en pause.
+            if (IsBackgroundMode) UpdateBackgroundGroups();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Record(ex, "relevé en mode éco");
+        }
+    }
+
+    private void ApplyTick(HardwareSnapshot snapshot, bool takenInBackground)
+    {
+        if (takenInBackground)
+        {
+            ApplyBackgroundTick(snapshot);
+            return;
+        }
+
         try
         {
             long applyStart = Stopwatch.GetTimestamp();

@@ -85,6 +85,11 @@ public sealed class AppWindowSettings
     /// courbes de ventilation et l'overlay en jeu n'ont d'intérêt que s'ils continuent fenêtre fermée.</summary>
     public bool MinimizeToTrayOnClose { get; set; } = true;
 
+    /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, seuls les capteurs
+    /// utiles à l'overlay, aux courbes de ventilateurs et aux sécurités thermiques sont relus, et l'interface ne
+    /// se met plus à jour. Activé par défaut : personne ne regarde une fenêtre cachée.</summary>
+    public bool EcoModeWhenHidden { get; set; } = true;
+
     /// <summary>Le message expliquant que l'app continue en arrière-plan n'est affiché qu'une fois :
     /// passé la première fermeture, l'utilisateur sait où retrouver la fenêtre.</summary>
     public bool TrayHintShown { get; set; }

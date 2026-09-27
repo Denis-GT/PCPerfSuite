@@ -1882,7 +1882,12 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
 
     // ----- Entête et réglages -----
 
-    private void OnHardwareSnapshot(HardwareSnapshot snapshot) => UpdateHeaderSummary(snapshot);
+    /// <summary>En mode éco (fenêtre cachée), le résumé n'est vu par personne : il reprend au relevé qui suit la réouverture.</summary>
+    private void OnHardwareSnapshot(HardwareSnapshot snapshot)
+    {
+        if (_monitoring.IsBackgroundMode) return;
+        UpdateHeaderSummary(snapshot);
+    }
 
     private HardwareSnapshot? _lastHardware;
 

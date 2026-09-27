@@ -210,10 +210,22 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         float? downloadRate = null;
         float? psuPower = null;
 
+        // Mode éco : les matériels en pause ne sont pas relus, inutile d'analyser leurs capteurs figés. Le réseau
+        // (liste des cartes à chaque tick), les disques et la mémoire sont les plus chers à analyser. CPU, GPU et
+        // carte mère le restent toujours : les courbes de ventilateurs et la sécurité thermique en dépendent.
+        bool skipMemory = IsSuspended(SensorGroup.Memory);
+        bool skipStorage = IsSuspended(SensorGroup.Storage);
+        bool skipNetwork = IsSuspended(SensorGroup.Network);
+
         foreach (IHardware hardware in _computer.Hardware)
         {
             switch (hardware.HardwareType)
             {
+                case HardwareType.Memory when skipMemory:
+                case HardwareType.Storage when skipStorage:
+                case HardwareType.Network when skipNetwork:
+                    break;
+
                 case HardwareType.Cpu:
                     cpu = ReadCpu(hardware, _lastCpuLoad);
                     break;
@@ -286,7 +298,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         {
             Cpu = cpu,
             Gpu = gpu,
-            Memory = CompleteMemory(memory, memoryTemperatures),
+            Memory = skipMemory ? memory : CompleteMemory(memory, memoryTemperatures),
             Motherboard = motherboard,
             Fans = FanIdentification.Label(fans),
             Disks = disks,
@@ -331,8 +343,40 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
     /// <summary>Rythme auquel appeler GetSnapshot : le plus court des intervalles voulus (actualisation ou cadence
     /// imposée). Les cadences de tous les groupes en sont des multiples entiers ; l'automatique ne fait que les allonger,
-    /// ce tick ne dépend donc pas du coût mesuré et reste stable.</summary>
-    public TimeSpan TickInterval => _schedules.Min(schedule => schedule.RequestedInterval);
+    /// ce tick ne dépend donc pas du coût mesuré et reste stable. Les groupes en pause ne comptent pas ; s'ils le sont
+    /// tous, le relevé ne tourne plus qu'au ralenti (<see cref="IdleTickInterval"/>).</summary>
+    public TimeSpan TickInterval => ComputeTickInterval(_schedules);
+
+    /// <summary>Tick du relevé quand plus aucun groupe n'est à relire (mode éco sans overlay ni courbe de
+    /// ventilateur) : de quoi s'apercevoir qu'un groupe redevient nécessaire, pour presque rien.</summary>
+    public static readonly TimeSpan IdleTickInterval = TimeSpan.FromSeconds(5);
+
+    internal static TimeSpan ComputeTickInterval(IEnumerable<SensorReadSchedule> schedules)
+    {
+        TimeSpan? shortest = null;
+        foreach (SensorReadSchedule schedule in schedules)
+        {
+            if (schedule.IsSuspended) continue;
+            TimeSpan requested = schedule.RequestedInterval;
+            if (shortest is null || requested < shortest) shortest = requested;
+        }
+        return shortest ?? IdleTickInterval;
+    }
+
+    /// <summary>
+    /// Mode éco : seuls les groupes de <paramref name="groups"/> restent relus, les autres sont mis en pause sans
+    /// rien perdre de leur réglage. Null revient au relevé complet ; les groupes en pause sont alors relus dès le tick
+    /// suivant. Peut être appelé pendant un relevé en cours : il prend effet au suivant.
+    /// </summary>
+    public void SetBackgroundGroups(IReadOnlyCollection<SensorGroup>? groups)
+    {
+        foreach (SensorReadSchedule schedule in _schedules)
+        {
+            schedule.IsSuspended = groups is not null && !groups.Contains(schedule.Group);
+        }
+    }
+
+    private bool IsSuspended(SensorGroup group) => _schedules[(int)group].IsSuspended;
 
     private static SensorGroup GroupOf(HardwareType type) => type switch
     {

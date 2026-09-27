@@ -7,6 +7,7 @@ using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Overlay;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.App.Views;
+using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.PowerSettings;
 
@@ -47,7 +48,7 @@ public sealed class OverlayLineOrderItemViewModel
 /// La cadence d'affichage est indépendante de celle du monitoring (elle ne peut pas être plus rapide,
 /// puisque les valeurs viennent de là, mais elle peut être plus lente pour un texte plus lisible).
 /// </summary>
-public sealed partial class OverlayViewModel : ObservableObject, IDisposable
+public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IBackgroundSensorConsumer
 {
     /// <summary>Nombre de rendus sur lesquels est mesurée la cadence réelle.</summary>
     private const int CadenceWindow = 30;
@@ -251,8 +252,14 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
         LayoutChanged?.Invoke();
     }
 
+    public void AddRequiredGroups(ISet<SensorGroup> into)
+        => BackgroundSensorNeeds.AddForOverlay(into, IsEnabled, Metrics.Selected.Select(m => m.ReadGroup));
+
     private void OnMetricsUpdated(MetricSample sample)
     {
+        // Overlay désactivé et fenêtre cachée (mode éco) : l'aperçu n'est vu par personne.
+        if (!IsEnabled && _monitoring.IsBackgroundMode) return;
+
         _lastSample = sample;
         Metrics.UpdateAvailability(sample);
 
