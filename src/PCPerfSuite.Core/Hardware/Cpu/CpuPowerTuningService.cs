@@ -76,6 +76,8 @@ public sealed class CpuPowerTuningService
                     new(2, "Agressif"),
                     new(3, "Efficace"),
                     new(4, "Efficace agressif"),
+                    new(5, "Agressif garanti"),
+                    new(6, "Efficace agressif garanti"),
                 ],
             },
             new()
@@ -133,7 +135,7 @@ public sealed class CpuPowerTuningService
                 Label = "Fréquence maximale (cœurs rapides)",
                 Description = "Même plafond, appliqué aux seuls cœurs performants (P-cores).",
                 Min = 0,
-                Max = 6000,
+                Max = 7000,
                 Unit = " MHz",
                 ZeroLabel = "Illimitée",
             });

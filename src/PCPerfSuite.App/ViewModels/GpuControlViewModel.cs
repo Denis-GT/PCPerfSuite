@@ -128,6 +128,15 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     /// <summary>Marque et API utilisée, ex. "AMD · ADLX".</summary>
     [ObservableProperty] private string vendorLabel = "";
 
+    /// <summary>NVAPI (NVIDIA) est la seule API testée sur une vraie machine à ce jour (voir CLAUDE.md,
+    /// règle 6) ; ADLX (AMD) et IGCL (Intel) reposent sur une intégration native pas encore vérifiée sur
+    /// le terrain, et une AccessViolation dans l'une d'elles ne peut pas être rattrapée par .NET.</summary>
+    public bool IsExperimentalBackend => _gpuControl.Vendor is GpuVendor.Amd or GpuVendor.Intel;
+
+    public string? ExperimentalNotice => IsExperimentalBackend
+        ? $"Intégration {VendorLabel} pas encore vérifiée sur une machine réelle : à utiliser avec prudence."
+        : null;
+
     // Relevés en direct (lus par le monitoring partagé, pas par un second sondage du matériel).
     [ObservableProperty] private double? loadPercent;
     [ObservableProperty] private double? coreTempC;
@@ -224,6 +233,8 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
                 GpuVendor.Intel => "Intel · IGCL",
                 _ => "",
             };
+            OnPropertyChanged(nameof(IsExperimentalBackend));
+            OnPropertyChanged(nameof(ExperimentalNotice));
 
             IsWaiverRequired = _gpuControl.RequiresOverclockWaiver;
             isWaiverAccepted = IsWaiverRequired && _settings.Gpu.IntelOverclockWaiverAccepted
@@ -259,7 +270,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         // Passe par le champ, pas la propriété : évite de déclencher OnPowerLimitPercentChanged
         // (qui appliquerait/persisterait) juste pour peupler l'affichage initial. On ne réapplique
         // explicitement que si l'utilisateur avait déjà choisi une valeur lors d'une session précédente.
-        bool reapply = IsPowerLimitSupported && SettingsMatchCurrentGpu && CanOverclock
+        bool reapply = IsPowerLimitSupported && ShouldReapplyAtStartup
                        && _settings.Gpu.PowerLimitPercent is not null;
         powerLimitPercent = reapply ? _settings.Gpu.PowerLimitPercent!.Value : snap.PowerLimitPercent;
         OnPropertyChanged(nameof(PowerLimitPercent));
@@ -571,6 +582,12 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     private void DeleteProfile(GpuProfileViewModel? profile)
     {
         if (profile is null) return;
+
+        var result = System.Windows.MessageBox.Show(
+            $"Supprimer le profil « {profile.Name} » ? Cette action ne peut pas être annulée.",
+            "Supprimer le profil", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+        if (result != System.Windows.MessageBoxResult.Yes) return;
 
         Profiles.Remove(profile);
         Persist();

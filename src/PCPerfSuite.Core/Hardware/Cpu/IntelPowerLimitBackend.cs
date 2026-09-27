@@ -135,8 +135,14 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
         CpuMaxWattsInfo maxWatts = CpuMaxWattsResolver.ForIntel(new IntelPowerReadings(
             sustained, burst, hardwareMin, tdp, infoMax, infoError, pl4Exposed, pl4, pl4Error));
 
+        // Les limites lues ci-dessus peuvent déjà être celles que PCPerfSuite a reposées au démarrage
+        // (« Appliquer au démarrage ») lors d'une session Windows précédente : ce ne sont alors plus les
+        // valeurs d'usine. CpuFirmwareDefaultsStore ne les retient comme référence qu'au premier relevé
+        // suivant chaque redémarrage.
+        (float defaultSustained, float defaultBurst) = CpuFirmwareDefaultsStore.Resolve(sustained, burst);
+
         return new IntelPowerLimitBackend(
-            msr, powerUnitWatts, locked, sustained, burst, hardwareMin, maxWatts);
+            msr, powerUnitWatts, locked, defaultSustained, defaultBurst, hardwareMin, maxWatts);
     }
 
     public CpuPowerLimitSnapshot? ReadPowerLimits()

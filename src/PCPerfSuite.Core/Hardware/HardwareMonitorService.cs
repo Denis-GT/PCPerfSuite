@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using LibreHardwareMonitor.Hardware;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
@@ -58,12 +59,37 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// correspondent à celle qu'on overclocke. Null : le dernier GPU rencontré, comme avant.</summary>
     public GpuVendor? PreferredGpuVendor { get; set; }
 
+    /// <summary>Nom de la carte pilotée par l'onglet GPU (NVAPI/ADLX/IGCL), pour départager deux GPU de
+    /// la même marque (APU Ryzen + Radeon dédiée, UHD + Arc) que <see cref="PreferredGpuVendor"/> seul ne
+    /// distingue pas : sans lui, le relevé retombait sur le premier des deux rencontré par
+    /// LibreHardwareMonitor, parfois l'iGPU plutôt que la carte réellement overclockée/ventilée.</summary>
+    public string? PreferredGpuName { get; set; }
+
     /// <summary>Groupes lus au moins une fois depuis le démarrage : une valeur encore nulle après la lecture de
     /// son groupe n'est pas "en attente" mais absente de ce PC.</summary>
     private readonly bool[] _everRead = new bool[Enum.GetValues<SensorGroup>().Length];
 
     /// <summary>Ventilateurs des portables, lus via l'interface du constructeur (LibreHardwareMonitor ne les voit pas).</summary>
     public LaptopFanService LaptopFans { get; }
+
+    /// <summary>Termine quand <see cref="Computer.Open"/> a fini de recenser le matériel. Lancé en tâche de
+    /// fond dès la construction plutôt qu'exécuté ici : un incident déjà observé (MSI Afterburner ou
+    /// Armoury Crate tenant le mutex SMBus) bloque cet appel indéfiniment, et l'exécuter sur le thread
+    /// appelant — celui de l'interface, avant l'affichage de la fenêtre — laissait alors l'app sans
+    /// fenêtre ni icône, en apparence non démarrée.</summary>
+    private readonly Task _openTask;
+
+    private readonly long _openStartedTimestamp = Stopwatch.GetTimestamp();
+
+    /// <summary>Faux tant que le matériel n'a pas fini d'être recensé (voir <see cref="_openTask"/>).
+    /// Les onglets affichent alors les métriques en attente (« -- ») plutôt que rien, et les écritures
+    /// (ventilateurs) sont refusées le temps que ce soit prêt, plutôt que de risquer de toucher
+    /// <see cref="_computer"/> pendant qu'il est encore en cours d'ouverture sur l'autre thread.</summary>
+    public bool IsReady => _openTask.IsCompleted;
+
+    /// <summary>Depuis combien de temps l'ouverture est en cours, pour afficher un message si elle traîne
+    /// (voir le diagnostic de compatibilité). Zéro une fois prête.</summary>
+    public TimeSpan InitializingDuration => IsReady ? TimeSpan.Zero : Stopwatch.GetElapsedTime(_openStartedTimestamp);
 
     public HardwareMonitorService()
     {
@@ -79,7 +105,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             IsPsuEnabled = true,
         };
 
-        _computer.Open();
+        _openTask = Task.Run(() => _computer.Open());
 
         LaptopFans = new LaptopFanService(MachineInfo.Current);
     }
@@ -90,6 +116,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// d'un relevé, et à ce stade l'app est en train de se fermer.</exception>
     public HardwareSnapshot GetSnapshot(long epoch, long tick)
     {
+        // Attend hors du verrou : si l'ouverture est bloquée (voir _openTask), Dispose() doit pouvoir
+        // fermer l'app sans attendre après elle.
+        _openTask.GetAwaiter().GetResult();
+
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -192,7 +222,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 case HardwareType.GpuAmd:
                 case HardwareType.GpuIntel:
                     bool preferred = IsPreferredGpu(hardware.HardwareType);
-                    if (PreferredGpuVendor is null || gpu is null || (preferred && !gpuIsPreferred))
+                    // À marque égale (deux GPU de la même marque : APU + carte dédiée, UHD + Arc), le nom
+                    // de la carte réellement pilotée (NVAPI/ADLX/IGCL) départage plutôt que de garder le
+                    // premier des deux rencontré par LibreHardwareMonitor.
+                    bool nameMatch = preferred && GpuNameMatches(hardware.Name);
+                    bool gpuIsNameMatch = gpu is not null && GpuNameMatches(gpu.Name);
+                    if (PreferredGpuVendor is null || gpu is null
+                        || (preferred && !gpuIsPreferred)
+                        || (preferred && gpuIsPreferred && nameMatch && !gpuIsNameMatch))
                     {
                         gpu = ReadGpu(hardware, laptopGpuFan);
                         gpuIsPreferred = preferred;
@@ -227,6 +264,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                     break;
 
                 case HardwareType.Network:
+                    // Une carte virtuelle (VPN, commutateur Hyper-V, WSL) mesure souvent le même trafic que
+                    // l'adaptateur physique sous-jacent : la sommer avec lui double le débit affiché.
+                    if (!IsPhysicalNetworkAdapter(hardware.Name)) break;
+
                     uploadRate = AddIfPresent(uploadRate, FindSensor(hardware, SensorType.Throughput, "Upload Speed")?.Value);
                     downloadRate = AddIfPresent(downloadRate, FindSensor(hardware, SensorType.Throughput, "Download Speed")?.Value);
                     break;
@@ -376,6 +417,34 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         return null;
     }
 
+    /// <summary>Interfaces réseau "physiques" vues par Windows (Ethernet, Wi-Fi, actives), pour ne pas
+    /// sommer le débit d'une carte virtuelle (VPN, commutateur Hyper-V, WSL) avec celui de l'adaptateur
+    /// qu'elle relaie réellement. Relu à chaque relevé du groupe Réseau (rarement dû) : brancher/débrancher
+    /// un câble ou activer un VPN doit se refléter sans attendre un redémarrage de l'app.</summary>
+    private static readonly NetworkInterfaceType[] PhysicalAdapterTypes =
+    {
+        NetworkInterfaceType.Ethernet, NetworkInterfaceType.Ethernet3Megabit, NetworkInterfaceType.FastEthernetT,
+        NetworkInterfaceType.FastEthernetFx, NetworkInterfaceType.GigabitEthernet, NetworkInterfaceType.Wireless80211,
+    };
+
+    private static bool IsPhysicalNetworkAdapter(string hardwareName)
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces().Any(nic =>
+                PhysicalAdapterTypes.Contains(nic.NetworkInterfaceType)
+                && nic.OperationalStatus == OperationalStatus.Up
+                && (hardwareName.Contains(nic.Description, StringComparison.OrdinalIgnoreCase)
+                    || nic.Description.Contains(hardwareName, StringComparison.OrdinalIgnoreCase)));
+        }
+        catch
+        {
+            // Best-effort : si Windows ne répond pas, on préfère compter la carte (comportement d'avant ce
+            // correctif) plutôt que de faire disparaître tout le débit réseau.
+            return true;
+        }
+    }
+
     private bool IsPreferredGpu(HardwareType type) => (PreferredGpuVendor, type) switch
     {
         (GpuVendor.Nvidia, HardwareType.GpuNvidia) => true,
@@ -383,6 +452,21 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         (GpuVendor.Intel, HardwareType.GpuIntel) => true,
         _ => false,
     };
+
+    /// <summary>Comparaison tolérante : NVAPI/ADLX/IGCL et LibreHardwareMonitor n'orthographient pas
+    /// forcément le nom de la carte à l'identique (espaces, sigles ® / (R), suffixes). L'un contenant
+    /// l'autre suffit à départager deux GPU de la même marque.</summary>
+    private bool GpuNameMatches(string hardwareName)
+    {
+        if (string.IsNullOrWhiteSpace(PreferredGpuName) || string.IsNullOrWhiteSpace(hardwareName)) return false;
+
+        string a = NormalizeGpuName(PreferredGpuName);
+        string b = NormalizeGpuName(hardwareName);
+        return a.Length > 0 && b.Length > 0 && (a.Contains(b, StringComparison.OrdinalIgnoreCase) || b.Contains(a, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeGpuName(string name) =>
+        new string(name.Where(char.IsLetterOrDigit).ToArray());
 
     /// <param name="laptopFan">Ventilateur GPU du portable, repris quand le pilote graphique n'en expose aucun
     /// (NVAPI, ADLX et IGCL ne voient pas les ventilateurs pilotés par le contrôleur embarqué d'un portable).</param>
@@ -428,6 +512,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// </summary>
     public IReadOnlyList<string> DescribeMemorySensors()
     {
+        if (!IsReady) return new[] { "Capteurs en cours d'initialisation…" };
+
         lock (_gate)
         {
             if (_disposed) return Array.Empty<string>();
@@ -853,14 +939,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// ou si la machine est un portable (voir <see cref="LaptopControlRefused"/>).</summary>
     public bool TrySetFanPercent(string controlSensorId, float percent)
     {
+        // Le matériel n'a pas fini d'être recensé (voir IsReady) : _computer.Hardware est encore en
+        // cours de construction sur l'autre thread, le parcourir ici serait une course sur le même objet.
+        if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
-        float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
-        control.SetSoftware(clamped);
-        return true;
+        try
+        {
+            float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
+            control.SetSoftware(clamped);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Best-effort (règle 2) : un pilote qui refuse l'écriture ne doit jamais planter l'app.
+            return false;
+        }
     }
 
     /// <summary>
@@ -879,13 +976,21 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// <summary>Rend le pilotage du ventilateur au firmware de la carte mère (courbe BIOS par défaut).</summary>
     public bool TrySetFanAuto(string controlSensorId)
     {
+        if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
-        control.SetDefault();
-        return true;
+        try
+        {
+            control.SetDefault();
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private IControl? FindControl(string controlSensorId)
@@ -919,7 +1024,21 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             _cpuLoad.Dispose();
             _battery.Dispose();
             LaptopFans.Dispose();
+        }
+
+        if (_openTask.IsCompleted)
+        {
             _computer.Close();
+        }
+        else
+        {
+            // L'ouverture est toujours bloquée (voir _openTask) : fermer _computer maintenant toucherait
+            // le même objet natif que le thread qui l'ouvre encore, avec un risque de plantage natif non
+            // rattrapable. On ferme dès que l'ouverture se débloque, sans jamais attendre ici — l'app doit
+            // pouvoir se fermer tout de suite même si le matériel reste coincé.
+            _ = _openTask.ContinueWith(
+                _ => { try { _computer.Close(); } catch { /* best-effort à la fermeture */ } },
+                TaskScheduler.Default);
         }
     }
 }

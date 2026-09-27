@@ -93,7 +93,7 @@ public class OverlayGameLineTests
 
         string frameTime = 7.0.ToString("0.0", CultureInfo.CurrentCulture);
         Assert.Equal(
-            $"<A=3>JEU<A>  FPS <A=-3>144<A>  MOY <A=-3>138<A>  1% <A=-2>95<A>  0.1% <A=-2>80<A>  <A=-{frameTime.Length}>{frameTime}<A><A=3> ms<A>",
+            $"JEU  FPS 144  MOY 138  1% 95  0.1% 80  {frameTime} ms",
             text);
     }
 

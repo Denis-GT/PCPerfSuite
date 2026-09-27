@@ -246,6 +246,16 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string platformText = "";
     [ObservableProperty] private string driverText = "";
 
+    /// <summary>La boîte aux lettres SMU d'AMD est pilotée à la main, sans documentation officielle
+    /// (voir AmdSmuBackend), contrairement au MSR Intel qui est un registre documenté par le fabricant.
+    /// Marqué expérimental (règle 6 de CLAUDE.md) tant qu'elle n'a pas été vérifiée sur davantage de
+    /// machines réelles.</summary>
+    public bool IsExperimentalBackend => _cpu.Platform.Vendor == CpuVendor.Amd;
+
+    public string? ExperimentalNotice => IsExperimentalBackend
+        ? "Réglage des limites AMD par commande SMU non documentée officiellement : pas encore vérifié sur un grand nombre de machines. À utiliser avec prudence."
+        : null;
+
     /// <summary>Vrai quand le pilote PawnIO manque ou est inutilisable : l'interface propose alors de l'installer.</summary>
     [ObservableProperty] private bool isDriverMissing;
 
@@ -333,6 +343,26 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         _cpu.EmergencyRestored += OnEmergencyRestored;
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
+
+        // Une veille S3 réinitialise les limites MSR/SMU au firmware : sans ce ré-armement, l'onglet
+        // continuait d'afficher la limite posée avant la veille comme si elle tenait toujours.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        if (!ApplyAtStartup || !IsPowerLimitAvailable) return;
+
+        AppSettings settings = AppSettingsStore.Load();
+        if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
+
+        _suppressApply = true;
+        SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
+        BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
+        _suppressApply = false;
+
+        Apply();
     }
 
     /// <summary>Lit les limites en place, puis — uniquement si l'utilisateur l'a demandé — réapplique
@@ -580,6 +610,12 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     {
         if (profile is null) return;
 
+        var result = System.Windows.MessageBox.Show(
+            $"Supprimer le profil « {profile.Name} » ? Cette action ne peut pas être annulée.",
+            "Supprimer le profil", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+        if (result != System.Windows.MessageBoxResult.Yes) return;
+
         Profiles.Remove(profile);
         ProfileStatus = $"Profil « {profile.Name} » supprimé.";
         PersistProfiles();
@@ -706,5 +742,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         _cpu.EmergencyRestored -= OnEmergencyRestored;
         PawnIo.PropertyChanged -= OnPawnIoChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
     }
 }

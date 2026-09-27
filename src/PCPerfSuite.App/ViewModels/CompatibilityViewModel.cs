@@ -20,7 +20,11 @@ using PCPerfSuite.Core.SystemInfo;
 namespace PCPerfSuite.App.ViewModels;
 
 /// <summary>Ligne du diagnostic : une fonction ou une source de données, et ce qu'elle donne sur ce PC.</summary>
-public sealed record CompatibilityRow(string Title, string Status, string Detail, bool IsSupported);
+/// <summary>Une ligne du diagnostic. <paramref name="IsPersonal"/> marque une donnée personnelle (nom de
+/// compte Windows) : affichée à l'écran comme les autres, mais son <paramref name="Status"/> est masqué
+/// dans le rapport copié (voir <see cref="CompatibilityViewModel.CopyReport"/>) — un rapport de bug est
+/// souvent collé tel quel dans un espace public (forum, ticket GitHub).</summary>
+public sealed record CompatibilityRow(string Title, string Status, string Detail, bool IsSupported, bool IsPersonal = false);
 
 /// <summary>
 /// "Compatibilité de ce PC" (Paramètres) : ce que PCPerfSuite peut lire et piloter sur cette machine, et pourquoi
@@ -104,8 +108,29 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         HardwareSnapshot? snapshot = _lastSample?.Hardware;
 
         string identity = string.Join(" ", new[] { machine.Manufacturer, machine.Model }.Where(s => s.Length > 0));
+        string identityDetail = identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS";
+        if (!machine.IsIdentityKnown)
+        {
+            identityDetail += " — Windows (WMI) n'a pas répondu : traité comme un portable par prudence, " +
+                "pour ne jamais écrire sur un éventuel contrôleur embarqué de ventilateurs.";
+        }
         yield return new CompatibilityRow("Machine", machine.IsLaptop ? "Portable" : "PC de bureau",
-            identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS", true);
+            identityDetail, machine.IsIdentityKnown);
+
+        if (!_hardware.IsReady)
+        {
+            // Recensement du matériel toujours en cours (voir HardwareMonitorService.IsReady) : au-delà
+            // de quelques secondes, un autre outil (MSI Afterburner, Armoury Crate...) tient probablement
+            // un mutex partagé (SMBus) que PCPerfSuite attend aussi. Fermer l'autre outil débloque
+            // généralement la situation ; sinon, redémarrer Windows.
+            double seconds = _hardware.InitializingDuration.TotalSeconds;
+            yield return new CompatibilityRow("Capteurs matériel", "Initialisation en cours…",
+                seconds < 10
+                    ? "Le recensement du matériel (LibreHardwareMonitor) démarre : les métriques affichent « -- » le temps qu'il se termine."
+                    : $"Toujours en cours après {seconds:0} s : un autre logiciel de contrôle (MSI Afterburner, Armoury Crate, HWiNFO...) " +
+                      "tient probablement un accès exclusif au matériel (bus SMBus). Fermez-le puis relancez PCPerfSuite si les métriques restent à « -- ».",
+                seconds < 10);
+        }
 
         bool elevated = ElevationHelper.IsAdministrator();
         bool pawnIoInstalled = PawnIoDriver.IsInstalled;
@@ -124,9 +149,9 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return PawnIoRow();
 
         yield return SessionUser.OtherProfileMessage is { } otherProfile
-            ? new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount, otherProfile, false)
+            ? new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount, otherProfile, false, IsPersonal: true)
             : new CompatibilityRow("Compte Windows", SessionUser.ProcessAccount,
-                "L'app tourne sous le compte de la session : fichiers temporaires et caches nettoyés sont bien ceux de cet utilisateur.", true);
+                "L'app tourne sous le compte de la session : fichiers temporaires et caches nettoyés sont bien ceux de cet utilisateur.", true, IsPersonal: true);
 
         yield return StartupRow();
 
@@ -151,7 +176,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return new CompatibilityRow("GPU", snapshot?.Gpu?.Name ?? "Non lu", gpus, snapshot?.Gpu is not null);
 
         yield return _gpu.IsAvailable
-            ? new CompatibilityRow("Contrôle GPU (overclocking)", "Disponible", "Via le pilote NVIDIA (NVAPI).", true)
+            ? new CompatibilityRow("Contrôle GPU (overclocking)", "Disponible", $"Via {_gpu.VendorLabel}.", true)
             : new CompatibilityRow("Contrôle GPU (overclocking)", "Non disponible", _gpu.UnavailableMessage, false);
 
         yield return FanReadingRow(machine, snapshot);
@@ -521,8 +546,12 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
         foreach (CompatibilityRow row in Rows)
         {
-            text.AppendLine($"[{(row.IsSupported ? "OK" : "--")}] {row.Title} : {row.Status}");
-            text.AppendLine($"     {row.Detail}");
+            // Un rapport de bug est souvent collé tel quel dans un espace public (forum, ticket GitHub) :
+            // le nom du compte Windows n'y a pas sa place, contrairement à l'affichage à l'écran.
+            string status = row.IsPersonal ? "(masqué)" : row.Status;
+            string detail = row.IsPersonal ? "Nom de compte masqué dans ce rapport." : row.Detail;
+            text.AppendLine($"[{(row.IsSupported ? "OK" : "--")}] {row.Title} : {status}");
+            text.AppendLine($"     {detail}");
         }
 
         text.AppendLine();

@@ -53,8 +53,10 @@ public sealed partial class PowerPlanService
         string guid = m.Value.ToLowerInvariant();
         await RunPowercfgAsync($"-setactive {guid}");
 
-        settings.UltimatePerformanceGuid = guid;
-        AppSettingsStore.Save(settings);
+        // Update() plutôt que réutiliser `settings` chargé avant les deux appels powercfg ci-dessus :
+        // pendant cette attente, l'interface a pu enregistrer un autre changement, que réenregistrer
+        // notre copie devenue périmée aurait sinon écrasé.
+        AppSettingsStore.Update(s => s.UltimatePerformanceGuid = guid);
         return guid;
     }
 
@@ -77,8 +79,7 @@ public sealed partial class PowerPlanService
 
         if (!WellKnownSchemeGuids.Standard.Contains(active.Guid))
         {
-            settings.UltimatePerformanceGuid = active.Guid;
-            AppSettingsStore.Save(settings);
+            AppSettingsStore.Update(s => s.UltimatePerformanceGuid = active.Guid);
             return true;
         }
 
@@ -87,23 +88,34 @@ public sealed partial class PowerPlanService
 
     public async Task SetActiveSchemeAsync(string guid) => await RunPowercfgAsync($"-setactive {guid}");
 
-    /// <summary>Règle une valeur de sous-réglage d'alimentation (AC et DC) puis réapplique le plan actif.</summary>
+    /// <summary>Règle la même valeur de sous-réglage d'alimentation sur secteur et sur batterie, puis
+    /// réapplique le plan actif. Adapté pour activer un réglage (même comportement branché ou non) ; pour
+    /// restaurer l'état d'origine, où les deux valeurs peuvent différer sur un portable, voir
+    /// <see cref="SetValueIndicesAsync"/>.</summary>
     public async Task SetValueIndexAsync(string subGroupGuid, string settingGuid, uint value)
+        => await SetValueIndicesAsync(subGroupGuid, settingGuid, value, value);
+
+    /// <summary>Règle séparément les valeurs secteur et batterie, puis réapplique le plan actif.</summary>
+    public async Task SetValueIndicesAsync(string subGroupGuid, string settingGuid, uint acValue, uint dcValue)
     {
-        await RunPowercfgAsync($"/setacvalueindex scheme_current {subGroupGuid} {settingGuid} {value}");
-        await RunPowercfgAsync($"/setdcvalueindex scheme_current {subGroupGuid} {settingGuid} {value}");
+        await RunPowercfgAsync($"/setacvalueindex scheme_current {subGroupGuid} {settingGuid} {acValue}");
+        await RunPowercfgAsync($"/setdcvalueindex scheme_current {subGroupGuid} {settingGuid} {dcValue}");
         await RunPowercfgAsync("/S scheme_current");
     }
 
-    /// <summary>Lit la valeur AC courante d'un sous-réglage. Les index AC puis DC sont toujours les deux
-    /// dernières valeurs hexadécimales de la sortie, quelle que soit la langue : avant elles, un réglage à
-    /// plage liste aussi son minimum, son maximum et son incrément possibles.</summary>
+    /// <summary>Lit la valeur AC courante d'un sous-réglage.</summary>
     public async Task<uint?> GetValueIndexAsync(string subGroupGuid, string settingGuid)
+        => (await GetValueIndicesAsync(subGroupGuid, settingGuid))?.Ac;
+
+    /// <summary>Lit les valeurs AC et DC courantes d'un sous-réglage. Les index AC puis DC sont toujours
+    /// les deux dernières valeurs hexadécimales de la sortie, quelle que soit la langue : avant elles, un
+    /// réglage à plage liste aussi son minimum, son maximum et son incrément possibles.</summary>
+    public async Task<(uint Ac, uint Dc)?> GetValueIndicesAsync(string subGroupGuid, string settingGuid)
     {
         string output = await RunPowercfgAsync($"/query scheme_current {subGroupGuid} {settingGuid}");
         MatchCollection matches = HexValueRegex().Matches(output);
         if (matches.Count < 2) return null;
-        return Convert.ToUInt32(matches[^2].Groups["hex"].Value, 16);
+        return (Convert.ToUInt32(matches[^2].Groups["hex"].Value, 16), Convert.ToUInt32(matches[^1].Groups["hex"].Value, 16));
     }
 
     private static async Task<string> RunPowercfgAsync(string arguments)

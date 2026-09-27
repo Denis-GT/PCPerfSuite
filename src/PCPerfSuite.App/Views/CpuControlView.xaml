@@ -106,6 +106,14 @@
 
             <StackPanel Visibility="{Binding IsPowerLimitAvailable, Converter={StaticResource BoolToVisibility}}">
 
+                <!-- Commande SMU AMD non documentée officiellement : pas encore vérifiée sur une machine
+                     réelle (règle 6 de CLAUDE.md). -->
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                        Visibility="{Binding IsExperimentalBackend, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                               Text="{Binding ExperimentalNotice}" TextWrapping="Wrap"/>
+                </Border>
+
                 <!-- ============ Relevés ============ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <UniformGrid Rows="1" Columns="4" Margin="0,0,-10,-10">

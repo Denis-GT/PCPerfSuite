@@ -31,6 +31,8 @@ public partial class MainWindow : Window
         _tray.Activated += RestoreFromTray;
         _tray.MenuRequested += OpenTrayMenu;
 
+        RestoreWindowBounds();
+
         Closing += OnClosing;
         Closed += OnClosed;
 
@@ -75,9 +77,73 @@ public partial class MainWindow : Window
     /// s'exécute ici et une seule fois, une fenêtre ne déclenchant Closed qu'au plus une fois.</summary>
     private void OnClosed(object? sender, EventArgs e)
     {
-        _tray.Dispose();
-        _viewModel.Dispose();
-        Application.Current.Shutdown();
+        // Shutdown() dans un finally : avec OnExplicitShutdown, une exception dans _tray.Dispose() ou
+        // _viewModel.Dispose() laisserait sinon un processus sans fenêtre ni icône tourner indéfiniment
+        // — exactement le « processus invisible » que OnExplicitShutdown cherche à éviter.
+        try
+        {
+            SaveWindowBounds();
+            _tray.Dispose();
+            _viewModel.Dispose();
+        }
+        finally
+        {
+            Application.Current.Shutdown();
+        }
+    }
+
+    /// <summary>Reprend la taille et la position de la dernière fermeture normale (U4 du rapport de
+    /// revue), en s'assurant qu'elles retombent dans un écran encore branché : un portable débranché
+    /// d'un second écran, ou un écran externe à une autre résolution, ne doit jamais rouvrir une fenêtre
+    /// hors champ ou plus grande que l'écran (barre de titre inaccessible, fenêtre impossible à bouger).</summary>
+    private void RestoreWindowBounds()
+    {
+        double screenWidth = SystemParameters.VirtualScreenWidth;
+        double screenHeight = SystemParameters.VirtualScreenHeight;
+
+        AppWindowSettings window = AppSettingsStore.Load().Window ?? new AppWindowSettings();
+        if (window.Width is not { } width || window.Height is not { } height)
+        {
+            // Premier lancement : la taille par défaut du XAML (1280x820) dépasse la hauteur utile d'un
+            // portable 1080p à 150 % (~720 px effectifs). On la borne à l'écran même sans réglage enregistré.
+            Width = Math.Min(Width, screenWidth);
+            Height = Math.Min(Height, screenHeight);
+            return;
+        }
+
+        Width = Math.Clamp(width, MinWidth, screenWidth);
+        Height = Math.Clamp(height, MinHeight, screenHeight);
+
+        if (window.Left is { } left && window.Top is { } top)
+        {
+            double screenLeft = SystemParameters.VirtualScreenLeft;
+            double screenTop = SystemParameters.VirtualScreenTop;
+            // La fenêtre entière doit rester visible, pas seulement son coin haut-gauche.
+            Left = Math.Clamp(left, screenLeft, screenLeft + screenWidth - Width);
+            Top = Math.Clamp(top, screenTop, screenTop + screenHeight - Height);
+            WindowStartupLocation = WindowStartupLocation.Manual;
+        }
+
+        if (window.IsMaximized) WindowState = WindowState.Maximized;
+    }
+
+    private void SaveWindowBounds()
+    {
+        // RestoreBounds donne la taille/position "normale" même si la fenêtre est actuellement réduite
+        // ou agrandie : jamais les dimensions d'un état temporaire.
+        Rect bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        if (bounds.Width <= 0 || bounds.Height <= 0) return;
+
+        AppSettingsStore.Update(settings =>
+        {
+            AppWindowSettings window = settings.Window ?? new AppWindowSettings();
+            window.Width = bounds.Width;
+            window.Height = bounds.Height;
+            window.Left = bounds.Left;
+            window.Top = bounds.Top;
+            window.IsMaximized = WindowState == WindowState.Maximized;
+            settings.Window = window;
+        });
     }
 
     private void UpdateWindowShown() => _viewModel.IsWindowShown = IsVisible && WindowState != WindowState.Minimized;
@@ -118,6 +184,11 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         WindowActivator.Restore(this);
     }
+
+    /// <summary>Appelé quand une seconde copie de l'app est lancée (voir <see cref="App.OnStartup"/>
+    /// et le mutex d'instance unique) : ramène cette fenêtre au premier plan au lieu de laisser
+    /// l'utilisateur croire qu'un second exemplaire a démarré.</summary>
+    public void ActivateFromOtherInstance() => RestoreFromTray();
 
     private void OpenTrayMenu(Point screenPoint)
     {

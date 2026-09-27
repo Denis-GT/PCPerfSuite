@@ -31,22 +31,43 @@ public sealed class WindowsPerformanceSettingsService
             return;
         }
 
+        // Secteur et batterie peuvent avoir des valeurs d'origine différentes sur un portable : les clés
+        // "/ac" et "/dc" les gardent séparées. La clé sans suffixe (avant ce correctif) ne portait que la
+        // valeur secteur ; encore présente sur une machine mise à jour, elle sert de repli pour les deux
+        // tant que le réglage n'a pas été réactivé depuis.
         AppSettings settings = AppSettingsStore.Load();
-        uint restored = settings.OriginalPowerValues.TryGetValue(key, out uint original) ? original : defaultValue;
-        _powerPlans.SetValueIndexAsync(subGroup, setting, restored).GetAwaiter().GetResult();
+        uint legacy = settings.OriginalPowerValues.TryGetValue(key, out uint legacyValue) ? legacyValue : defaultValue;
+        uint restoredAc = settings.OriginalPowerValues.TryGetValue($"{key}/ac", out uint ac) ? ac : legacy;
+        uint restoredDc = settings.OriginalPowerValues.TryGetValue($"{key}/dc", out uint dc) ? dc : legacy;
+        _powerPlans.SetValueIndicesAsync(subGroup, setting, restoredAc, restoredDc).GetAwaiter().GetResult();
     }
 
-    /// <summary>Retient la valeur d'avant la première écriture, et elle seule : réécrire à chaque
-    /// activation mémoriserait la valeur que l'app vient elle-même de poser.</summary>
+    /// <summary>Retient les valeurs secteur et batterie d'avant la première écriture, et elles seules :
+    /// réécrire à chaque activation mémoriserait la valeur que l'app vient elle-même de poser.</summary>
     private void RememberOriginalValue(string key, string subGroup, string setting)
     {
         AppSettings settings = AppSettingsStore.Load();
-        if (settings.OriginalPowerValues.ContainsKey(key)) return;
+        if (settings.OriginalPowerValues.ContainsKey($"{key}/ac")) return;
 
-        if (_powerPlans.GetValueIndexAsync(subGroup, setting).GetAwaiter().GetResult() is not { } current) return;
+        if (_powerPlans.GetValueIndicesAsync(subGroup, setting).GetAwaiter().GetResult() is not { } current) return;
 
-        settings.OriginalPowerValues[key] = current;
+        settings.OriginalPowerValues[$"{key}/ac"] = current.Ac;
+        settings.OriginalPowerValues[$"{key}/dc"] = current.Dc;
         AppSettingsStore.Save(settings);
+    }
+
+    /// <summary>Mémorise le plan actif juste avant d'activer « Performances ultimes », et lui seul : une
+    /// activation déjà faite ne doit pas écraser le plan d'origine par « Performances ultimes »
+    /// lui-même si l'utilisateur active/désactive plusieurs fois.</summary>
+    private void RememberActiveSchemeBeforeUltimate()
+    {
+        if (_powerPlans.IsUltimatePerformanceActiveAsync().GetAwaiter().GetResult()) return;
+
+        IReadOnlyList<PowerPlanService.PowerScheme> schemes = _powerPlans.ListSchemesAsync().GetAwaiter().GetResult();
+        string? active = schemes.FirstOrDefault(s => s.IsActive)?.Guid;
+        if (active is null) return;
+
+        AppSettingsStore.Update(settings => settings.PreUltimatePerformanceSchemeGuid = active);
     }
 
     public IReadOnlyList<PerformanceTweak> GetTweaks()
@@ -65,12 +86,17 @@ public sealed class WindowsPerformanceSettingsService
                 {
                     if (enable)
                     {
+                        RememberActiveSchemeBeforeUltimate();
                         _powerPlans.EnableUltimatePerformanceAsync().GetAwaiter().GetResult();
                     }
                     else
                     {
-                        // Revient sur le plan "Équilibré" standard de Windows.
-                        _powerPlans.SetActiveSchemeAsync(WellKnownSchemeGuids.Balanced).GetAwaiter().GetResult();
+                        // Revient sur le plan actif avant l'activation (mémorisé ci-dessous), pas
+                        // systématiquement "Équilibré" : un plan OEM ou personnalisé actif avant coup
+                        // était sinon remplacé par un plan que l'utilisateur n'avait pas choisi.
+                        AppSettings settings = AppSettingsStore.Load();
+                        string restore = settings.PreUltimatePerformanceSchemeGuid ?? WellKnownSchemeGuids.Balanced;
+                        _powerPlans.SetActiveSchemeAsync(restore).GetAwaiter().GetResult();
                     }
                 },
             },

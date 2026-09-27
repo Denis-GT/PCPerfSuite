@@ -33,6 +33,25 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// identique à chaque relevé. Null : rien n'est posé, le ventilateur est au firmware.</summary>
     private float? _lastSentPercent;
 
+    /// <summary>Relevés consécutifs, en mode Courbe, sans température exploitable (source absente ou
+    /// valeur invraisemblable). Au-delà de <see cref="MaxMissingTempStreak"/>, le ventilateur est rendu
+    /// au firmware plutôt que de rester figé à sa dernière vitesse logicielle : sans ce repli, une
+    /// protection GPU à 88 °C ne jouerait plus si la source de température disparaît.</summary>
+    private int _missingTempStreak;
+
+    private const int MaxMissingTempStreak = 3;
+
+    /// <summary>Bornes de plausibilité d'une température de composant. Hors de cet intervalle, la valeur
+    /// est traitée comme absente plutôt que de piloter la courbe avec un chiffre aberrant (sonde non
+    /// branchée, entrée flottante d'une puce Super I/O).</summary>
+    private const float MinPlausibleTempC = -40f;
+    private const float MaxPlausibleTempC = 150f;
+
+    /// <summary>Message affiché sur la carte quand la régulation par courbe est dégradée (température
+    /// absente ou douteuse depuis plusieurs relevés) : le ventilateur a alors été rendu au firmware.</summary>
+    [ObservableProperty]
+    private string? degradedWarning;
+
     /// <summary>Identifiant stable du ventilateur (voir <see cref="FanIdentityOverride.FanId"/>) : ce à quoi se rattachent
     /// sa courbe, son nom et sa catégorie enregistrés.</summary>
     public string FanId { get; }
@@ -56,7 +75,7 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Ce que refroidit ce ventilateur : la catégorie détectée (voir <see cref="FanIdentification"/>), ou celle
     /// que l'utilisateur a choisie.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity), nameof(RampNote))]
+    [NotifyPropertyChangedFor(nameof(IsPump), nameof(IsGpu), nameof(IsCpu), nameof(CanStopWhenCool), nameof(HasCustomIdentity), nameof(RampNote))]
     private FanCategory category;
 
     /// <summary>Le panneau de correction du nom et de la catégorie est ouvert.</summary>
@@ -74,9 +93,9 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     public bool IsPump => Category == FanCategory.Pump;
 
-    /// <summary>L'arrêt complet à froid n'est pas proposé pour une pompe : sans circulation, le liquide ne refroidit plus
-    /// rien et le processeur chauffe en quelques secondes.</summary>
-    public bool CanStopWhenCool => !IsPump;
+    /// <summary>L'arrêt complet à froid n'est pas proposé pour une pompe (sans circulation, le liquide ne
+    /// refroidit plus rien) ni pour le CPU (voir <see cref="CpuMinPercent"/>).</summary>
+    public bool CanStopWhenCool => !IsPump && !IsCpu;
 
     /// <summary>Explication affichée sous le mode d'une pompe, jamais pour un ventilateur.</summary>
     public string PumpNote => $"Pompe : PCPerfSuite ne l'arrête jamais et ne la descend pas sous {PumpMinPercent:0} %.";
@@ -84,6 +103,12 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Ventilateur du GPU, piloté par l'API du constructeur ou par la bibliothèque de capteurs : il a la
     /// protection thermique du GPU et la température du GPU comme source par défaut.</summary>
     public bool IsGpu => Category == FanCategory.Gpu;
+
+    /// <summary>Ventilateur du processeur : a, comme le GPU, une protection thermique indépendante des
+    /// réglages (voir <see cref="CpuCriticalTempC"/>) et un plancher en mode Manuel (voir
+    /// <see cref="CpuMinPercent"/>) — rien ne les garantissait avant (M6 du rapport de revue), alors
+    /// qu'un 0 % ou une courbe mal réglée sur le CPU chauffe en quelques secondes.</summary>
+    public bool IsCpu => Category == FanCategory.Cpu;
 
     public ObservableCollection<FanCurvePoint> Points { get; }
 
@@ -246,6 +271,15 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// protection du VBIOS qui joue ce rôle.</summary>
     private const float GpuCriticalTempC = 88f;
 
+    /// <summary>Même garde-fou que <see cref="GpuCriticalTempC"/>, côté processeur : la plupart des CPU
+    /// commencent à limiter leurs fréquences (throttle) autour de 100 °C, donc à 95 °C le ventilateur
+    /// passe à fond quel que soit le mode choisi.</summary>
+    private const float CpuCriticalTempC = 95f;
+
+    /// <summary>Un ventilateur CPU en mode Manuel ne descend jamais sous ce plancher : à la différence
+    /// d'un ventilateur de boîtier, il refroidit un composant qui chauffe même au repos.</summary>
+    public const float CpuMinPercent = 20f;
+
     /// <summary>Durée pendant laquelle « Repérer » fait tourner un ventilateur à fond.</summary>
     public static readonly TimeSpan LocateDuration = TimeSpan.FromSeconds(5);
 
@@ -308,6 +342,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Applique le mode courant au ventilateur pour ce relevé.</summary>
     public void Apply(float? tempC)
     {
+        // Valeur invraisemblable (sonde non branchée, entrée flottante) : traitée comme absente plutôt
+        // que de piloter la courbe avec un chiffre aberrant.
+        if (tempC is { } raw && (raw < MinPlausibleTempC || raw > MaxPlausibleTempC)) tempC = null;
+
         SourceTempC = tempC;
 
         // Pendant le repérage, la régulation est suspendue : elle repartirait sur la consigne du mode avant la fin.
@@ -318,6 +356,35 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             return;
         }
 
+        if (Mode == FanControlMode.Curve)
+        {
+            if (tempC is null)
+            {
+                _missingTempStreak++;
+                if (_missingTempStreak >= MaxMissingTempStreak)
+                {
+                    // La température manque depuis trop longtemps : on rend la main au firmware plutôt
+                    // que de laisser le ventilateur figé à sa dernière vitesse logicielle, qui pourrait
+                    // être très en dessous de ce qu'il faudrait sans plus aucune régulation active.
+                    if (_lastSentPercent is not null) _controller.TrySetAuto(FanId);
+                    _lastSentPercent = null;
+                    TargetPercent = null;
+                    DegradedWarning = "Température indisponible : ventilateur rendu au BIOS.";
+                    return;
+                }
+            }
+            else
+            {
+                _missingTempStreak = 0;
+                DegradedWarning = null;
+            }
+        }
+        else
+        {
+            _missingTempStreak = 0;
+            DegradedWarning = null;
+        }
+
         float? target = Mode switch
         {
             FanControlMode.Manual => (float)ManualPercent,
@@ -325,8 +392,9 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             _ => null,
         };
 
-        // Le plancher d'une pompe avant la rampe, pour qu'elle vise une consigne que la pompe peut réellement prendre.
+        // Le plancher d'une pompe ou du CPU avant la rampe, pour qu'ils visent une consigne réellement atteignable.
         target = WithPumpFloor(target);
+        target = WithCpuFloor(target);
 
         // Mode Courbe : la consigne rejoint celle de la courbe au rythme réglé. Le mode Manuel, lui, applique
         // exactement la valeur tapée.
@@ -344,8 +412,16 @@ public sealed partial class FanControlItemViewModel : ObservableObject
             _ramp.Jump(100, now);
         }
 
-        // Et après : une rampe partie d'une vitesse lue sous le plancher ne doit pas y laisser la pompe.
+        if (target is not null && IsCpu && tempC is { } cpuTemp && cpuTemp >= CpuCriticalTempC)
+        {
+            // Même garde-fou, côté CPU : voir GpuCriticalTempC.
+            target = wanted = 100;
+            _ramp.Jump(100, now);
+        }
+
+        // Et après : une rampe partie d'une vitesse lue sous le plancher ne doit pas y laisser la pompe ou le CPU.
         target = WithPumpFloor(target);
+        target = WithCpuFloor(target);
 
         TransitionText = target is { } sent && wanted is { } aim && Math.Abs(aim - sent) >= 1 ? $"  → {aim:0}%" : "";
 
@@ -375,6 +451,9 @@ public sealed partial class FanControlItemViewModel : ObservableObject
 
     private float? WithPumpFloor(float? percent)
         => percent is { } requested && IsPump && requested < PumpMinPercent ? PumpMinPercent : percent;
+
+    private float? WithCpuFloor(float? percent)
+        => percent is { } requested && IsCpu && requested < CpuMinPercent ? CpuMinPercent : percent;
 
     private static double BoundRamp(float value)
         => float.IsFinite(value)
@@ -818,6 +897,52 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         };
 
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
+        _lastSnapshotUtc = DateTime.UtcNow;
+
+        // Une veille S3 rend les ventilateurs au firmware : sans ce ré-armement, le cache _lastSentPercent
+        // ferait croire que la consigne manuelle/courbe posée avant la veille tient toujours, et elle ne
+        // serait jamais renvoyée au relevé suivant puisqu'il croirait qu'elle est déjà en place.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+
+        // Chien de garde : si la boucle de relevé s'arrête (thread UI occupé, pilote bloqué, exception
+        // en boucle dans GetSnapshot), toutes les consignes en mode Courbe/Manuel resteraient figées
+        // indéfiniment sans lui. Il rend alors chaque ventilateur au firmware.
+        _watchdogTimer = new DispatcherTimer { Interval = WatchdogCheckInterval };
+        _watchdogTimer.Tick += (_, _) => CheckSnapshotWatchdog();
+        _watchdogTimer.Start();
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        foreach (FanControlItemViewModel item in Fans) item.ForgetSentPercent();
+    }
+
+    /// <summary>Durée sans relevé au-delà de laquelle le chien de garde rend les ventilateurs au firmware.</summary>
+    private static readonly TimeSpan WatchdogTimeout = TimeSpan.FromSeconds(15);
+
+    private static readonly TimeSpan WatchdogCheckInterval = TimeSpan.FromSeconds(5);
+
+    private DispatcherTimer? _watchdogTimer;
+    private DateTime _lastSnapshotUtc;
+    private bool _watchdogTripped;
+
+    private void CheckSnapshotWatchdog()
+    {
+        if (DateTime.UtcNow - _lastSnapshotUtc < WatchdogTimeout)
+        {
+            _watchdogTripped = false;
+            return;
+        }
+
+        if (_watchdogTripped) return;
+        _watchdogTripped = true;
+
+        foreach (FanControlItemViewModel item in Fans)
+        {
+            item.RestoreAuto();
+            item.DegradedWarning = "Relevés interrompus : ventilateur rendu au BIOS.";
+        }
     }
 
     // ---- Profils ----
@@ -933,6 +1058,14 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         if (profile is null) return;
 
+        // Suppression immédiate et sans annulation (U2 du rapport de revue) : une confirmation évite
+        // qu'un clic malheureux perde un réglage qui a pu prendre du temps à peaufiner.
+        var result = System.Windows.MessageBox.Show(
+            $"Supprimer le profil « {profile.Name} » ? Cette action ne peut pas être annulée.",
+            "Supprimer le profil", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+        if (result != System.Windows.MessageBoxResult.Yes) return;
+
         Profiles.Remove(profile);
         ProfileStatus = $"Profil « {profile.Name} » supprimé.";
         PersistProfiles();
@@ -1038,6 +1171,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
+        _lastSnapshotUtc = DateTime.UtcNow;
+        _watchdogTripped = false;
+
         HasGpu = snapshot.Gpu is not null;
 
         // Une carte graphique arrive par deux chemins (voir GpuFanPairing) : ses coolers sont pilotés par l'API du
@@ -1338,6 +1474,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _watchdogTimer?.Stop();
+        _watchdogTimer = null;
 
         foreach (FanControlItemViewModel item in Fans)
         {

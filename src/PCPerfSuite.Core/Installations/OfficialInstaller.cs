@@ -70,6 +70,7 @@ public static class OfficialInstaller
 
             folder = Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
+            RestrictToElevatedProcesses(folder);
             string path = Path.Combine(folder, source.FileName);
 
             progress?.Report("Téléchargement…");
@@ -361,6 +362,32 @@ public static class OfficialInstaller
     {
         try { Directory.Delete(folder, recursive: true); }
         catch { /* best-effort : un dossier temporaire oublié ne gêne personne, et Windows nettoie %TEMP% */ }
+    }
+
+    /// <summary>Relève le niveau d'intégrité obligatoire du dossier à « Élevé » : même un processus qui
+    /// tourne sous le même compte (celui de l'administrateur, si PCPerfSuite est lancé par « Exécuter en
+    /// tant qu'administrateur » depuis ce compte) ne peut plus y écrire tant qu'il n'est pas lui-même
+    /// élevé. Sans ça, seul le fichier de l'installeur est protégé (ouverture en lecture seule) : un
+    /// programme non élevé pourrait déposer une DLL malveillante à côté avant le lancement, que
+    /// l'installeur — lancé en administrateur — chargerait alors depuis son propre dossier
+    /// (« DLL planting »). Best-effort : si icacls échoue, l'installation continue quand même, protégée
+    /// par la vérification de signature/éditeur de l'exécutable lui-même.</summary>
+    private static void RestrictToElevatedProcesses(string folder)
+    {
+        try
+        {
+            using var icacls = Process.Start(new ProcessStartInfo
+            {
+                FileName = "icacls.exe",
+                ArgumentList = { folder, "/setintegritylevel", "(OI)(CI)", "High" },
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            icacls?.WaitForExit(5000);
+        }
+        catch { /* best-effort : voir le résumé ci-dessus */ }
     }
 
     /// <summary>Échec dont le message est destiné à l'utilisateur. Interne : jamais visible hors de cette classe.</summary>

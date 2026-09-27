@@ -51,6 +51,12 @@ public abstract partial class ExternalSoftwareViewModel : ObservableObject
     /// <summary>Ce qu'il apporte, en quelques mots, pour l'info-bulle (« FPS et overlay en jeu »).</summary>
     public abstract string MissingReason { get; }
 
+    /// <summary>Vrai si son absence prive de fonctions de mesure/réglage de base (ex. PawnIO), faux si
+    /// c'est une amélioration optionnelle (ex. RTSS, FPS/overlay). Seul un logiciel requis fait
+    /// clignoter le bouton Paramètres (voir <see cref="InstallationsViewModel.Apply"/>) : un composant
+    /// facultatif n'a pas à réclamer l'attention en continu.</summary>
+    public virtual bool IsRequired => true;
+
     [ObservableProperty] private string statusText = "Vérification…";
 
     /// <summary>Précision sous la ligne d'état (« relance l'app », « n'existe pas pour ce processeur »).</summary>
@@ -264,6 +270,10 @@ public sealed class RtssItemViewModel : ExternalSoftwareViewModel
     public override string Name => "RTSS (RivaTuner Statistics Server)";
     public override string ShortName => "RTSS";
     public override string MissingReason => "FPS et overlay en jeu";
+
+    /// <summary>Facultatif : l'app fonctionne pleinement sans lui (pas de FPS ni d'overlay en jeu), à la
+    /// différence de PawnIO qui prive de mesures de base. Ne fait donc pas clignoter le bouton Paramètres.</summary>
+    public override bool IsRequired => false;
     public override string Purpose =>
         "Lit les FPS des jeux et affiche l'overlay de PCPerfSuite par-dessus, y compris en plein écran exclusif. " +
         "Gratuit ; RTSS doit être lancé pour que les FPS soient lus.";
@@ -396,10 +406,13 @@ public sealed partial class InstallationsViewModel : ObservableObject, IDisposab
         Rtss.Apply(rtss);
 
         List<ExternalSoftwareViewModel> missing = Items.Where(item => item.IsMissing).ToList();
-        HasMissing = missing.Count > 0;
+        // Seul un logiciel requis fait clignoter le bouton Paramètres (voir ExternalSoftwareViewModel.IsRequired) :
+        // RTSS est facultatif, son absence n'a pas à réclamer l'attention en continu.
+        HasMissing = missing.Any(item => item.IsRequired);
         MissingSummary = missing.Count == 0
             ? null
-            : "À installer : " + string.Join(" · ", missing.Select(item => $"{item.ShortName} ({item.MissingReason})"));
+            : "À installer : " + string.Join(" · ", missing.Select(item =>
+                $"{item.ShortName} ({item.MissingReason}){(item.IsRequired ? "" : ", facultatif")}"));
     }
 
     public void Dispose() => PawnIo.Dispose();

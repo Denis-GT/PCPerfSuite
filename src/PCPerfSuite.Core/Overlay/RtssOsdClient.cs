@@ -38,6 +38,13 @@ public sealed class RtssOsdClient : IDisposable
     private readonly string _ownerName;
     private uint _claimedSlot;
 
+    /// <summary>Sans RTSS lancé, OpenExisting lève à chaque appel — coûteux si répété à chaque rendu (jusqu'à
+    /// plusieurs fois par seconde). Le prochain essai est différé de <see cref="UnavailableRetryInterval"/>
+    /// plutôt que retenté immédiatement : la plupart des utilisateurs n'ont pas RTSS installé.</summary>
+    private static readonly TimeSpan UnavailableRetryInterval = TimeSpan.FromSeconds(2);
+
+    private DateTime _nextRetryUtc = DateTime.MinValue;
+
     public RtssOsdClient(string ownerName)
     {
         if (string.IsNullOrWhiteSpace(ownerName)) throw new ArgumentException("Nom de propriétaire requis.", nameof(ownerName));
@@ -49,6 +56,8 @@ public sealed class RtssOsdClient : IDisposable
     /// ou si les 8 créneaux sont déjà occupés par d'autres applications.</summary>
     public bool TryUpdate(string text)
     {
+        if (DateTime.UtcNow < _nextRetryUtc) return false;
+
         try
         {
             using MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(RtssSharedMemory.MappingName);
@@ -59,25 +68,35 @@ public sealed class RtssOsdClient : IDisposable
 
             bool useExtended = header.Value.Version >= ExtendedTextVersion;
 
+            // Réutilise le créneau déjà réclamé s'il est toujours à nous, plutôt que de repartir du
+            // premier créneau libre trouvé : sinon, dès qu'un créneau plus bas se libère (un autre outil
+            // qui ferme), le texte partait s'y écrire pendant que l'ancien créneau, toujours marqué à
+            // notre nom, gardait un texte périmé affiché dans le jeu (deux lignes en double).
+            if (_claimedSlot > 0 && _claimedSlot < header.Value.OsdArrSize)
+            {
+                long ownedEntryOffset = header.Value.OsdArrOffset + (long)_claimedSlot * header.Value.OsdEntrySize;
+                long ownedOwnerOffset = ownedEntryOffset + SzOsdSize;
+                if (ReadFixedString(accessor, ownedOwnerOffset, SzOsdOwnerSize) == _ownerName)
+                {
+                    WriteSlotText(accessor, ownedEntryOffset, ownedOwnerOffset, useExtended, text);
+                    return true;
+                }
+
+                // Le créneau a été repris par quelqu'un d'autre (RTSS a purgé les propriétaires inactifs) :
+                // on en cherche un nouveau ci-dessous.
+                _claimedSlot = 0;
+            }
+
             for (uint i = 1; i < header.Value.OsdArrSize; i++)
             {
                 long entryOffset = header.Value.OsdArrOffset + (long)i * header.Value.OsdEntrySize;
                 long ownerOffset = entryOffset + SzOsdSize;
                 string owner = ReadFixedString(accessor, ownerOffset, SzOsdOwnerSize);
 
-                bool isFree = owner.Length == 0;
-                bool isOurs = owner == _ownerName;
-                if (!isFree && !isOurs) continue;
+                if (owner.Length != 0) continue;
 
-                if (isFree)
-                {
-                    WriteFixedString(accessor, ownerOffset, SzOsdOwnerSize, _ownerName);
-                }
-
-                long textOffset = useExtended ? ownerOffset + SzOsdOwnerSize : entryOffset;
-                WriteFixedString(accessor, textOffset, useExtended ? SzOsdExSize : SzOsdSize, text);
-
-                accessor.Write(HeaderOsdFrameOffset, accessor.ReadUInt32(HeaderOsdFrameOffset) + 1);
+                WriteFixedString(accessor, ownerOffset, SzOsdOwnerSize, _ownerName);
+                WriteSlotText(accessor, entryOffset, ownerOffset, useExtended, text);
 
                 _claimedSlot = i;
                 return true;
@@ -88,8 +107,17 @@ public sealed class RtssOsdClient : IDisposable
         }
         catch
         {
+            _nextRetryUtc = DateTime.UtcNow + UnavailableRetryInterval;
             return false;
         }
+    }
+
+    private static void WriteSlotText(
+        MemoryMappedViewAccessor accessor, long entryOffset, long ownerOffset, bool useExtended, string text)
+    {
+        long textOffset = useExtended ? ownerOffset + SzOsdOwnerSize : entryOffset;
+        WriteFixedString(accessor, textOffset, useExtended ? SzOsdExSize : SzOsdSize, text);
+        accessor.Write(HeaderOsdFrameOffset, accessor.ReadUInt32(HeaderOsdFrameOffset) + 1);
     }
 
     /// <summary>Libère notre créneau OSD (le vide) — à appeler quand l'overlay est désactivé ou à la

@@ -13,6 +13,11 @@ public sealed class AppSettings
     /// (le nom du plan est localisé par Windows donc on ne peut pas le retrouver de façon fiable par son nom).</summary>
     public string? UltimatePerformanceGuid { get; set; }
 
+    /// <summary>Plan actif juste avant que l'utilisateur n'active « Performances ultimes », pour le lui
+    /// rendre en décochant plutôt que de retomber systématiquement sur « Équilibré » (voir M10 du
+    /// rapport de revue : un plan OEM ou personnalisé actif avant coup était sinon perdu).</summary>
+    public string? PreUltimatePerformanceSchemeGuid { get; set; }
+
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
 
@@ -83,6 +88,16 @@ public sealed class AppWindowSettings
     /// <summary>Le message expliquant que l'app continue en arrière-plan n'est affiché qu'une fois :
     /// passé la première fermeture, l'utilisateur sait où retrouver la fenêtre.</summary>
     public bool TrayHintShown { get; set; }
+
+    /// <summary>Taille et position de la dernière fermeture normale (pas réduite dans la zone de
+    /// notification), en unités indépendantes du périphérique (DIP). Nuls tant que l'utilisateur n'a
+    /// jamais fermé l'app : la fenêtre garde alors sa taille par défaut, centrée (U4 du rapport de revue —
+    /// sans ça, la taille par défaut pouvait dépasser un écran de portable et devenir impossible à redimensionner).</summary>
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? Left { get; set; }
+    public double? Top { get; set; }
+    public bool IsMaximized { get; set; }
 }
 
 /// <summary>
@@ -195,6 +210,20 @@ public sealed class CpuControlSettings
 
     /// <summary>Profils enregistrés par l'utilisateur : tout l'onglet Processeur sous un nom.</summary>
     public List<CpuProfile> Profiles { get; set; } = new();
+
+    /// <summary>Vraies limites d'usine (firmware), capturées la première fois que PCPerfSuite lit le
+    /// processeur après un démarrage de Windows — voir <see cref="OriginalBootTimestampTicks"/> et
+    /// <c>CpuFirmwareDefaultsStore</c>. Sans cette mémorisation, relancer l'app avec « Appliquer au
+    /// démarrage » coché ferait relire la valeur déjà modifiée par PCPerfSuite comme si c'était celle
+    /// du firmware.</summary>
+    public float? OriginalSustainedWatts { get; set; }
+
+    public float? OriginalBurstWatts { get; set; }
+
+    /// <summary>Identifie la session Windows où <see cref="OriginalSustainedWatts"/>/<see cref="OriginalBurstWatts"/>
+    /// ont été capturées (heure de démarrage approximative, en ticks UTC). Tant qu'elle correspond au
+    /// démarrage courant, ces valeurs restent valables ; après un redémarrage, elles sont recapturées.</summary>
+    public long? OriginalBootTimestampTicks { get; set; }
 }
 
 public sealed class OverlaySettings
@@ -361,6 +390,21 @@ public static class AppSettingsStore
                 LastError = $"Enregistrement des réglages impossible ({ex.Message}).";
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort */ }
             }
+        }
+    }
+
+    /// <summary>Lit, modifie et enregistre sous un seul verrou : contrairement à un Load() suivi d'un
+    /// Save() séparé, deux appels concurrents (ex. l'interface et un service qui écrit depuis le pool de
+    /// threads, comme PowerPlanService) ne peuvent pas s'intercaler et perdre l'un des deux changements.
+    /// À préférer à Load()/Save() pour toute lecture-modification-écriture.</summary>
+    public static void Update(Action<AppSettings> mutate)
+    {
+        // Réentrant : Load() et Save() reprennent le même verrou sur ce thread sans blocage.
+        lock (Gate)
+        {
+            AppSettings settings = Load();
+            mutate(settings);
+            Save(settings);
         }
     }
 

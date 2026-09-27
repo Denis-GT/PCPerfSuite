@@ -275,7 +275,11 @@ public static class OverlayComposer
     public static string ToRtssText(IReadOnlyList<OverlayLine> lines, bool withColors, int sizePercent, RtssColumnWidths widths)
     {
         var text = new StringBuilder();
-        bool withSize = sizePercent is > 0 and not 100;
+        // "Envoyer les couleurs" est le seul réglage exposé, mais sa case à cocher promet plus (« Utilise
+        // les balises de mise en forme de RTSS. À décocher si les balises s'affichent en clair en jeu ») :
+        // <A=> (alignement) et <S=> (taille) sont donc aussi désactivées ici, avec un espacement par
+        // espaces en repli pour l'alignement plutôt que de laisser d'autres balises non désirées.
+        bool withSize = withColors && sizePercent is > 0 and not 100;
 
         if (withSize) text.Append($"<S={sizePercent}>");
 
@@ -287,7 +291,7 @@ public static class OverlayComposer
             if (i > 0) text.Append('\n');
 
             // Libellé calé à gauche, valeur à droite (collée à son unité), unité à gauche.
-            AppendColored(text, Field(line.Label, labelWidth, rightAligned: false), line.LabelColorHex, withColors);
+            AppendColored(text, Field(line.Label, labelWidth, rightAligned: false, withColors), line.LabelColorHex, withColors);
 
             foreach (OverlayCell cell in line.Cells)
             {
@@ -296,8 +300,8 @@ public static class OverlayComposer
                 int valueWidth = widths.Grow(cell.ValueGroup, cell.Value.Length);
                 int unitWidth = widths.Grow(cell.UnitGroup, cell.Unit.Length);
 
-                string field = cell.Gap + Field(cell.Value, valueWidth, rightAligned: true);
-                if (unitWidth > 0) field += Field(cell.Unit, unitWidth, rightAligned: false);
+                string field = cell.Gap + Field(cell.Value, valueWidth, rightAligned: true, withColors);
+                if (unitWidth > 0) field += Field(cell.Unit, unitWidth, rightAligned: false, withColors);
 
                 AppendColored(text, field, line.ValueColorHex, withColors);
             }
@@ -308,8 +312,15 @@ public static class OverlayComposer
         return text.ToString();
     }
 
-    private static string Field(string value, int width, bool rightAligned)
-        => width <= 0 ? value : $"<A={(rightAligned ? -width : width)}>{value}<A>";
+    /// <summary>Sans balises (<paramref name="withTags"/> faux), l'alignement se fait par espaces plutôt
+    /// que par <c>&lt;A=&gt;</c> : imparfait si la police de RTSS n'est pas à chasse fixe, mais toujours
+    /// préférable à une balise qui s'afficherait en clair sur un RTSS trop ancien pour la comprendre.</summary>
+    private static string Field(string value, int width, bool rightAligned, bool withTags)
+    {
+        if (width <= 0) return value;
+        if (withTags) return $"<A={(rightAligned ? -width : width)}>{value}<A>";
+        return rightAligned ? value.PadLeft(width) : value.PadRight(width);
+    }
 
     private static void AppendColored(StringBuilder text, string content, string colorHex, bool withColors)
     {

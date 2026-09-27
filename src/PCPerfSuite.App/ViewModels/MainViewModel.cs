@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.SystemInfo;
@@ -84,6 +85,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
+        _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
@@ -118,7 +120,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// pas dépendre d'une chaîne.</summary>
     partial void OnCurrentPageChanged(NavEntry? value)
     {
-        _processes.IsActive = ReferenceEquals(value?.ViewModel, _processes);
+        _isProcessesPageSelected = ReferenceEquals(value?.ViewModel, _processes);
         OnPropertyChanged(nameof(IsAppSettingsSelected));
         UpdateAttention();
 
@@ -133,13 +135,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnIsWindowShownChanged(bool value) => UpdateAttention();
 
+    /// <summary>Vrai quand l'onglet Processus est celui sélectionné, indépendamment de la visibilité de la
+    /// fenêtre (voir <see cref="UpdateAttention"/>, qui combine les deux pour <see cref="ProcessesViewModel.IsActive"/>).</summary>
+    private bool _isProcessesPageSelected;
+
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
-    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, et celui de l'onglet Installations.</summary>
+    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, celui de l'onglet Installations, et le
+    /// relevé de l'onglet Processus.</summary>
     private void UpdateAttention()
     {
         OnPropertyChanged(nameof(IsAppSettingsBlinking));
         OnPropertyChanged(nameof(AppSettingsToolTip));
         AppSettings.IsPageShown = IsAppSettingsSelected && IsWindowShown;
+
+        // Fenêtre rangée dans la zone de notification ou réduite : l'énumération complète des processus
+        // (bien plus coûteuse qu'un relevé de capteurs) ne sert à personne, même si l'onglet Processus
+        // était le dernier affiché.
+        _processes.IsActive = _isProcessesPageSelected && IsWindowShown;
     }
 
     /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
@@ -160,16 +172,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
+        // Chaque étape est protégée individuellement : _fans (retour au firmware) et _gpu/_cpu (retrait
+        // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
+        // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
         // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
-        _processes.Dispose();
-        _installations.Dispose();
-        _fans.Dispose();
-        _gpu.Dispose();
-        _cpu.Dispose();
-        _overlay.Dispose();
-        _monitoring.Dispose();
-        _gpuControl.Dispose();
-        _cpuControl.Dispose();
-        _hardware.Dispose();
+        DisposeSafely(_processes.Dispose, nameof(_processes));
+        DisposeSafely(_installations.Dispose, nameof(_installations));
+        DisposeSafely(_fans.Dispose, nameof(_fans));
+        DisposeSafely(_gpu.Dispose, nameof(_gpu));
+        DisposeSafely(_cpu.Dispose, nameof(_cpu));
+        DisposeSafely(_overlay.Dispose, nameof(_overlay));
+        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
+        DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
+        DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
+        DisposeSafely(_hardware.Dispose, nameof(_hardware));
+    }
+
+    private static void DisposeSafely(Action dispose, string name)
+    {
+        try { dispose(); }
+        catch (Exception ex) { CrashLog.Record(ex, $"fermeture {name}"); }
     }
 }

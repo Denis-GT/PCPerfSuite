@@ -123,14 +123,10 @@
                                     </Border>
 
                                     <StackPanel Grid.Column="1" Margin="14,0,20,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"/>
-                                            <Border Style="{StaticResource BadgeWarn}" Margin="10,0,0,0" VerticalAlignment="Center"
-                                                    Visibility="{Binding RequiresAdmin, Converter={StaticResource BoolToVisibility}}">
-                                                <TextBlock Text="Admin requis" Style="{StaticResource BadgeText}"/>
-                                            </Border>
-                                        </StackPanel>
+                                        <!-- Pas de badge "Admin requis" : PCPerfSuite tourne toujours en administrateur
+                                             (app.manifest), donc l'indiquer par catégorie n'apportait aucune information. -->
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,3,0,0"/>
                                         <controls:MeterBar Value="{Binding SharePercent}" Height="4" Margin="0,10,0,0" MaxWidth="360"
                                                            HorizontalAlignment="Stretch"/>
