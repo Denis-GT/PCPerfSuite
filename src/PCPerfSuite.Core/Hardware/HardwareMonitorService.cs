@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using LibreHardwareMonitor.Hardware;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
@@ -263,6 +264,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                     break;
 
                 case HardwareType.Network:
+                    // Une carte virtuelle (VPN, commutateur Hyper-V, WSL) mesure souvent le même trafic que
+                    // l'adaptateur physique sous-jacent : la sommer avec lui double le débit affiché.
+                    if (!IsPhysicalNetworkAdapter(hardware.Name)) break;
+
                     uploadRate = AddIfPresent(uploadRate, FindSensor(hardware, SensorType.Throughput, "Upload Speed")?.Value);
                     downloadRate = AddIfPresent(downloadRate, FindSensor(hardware, SensorType.Throughput, "Download Speed")?.Value);
                     break;
@@ -410,6 +415,34 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             if (FindSensor(hardware, SensorType.Power, name)?.Value is { } value) return value;
         }
         return null;
+    }
+
+    /// <summary>Interfaces réseau "physiques" vues par Windows (Ethernet, Wi-Fi, actives), pour ne pas
+    /// sommer le débit d'une carte virtuelle (VPN, commutateur Hyper-V, WSL) avec celui de l'adaptateur
+    /// qu'elle relaie réellement. Relu à chaque relevé du groupe Réseau (rarement dû) : brancher/débrancher
+    /// un câble ou activer un VPN doit se refléter sans attendre un redémarrage de l'app.</summary>
+    private static readonly NetworkInterfaceType[] PhysicalAdapterTypes =
+    {
+        NetworkInterfaceType.Ethernet, NetworkInterfaceType.Ethernet3Megabit, NetworkInterfaceType.FastEthernetT,
+        NetworkInterfaceType.FastEthernetFx, NetworkInterfaceType.GigabitEthernet, NetworkInterfaceType.Wireless80211,
+    };
+
+    private static bool IsPhysicalNetworkAdapter(string hardwareName)
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces().Any(nic =>
+                PhysicalAdapterTypes.Contains(nic.NetworkInterfaceType)
+                && nic.OperationalStatus == OperationalStatus.Up
+                && (hardwareName.Contains(nic.Description, StringComparison.OrdinalIgnoreCase)
+                    || nic.Description.Contains(hardwareName, StringComparison.OrdinalIgnoreCase)));
+        }
+        catch
+        {
+            // Best-effort : si Windows ne répond pas, on préfère compter la carte (comportement d'avant ce
+            // correctif) plutôt que de faire disparaître tout le débit réseau.
+            return true;
+        }
     }
 
     private bool IsPreferredGpu(HardwareType type) => (PreferredGpuVendor, type) switch
