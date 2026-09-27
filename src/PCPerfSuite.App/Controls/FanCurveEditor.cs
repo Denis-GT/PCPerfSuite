@@ -398,4 +398,17 @@ public sealed class FanCurveEditor : FrameworkElement
         ReleaseMouseCapture();
         RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
     }
+
+    /// <summary>La capture peut se perdre sans relâcher le bouton (Alt+Tab, une boîte de dialogue qui
+    /// s'ouvre pendant le glisser) : sans ce garde-fou, OnMouseMove continuait de recevoir les
+    /// déplacements de la souris — WPF les route à l'élément survolé même sans capture — et le point
+    /// suivait la souris sans clic, la régulation lisant alors des positions en direct.</summary>
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        if (_dragIndex < 0) return;
+
+        _dragIndex = -1;
+        RaiseEvent(new RoutedEventArgs(EditingCompletedEvent, this));
+    }
 }
