@@ -1,3 +1,4 @@
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Xml.Linq;
 
@@ -79,6 +80,23 @@ public static class StartupTask
         try
         {
             string executable = Environment.ProcessPath!;
+
+            // La tâche lance l'exécutable là où il se trouve, avec les autorisations maximales. Si ce
+            // dossier reste modifiable par un compte standard (app portable dans Téléchargements, sur le
+            // Bureau, ou toute copie hors d'un dossier protégé), n'importe quel programme non élevé
+            // pourrait y remplacer l'exe ou une DLL voisine (nvapi64.dll, cherchée d'abord à côté de
+            // l'exe) : une porte d'élévation silencieuse à chaque ouverture de session. On refuse plutôt
+            // que de créer ce risque sans le dire.
+            string? exeFolder = Path.GetDirectoryName(executable);
+            if (exeFolder is not null && IsWritableByStandardUsers(exeFolder))
+            {
+                error = $"Le dossier de PCPerfSuite ({exeFolder}) reste modifiable sans droits administrateur : un autre " +
+                        "programme pourrait y remplacer l'exécutable ou une DLL, qui serait ensuite lancé(e) avec les " +
+                        "autorisations maximales à chaque ouverture de session. Déplace PCPerfSuite dans un dossier " +
+                        "protégé (ex. Program Files) pour activer ce réglage.";
+                return false;
+            }
+
             dynamic service = Connect();
             dynamic folder = service.GetFolder("\\");
             folder.RegisterTask(TaskName, BuildDefinition(executable), TaskCreateOrUpdate, null, null, TaskLogonInteractiveToken, null);
@@ -153,6 +171,38 @@ public static class StartupTask
         }
 
         return null;
+    }
+
+    /// <summary>Vrai si le groupe intégré « Utilisateurs » (comptes standard) a un accès en écriture sur
+    /// ce dossier, par une règle qui l'autorise explicitement — jamais en cas d'échec de lecture des
+    /// autorisations (ex. lecteur réseau, système de fichiers qui ne les expose pas) : mieux vaut alors
+    /// laisser créer la tâche que refuser à tort sur une configuration qu'on n'a pas su lire.</summary>
+    private static bool IsWritableByStandardUsers(string folder)
+    {
+        try
+        {
+            var info = new DirectoryInfo(folder);
+            DirectorySecurity security = info.GetAccessControl();
+            AuthorizationRuleCollection rules = security.GetAccessRules(true, true, typeof(SecurityIdentifier));
+
+            var standardUsers = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+            var authenticatedUsers = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
+            const FileSystemRights writeRights = FileSystemRights.Write | FileSystemRights.WriteData
+                | FileSystemRights.CreateFiles | FileSystemRights.Modify | FileSystemRights.FullControl;
+
+            foreach (FileSystemAccessRule rule in rules)
+            {
+                if (rule.AccessControlType != AccessControlType.Allow) continue;
+                if (!standardUsers.Equals(rule.IdentityReference) && !authenticatedUsers.Equals(rule.IdentityReference)) continue;
+                if ((rule.FileSystemRights & writeRights) != 0) return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static dynamic Connect()
