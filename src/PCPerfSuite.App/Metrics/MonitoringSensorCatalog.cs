@@ -10,7 +10,7 @@ namespace PCPerfSuite.App.Metrics;
 /// </summary>
 public static class MonitoringSensorCatalog
 {
-    private static readonly MetricCategory Fans = new("fans", "Ventilateurs", "FAN", "#8FB8FF", "#5F8FD9");
+    private static readonly MetricCategory Fans = new("fans", "Ventilateurs", "FAN", "#8FB8FF", "#476BA3");
 
     public static IEnumerable<MetricDefinition> FromSnapshot(HardwareSnapshot snapshot)
     {

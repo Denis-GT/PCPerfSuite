@@ -32,7 +32,7 @@ public sealed class RtssStatusConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true
             ? "RTSS détecté — overlay actif."
-            : "RTSS introuvable. Installe et lance RivaTuner Statistics Server (guru3d.com) pour afficher l'overlay en jeu.";
+            : "RTSS introuvable. Installe et lance RivaTuner Statistics Server pour afficher l'overlay en jeu : Paramètres › Installations ouvre sa page de téléchargement officielle.";
 
     public object ConvertBack(object value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

@@ -21,16 +21,13 @@
                                  ToolTip="{Binding RefreshHint}"
                                  Text="{Binding RefreshMs, UpdateSourceTrigger=LostFocus}"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
-                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingCadences}" VerticalAlignment="Center"
+                    <!-- Chacun déroule son panneau juste sous la barre ; ouvrir l'un referme l'autre (voir le ViewModel). -->
+                    <ToggleButton Content="Cadence par capteur" Style="{StaticResource DropDownToggleButton}" Margin="0,2,12,2"
+                                  IsChecked="{Binding IsCustomizingCadences}"
                                   ToolTip="Cadence de relecture de chaque groupe de capteurs"/>
-                        <TextBlock Text="Cadence par capteur" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,2,28,2">
-                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsCustomizingMyMetrics}" VerticalAlignment="Center"
+                    <ToggleButton Content="Choisir les graphiques" Style="{StaticResource DropDownToggleButton}" Margin="0,2,28,2"
+                                  IsChecked="{Binding IsCustomizingMyMetrics}"
                                   ToolTip="Choisir les capteurs affichés en graphique"/>
-                        <TextBlock Text="Choisir les graphiques" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                    </StackPanel>
                     <!-- Remet à zéro les min, moyennes et max de toutes les tuiles d'un seul geste (avant un benchmark,
                          par exemple). Les courbes ne sont pas effacées. -->
                     <Button Content="Réinitialiser les statistiques" Style="{StaticResource GhostButton}" Margin="0,2,0,2"
@@ -40,8 +37,8 @@
             </Border>
 
             <!-- Cadence par groupe de capteurs, juste sous l'actualisation globale qu'elle affine. -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
-                    Visibility="{Binding IsCustomizingCadences, Converter={StaticResource BoolToVisibility}}">
+            <controls:RevealPanel IsOpen="{Binding IsCustomizingCadences}">
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Cadence des capteurs" Style="{StaticResource H2}"/>
                     <TextBlock Text="{Binding SensorCadencesHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"/>
@@ -96,10 +93,11 @@
                     </ItemsControl>
                 </StackPanel>
             </Border>
+            </controls:RevealPanel>
 
             <!-- Choix des capteurs affichés : catalogue partagé avec l'overlay et capteurs propres à la machine. -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
-                    Visibility="{Binding IsCustomizingMyMetrics, Converter={StaticResource BoolToVisibility}}">
+            <controls:RevealPanel IsOpen="{Binding IsCustomizingMyMetrics}">
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Capteurs affichés" Style="{StaticResource H2}"/>
                     <TextBox Text="Les ventilateurs, disques, sondes et tensions de la carte mère apparaissent dès le premier relevé."
@@ -107,6 +105,7 @@
                     <controls:MetricPicker DataContext="{Binding MyMetrics}"/>
                 </StackPanel>
             </Border>
+            </controls:RevealPanel>
 
             <!-- Tuiles graphiques : une par capteur choisi. -->
             <ItemsControl ItemsSource="{Binding MyMetricTiles}">
@@ -210,7 +209,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Aucun capteur affiché — active « Choisir les graphiques » pour en choisir." Style="{StaticResource Caption}"
+            <TextBlock Text="Aucun capteur affiché — ouvre « Choisir les graphiques » pour en choisir." Style="{StaticResource Caption}"
                        Visibility="{Binding MyMetricTiles.Count, Converter={StaticResource ZeroCountToVisibility}}" Margin="0,0,0,16"/>
 
             <!-- Batterie : ce qui n'évolue qu'au fil des mois (santé, capacités, cycles), donc sans courbe. Charge,

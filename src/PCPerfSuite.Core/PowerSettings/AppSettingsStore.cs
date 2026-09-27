@@ -13,6 +13,11 @@ public sealed class AppSettings
     /// (le nom du plan est localisé par Windows donc on ne peut pas le retrouver de façon fiable par son nom).</summary>
     public string? UltimatePerformanceGuid { get; set; }
 
+    /// <summary>Plan actif juste avant que l'utilisateur n'active « Performances ultimes », pour le lui
+    /// rendre en décochant plutôt que de retomber systématiquement sur « Équilibré » (voir M10 du
+    /// rapport de revue : un plan OEM ou personnalisé actif avant coup était sinon perdu).</summary>
+    public string? PreUltimatePerformanceSchemeGuid { get; set; }
+
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
 
@@ -33,6 +38,9 @@ public sealed class AppSettings
 
     /// <summary>Noms et catégories choisis par l'utilisateur pour ses ventilateurs, un par identifiant de ventilateur.</summary>
     public List<FanIdentityOverride> FanIdentities { get; set; } = new();
+
+    /// <summary>Profils de ventilation enregistrés par l'utilisateur : toutes les courbes sous un nom.</summary>
+    public List<FanProfile> FanProfiles { get; set; } = new();
 
     /// <summary>Réglages de contrôle GPU (limite de puissance, overclocking, ventilateurs NVAPI).</summary>
     public GpuControlSettings Gpu { get; set; } = new();
@@ -80,6 +88,16 @@ public sealed class AppWindowSettings
     /// <summary>Le message expliquant que l'app continue en arrière-plan n'est affiché qu'une fois :
     /// passé la première fermeture, l'utilisateur sait où retrouver la fenêtre.</summary>
     public bool TrayHintShown { get; set; }
+
+    /// <summary>Taille et position de la dernière fermeture normale (pas réduite dans la zone de
+    /// notification), en unités indépendantes du périphérique (DIP). Nuls tant que l'utilisateur n'a
+    /// jamais fermé l'app : la fenêtre garde alors sa taille par défaut, centrée (U4 du rapport de revue —
+    /// sans ça, la taille par défaut pouvait dépasser un écran de portable et devenir impossible à redimensionner).</summary>
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? Left { get; set; }
+    public double? Top { get; set; }
+    public bool IsMaximized { get; set; }
 }
 
 /// <summary>
@@ -192,6 +210,20 @@ public sealed class CpuControlSettings
 
     /// <summary>Profils enregistrés par l'utilisateur : tout l'onglet Processeur sous un nom.</summary>
     public List<CpuProfile> Profiles { get; set; } = new();
+
+    /// <summary>Vraies limites d'usine (firmware), capturées la première fois que PCPerfSuite lit le
+    /// processeur après un démarrage de Windows — voir <see cref="OriginalBootTimestampTicks"/> et
+    /// <c>CpuFirmwareDefaultsStore</c>. Sans cette mémorisation, relancer l'app avec « Appliquer au
+    /// démarrage » coché ferait relire la valeur déjà modifiée par PCPerfSuite comme si c'était celle
+    /// du firmware.</summary>
+    public float? OriginalSustainedWatts { get; set; }
+
+    public float? OriginalBurstWatts { get; set; }
+
+    /// <summary>Identifie la session Windows où <see cref="OriginalSustainedWatts"/>/<see cref="OriginalBurstWatts"/>
+    /// ont été capturées (heure de démarrage approximative, en ticks UTC). Tant qu'elle correspond au
+    /// démarrage courant, ces valeurs restent valables ; après un redémarrage, elles sont recapturées.</summary>
+    public long? OriginalBootTimestampTicks { get; set; }
 }
 
 public sealed class OverlaySettings
@@ -205,8 +237,13 @@ public sealed class OverlaySettings
     /// <summary>Une ligne par métrique au lieu d'une ligne par catégorie.</summary>
     public bool OneLinePerMetric { get; set; }
 
-    /// <summary>Sur la ligne MEM (mémoire du GPU + RAM), fait précéder chaque groupe de « VRAM » / « RAM ».</summary>
-    public bool MemorySubLabels { get; set; } = true;
+    /// <summary>Ordre des lignes en mode une ligne par catégorie : clés de catégorie (« vram » pour la ligne de la
+    /// mémoire du GPU). Null tant que l'utilisateur n'a rien déplacé : c'est alors l'ordre du catalogue.</summary>
+    public List<string>? LineOrder { get; set; }
+
+    /// <summary>Ordre des lignes en mode une ligne par métrique : identifiants du catalogue de métriques.
+    /// Null tant que l'utilisateur n'a rien déplacé.</summary>
+    public List<string>? MetricLineOrder { get; set; }
 
     /// <summary>Cadence de rafraîchissement de l'overlay, en millisecondes. Plancher : la cadence du
     /// monitoring, qui est la source des valeurs.</summary>
@@ -241,6 +278,13 @@ public sealed class OverlayAppearanceSettings
     /// &lt;S=...&gt;). 100 = taille RTSS d'origine.</summary>
     public int RtssSizePercent { get; set; } = 100;
 
+    /// <summary>Espaces entre deux valeurs d'une même ligne (« CPU  45% 62°C »).</summary>
+    public int ValueSpacing { get; set; } = 1;
+
+    /// <summary>Espaces des séparations : après le nom de la ligne, avant chaque libellé de la ligne JEU (MOY, 1%…)
+    /// et de chaque côté d'un débit disque ou réseau.</summary>
+    public int SeparatorSpacing { get; set; } = 2;
+
     /// <summary>Colore le nom de chaque ligne (CPU, RAM, NET...) avec la couleur de sa catégorie.</summary>
     public bool UseCategoryColors { get; set; } = true;
 
@@ -248,11 +292,18 @@ public sealed class OverlayAppearanceSettings
     /// version de RTSS trop ancienne affiche les balises en clair au lieu de les interpréter.</summary>
     public bool SendColorsToRtss { get; set; } = true;
 
-    /// <summary>Couleur des valeurs (les libellés, eux, prennent la couleur de leur catégorie).</summary>
+    /// <summary>Couleur commune des valeurs : celle de toutes les valeurs quand les couleurs par catégorie sont
+    /// désactivées, et sinon celle des catégories dont la couleur des valeurs n'a pas été changée.</summary>
     public string ValueColor { get; set; } = "#FFFFFF";
 
-    /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Une catégorie absente garde la
-    /// couleur par défaut du catalogue.</summary>
+    /// <summary>Couleur des valeurs par catégorie, clé = MetricCategory.Key. Ne contient que les catégories dont
+    /// l'utilisateur a changé la couleur des valeurs : les autres suivent <see cref="ValueColor"/>.</summary>
+    public Dictionary<string, string> CategoryValueColors { get; set; } = new();
+
+    /// <summary>Couleur par catégorie, clé = MetricCategory.Key. Ne contient que les couleurs que l'utilisateur a
+    /// changées : une catégorie absente suit la couleur par défaut du catalogue, y compris quand elle change d'une
+    /// version à l'autre. Les fichiers des versions précédentes, qui les enregistraient toutes, sont migrés à la
+    /// lecture (un ancien défaut n'est pas un choix).</summary>
     public Dictionary<string, string> CategoryColors { get; set; } = new();
 
     public OverlayAnchor Anchor { get; set; } = OverlayAnchor.TopLeft;
@@ -339,6 +390,21 @@ public static class AppSettingsStore
                 LastError = $"Enregistrement des réglages impossible ({ex.Message}).";
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort */ }
             }
+        }
+    }
+
+    /// <summary>Lit, modifie et enregistre sous un seul verrou : contrairement à un Load() suivi d'un
+    /// Save() séparé, deux appels concurrents (ex. l'interface et un service qui écrit depuis le pool de
+    /// threads, comme PowerPlanService) ne peuvent pas s'intercaler et perdre l'un des deux changements.
+    /// À préférer à Load()/Save() pour toute lecture-modification-écriture.</summary>
+    public static void Update(Action<AppSettings> mutate)
+    {
+        // Réentrant : Load() et Save() reprennent le même verrou sur ce thread sans blocage.
+        lock (Gate)
+        {
+            AppSettings settings = Load();
+            mutate(settings);
+            Save(settings);
         }
     }
 

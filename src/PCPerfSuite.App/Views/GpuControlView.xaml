@@ -17,6 +17,14 @@
 
             <StackPanel Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVisibility}}">
 
+                <!-- ADLX (AMD) et IGCL (Intel) : intégration native pas encore vérifiée sur une machine
+                     réelle (règle 6 de CLAUDE.md) — seule NVAPI (NVIDIA) l'a été. -->
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                        Visibility="{Binding IsExperimentalBackend, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                               Text="{Binding ExperimentalNotice}" TextWrapping="Wrap"/>
+                </Border>
+
                 <!-- ============ En-tête carte + relevés ============ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>

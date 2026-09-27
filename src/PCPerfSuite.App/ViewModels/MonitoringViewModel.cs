@@ -637,6 +637,17 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private bool isCustomizingCadences;
 
+    // Les deux panneaux déroulants de la barre d'outils ne s'ouvrent pas ensemble : ouvrir l'un referme l'autre.
+    partial void OnIsCustomizingCadencesChanged(bool value)
+    {
+        if (value) IsCustomizingMyMetrics = false;
+    }
+
+    partial void OnIsCustomizingMyMetricsChanged(bool value)
+    {
+        if (value) IsCustomizingCadences = false;
+    }
+
     public string SensorCadencesHint =>
         $"Chaque groupe est relu à sa propre fréquence, et sa courbe n'avance qu'à ce rythme. En Auto, il suit l'actualisation " +
         $"({RefreshMs} ms), sauf si sa lecture coûte cher : il est alors espacé pour ne pas y passer plus de " +
@@ -880,8 +891,21 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
         MyMetrics.UpdateAvailability(sample);
 
-        SnapshotUpdated?.Invoke(s);
-        MetricsUpdated?.Invoke(sample);
+        InvokeEachSafely(SnapshotUpdated, s);
+        InvokeEachSafely(MetricsUpdated, sample);
+    }
+
+    /// <summary>Appelle chaque abonné individuellement plutôt que le délégué multicast d'un bloc : une
+    /// exception dans un abonné (par exemple l'overlay) ne doit jamais empêcher les suivants de recevoir
+    /// le relevé, comme la sécurité thermique (<see cref="FanCurvesViewModel"/>, <c>CpuControlViewModel</c>).</summary>
+    private static void InvokeEachSafely<T>(Action<T>? handlers, T arg)
+    {
+        if (handlers is null) return;
+        foreach (Action<T> handler in handlers.GetInvocationList().Cast<Action<T>>())
+        {
+            try { handler(arg); }
+            catch (Exception ex) { CrashLog.Record(ex, $"abonné {handler.Method.DeclaringType?.Name}.{handler.Method.Name}"); }
+        }
     }
 
     private void ApplyDisks(IReadOnlyList<DiskSnapshot> snapshots)

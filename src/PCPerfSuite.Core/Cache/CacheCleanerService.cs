@@ -223,7 +223,18 @@ public sealed class CacheCleanerService
             try { subDirs = Directory.EnumerateDirectories(dir); }
             catch { /* ignore */ }
 
-            foreach (string sub in subDirs) stack.Push(sub);
+            foreach (string sub in subDirs)
+            {
+                // Ne suit jamais une jonction ni un lien symbolique : sans ce garde-fou, un dossier
+                // pointé par une jonction créée dans un chemin de cache (ex. %TEMP%) serait parcouru
+                // et son contenu supprimé alors qu'il est hors du dossier de cache réel.
+                bool isReparsePoint;
+                try { isReparsePoint = new DirectoryInfo(sub).Attributes.HasFlag(FileAttributes.ReparsePoint); }
+                catch { continue; }
+
+                if (isReparsePoint) continue;
+                stack.Push(sub);
+            }
         }
     }
 

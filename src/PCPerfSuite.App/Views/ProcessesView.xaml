@@ -435,7 +435,7 @@
                                         Text="{Binding MemberCountDisplay, Mode=OneWay}"
                                         Foreground="{StaticResource TextTertiaryBrush}"/>
                                 </TextBlock>
-                                <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                <TextBox Text="{Binding PathDisplay, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
                                          TextWrapping="Wrap"/>
                                 <!-- Un agrégat n'a ni PID ni parent : cette ligne ne le concerne pas. -->
                                 <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"
@@ -467,7 +467,7 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <StackPanel Width="200" Margin="0,0,14,0">
                                     <TextBlock Style="{StaticResource Caption}">
-                                        <Run Text="CPU"/><Run Text="{Binding CpuDisplay, Mode=OneWay}" FontWeight="SemiBold"
+                                        <Run Text="CPU "/><Run Text="{Binding CpuDisplay, Mode=OneWay}" FontWeight="SemiBold"
                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
                                     </TextBlock>
                                     <controls:Sparkline Series="{Binding CpuHistory}" Height="48" Margin="0,6,0,0"
@@ -475,7 +475,7 @@
                                 </StackPanel>
                                 <StackPanel Width="200">
                                     <TextBlock Style="{StaticResource Caption}">
-                                        <Run Text="Mémoire"/><Run Text="{Binding MemoryDisplay, Mode=OneWay}" FontWeight="SemiBold"
+                                        <Run Text="Mémoire "/><Run Text="{Binding MemoryDisplay, Mode=OneWay}" FontWeight="SemiBold"
                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
                                     </TextBlock>
                                     <controls:Sparkline Series="{Binding MemoryHistory}" Height="48" Margin="0,6,0,0"

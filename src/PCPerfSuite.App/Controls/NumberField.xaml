@@ -4,20 +4,31 @@
              xmlns:local="clr-namespace:PCPerfSuite.App.Controls"
              x:Name="Root">
 
-    <!-- Champ d'entier avec son unité dans le cadre, et la plage autorisée à côté : sans curseur, rien d'autre
-         ne dit entre quelles valeurs on peut aller. Le filtrage des touches, les bornes et la transmission
-         au ViewModel sont dans NumericInput. -->
+    <!-- Champ d'entier avec son unité dans le cadre. La plage autorisée ne s'affiche à côté qu'au moment où la saisie
+         en sort (elle passe alors en couleur d'avertissement), puis disparaît dès que la valeur redevient valide.
+         Le filtrage des touches, les bornes et la transmission au ViewModel sont dans NumericInput. -->
     <StackPanel Orientation="Horizontal">
-        <TextBox Style="{StaticResource UnitTextBox}"
+        <TextBox x:Name="Field" Style="{StaticResource UnitTextBox}"
                  Tag="{Binding Unit, ElementName=Root}"
                  local:NumericInput.IsNumeric="True"
                  local:NumericInput.Minimum="{Binding Minimum, ElementName=Root}"
                  local:NumericInput.Maximum="{Binding Maximum, ElementName=Root}"
                  local:NumericInput.Step="{Binding Step, ElementName=Root}"
                  Text="{Binding Value, ElementName=Root, UpdateSourceTrigger=LostFocus}"/>
-        <TextBlock Text="{Binding HintText, ElementName=Root}" Style="{StaticResource Caption}"
-                   Foreground="{StaticResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="12,0,0,0"
+        <TextBlock Text="{Binding HintText, ElementName=Root}"
+                   VerticalAlignment="Center" Margin="12,0,0,0"
                    TextWrapping="NoWrap"
-                   Visibility="{Binding HintText, ElementName=Root, Converter={StaticResource NullToVisibility}}"/>
+                   Visibility="{Binding HintText, ElementName=Root, Converter={StaticResource NullToVisibility}}">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+                    <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsInputOutOfRange, ElementName=Root}" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource WarnBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
     </StackPanel>
 </UserControl>

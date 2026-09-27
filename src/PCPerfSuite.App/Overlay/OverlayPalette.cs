@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Media;
+using PCPerfSuite.App.Metrics;
 
 namespace PCPerfSuite.App.Overlay;
 
@@ -7,13 +8,17 @@ namespace PCPerfSuite.App.Overlay;
 /// jeu, plutôt qu'un sélecteur de couleur complet (un clic suffit à changer une ligne).</summary>
 public static class OverlayPalette
 {
-    /// <summary>Contient toutes les couleurs par défaut du catalogue de métriques, pour que la
-    /// couleur active d'une catégorie soit toujours l'une des pastilles affichées.</summary>
+    /// <summary>Teintes vives, puis les couleurs par défaut des catégories du catalogue de métriques (plus
+    /// foncées). Ces dernières y sont reprises du catalogue, pour que la couleur active d'une catégorie
+    /// non personnalisée soit toujours l'une des pastilles affichées, quoi qu'on change à ses défauts.</summary>
     public static IReadOnlyList<string> Colors { get; } = new[]
-    {
-        "#FFFFFF", "#B7C0D8", "#4CC2FF", "#00E5FF", "#4DD9C0", "#7BE38B",
-        "#C6F432", "#FFD166", "#FFB74D", "#FF7A9C", "#FF5A52", "#C08CFF",
-    };
+        {
+            "#FFFFFF", "#B7C0D8", "#4CC2FF", "#00E5FF", "#4DD9C0", "#7BE38B",
+            "#C6F432", "#FFD166", "#FFB74D", "#FF7A9C", "#FF5A52", "#C08CFF",
+        }
+        .Concat(MetricCatalog.Categories.Select(category => category.OverlayColor))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     /// <summary>Convertit "#RRGGBB" en pinceau figé (Freeze : partagé entre l'aperçu et la fenêtre
     /// d'overlay sans recréer un pinceau à chaque relevé). Retombe sur blanc si la chaîne est
