@@ -119,6 +119,11 @@ public partial class MainWindow : Window
         WindowActivator.Restore(this);
     }
 
+    /// <summary>Appelé quand une seconde copie de l'app est lancée (voir <see cref="App.OnStartup"/>
+    /// et le mutex d'instance unique) : ramène cette fenêtre au premier plan au lieu de laisser
+    /// l'utilisateur croire qu'un second exemplaire a démarré.</summary>
+    public void ActivateFromOtherInstance() => RestoreFromTray();
+
     private void OpenTrayMenu(Point screenPoint)
     {
         if (TryFindResource("TrayMenu") is not ContextMenu menu) return;
