@@ -195,6 +195,20 @@ public sealed class CpuControlSettings
 
     /// <summary>Profils enregistrés par l'utilisateur : tout l'onglet Processeur sous un nom.</summary>
     public List<CpuProfile> Profiles { get; set; } = new();
+
+    /// <summary>Vraies limites d'usine (firmware), capturées la première fois que PCPerfSuite lit le
+    /// processeur après un démarrage de Windows — voir <see cref="OriginalBootTimestampTicks"/> et
+    /// <c>CpuFirmwareDefaultsStore</c>. Sans cette mémorisation, relancer l'app avec « Appliquer au
+    /// démarrage » coché ferait relire la valeur déjà modifiée par PCPerfSuite comme si c'était celle
+    /// du firmware.</summary>
+    public float? OriginalSustainedWatts { get; set; }
+
+    public float? OriginalBurstWatts { get; set; }
+
+    /// <summary>Identifie la session Windows où <see cref="OriginalSustainedWatts"/>/<see cref="OriginalBurstWatts"/>
+    /// ont été capturées (heure de démarrage approximative, en ticks UTC). Tant qu'elle correspond au
+    /// démarrage courant, ces valeurs restent valables ; après un redémarrage, elles sont recapturées.</summary>
+    public long? OriginalBootTimestampTicks { get; set; }
 }
 
 public sealed class OverlaySettings

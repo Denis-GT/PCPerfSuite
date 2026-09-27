@@ -131,8 +131,12 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
         // l'interface le dit (CpuMaxWattsResolver.ForAmd).
         CpuMaxWattsInfo maxWatts = CpuMaxWattsResolver.ForAmd(values.sustained, values.burst, MinAllowedWatts);
 
+        // La table SMU peut déjà porter une limite reposée par PCPerfSuite au démarrage (« Appliquer au
+        // démarrage ») lors d'une session Windows précédente : ce n'est alors plus la valeur d'usine.
+        (float defaultSustained, float defaultBurst) = CpuFirmwareDefaultsStore.Resolve(values.sustained, values.burst);
+
         return new AmdSmuBackend(
-            smu, codeName, isApu, mp1, values.sustained, values.burst, MinAllowedWatts, maxWatts);
+            smu, codeName, isApu, mp1, defaultSustained, defaultBurst, MinAllowedWatts, maxWatts);
     }
 
     public CpuPowerLimitSnapshot? ReadPowerLimits()
