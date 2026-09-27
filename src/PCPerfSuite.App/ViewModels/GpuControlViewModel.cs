@@ -259,7 +259,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
         // Passe par le champ, pas la propriété : évite de déclencher OnPowerLimitPercentChanged
         // (qui appliquerait/persisterait) juste pour peupler l'affichage initial. On ne réapplique
         // explicitement que si l'utilisateur avait déjà choisi une valeur lors d'une session précédente.
-        bool reapply = IsPowerLimitSupported && SettingsMatchCurrentGpu && CanOverclock
+        bool reapply = IsPowerLimitSupported && ShouldReapplyAtStartup
                        && _settings.Gpu.PowerLimitPercent is not null;
         powerLimitPercent = reapply ? _settings.Gpu.PowerLimitPercent!.Value : snap.PowerLimitPercent;
         OnPropertyChanged(nameof(PowerLimitPercent));
