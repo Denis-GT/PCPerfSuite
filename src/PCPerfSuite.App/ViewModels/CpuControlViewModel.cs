@@ -333,6 +333,26 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
 
         _cpu.EmergencyRestored += OnEmergencyRestored;
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
+
+        // Une veille S3 réinitialise les limites MSR/SMU au firmware : sans ce ré-armement, l'onglet
+        // continuait d'afficher la limite posée avant la veille comme si elle tenait toujours.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        if (!ApplyAtStartup || !IsPowerLimitAvailable) return;
+
+        AppSettings settings = AppSettingsStore.Load();
+        if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
+
+        _suppressApply = true;
+        SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
+        BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
+        _suppressApply = false;
+
+        Apply();
     }
 
     /// <summary>Lit les limites en place, puis — uniquement si l'utilisateur l'a demandé — réapplique
@@ -706,5 +726,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         _cpu.EmergencyRestored -= OnEmergencyRestored;
         PawnIo.PropertyChanged -= OnPawnIoChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
     }
 }

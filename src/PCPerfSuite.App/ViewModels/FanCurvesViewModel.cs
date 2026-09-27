@@ -781,12 +781,23 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
         _lastSnapshotUtc = DateTime.UtcNow;
 
+        // Une veille S3 rend les ventilateurs au firmware : sans ce ré-armement, le cache _lastSentPercent
+        // ferait croire que la consigne manuelle/courbe posée avant la veille tient toujours, et elle ne
+        // serait jamais renvoyée au relevé suivant puisqu'il croirait qu'elle est déjà en place.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+
         // Chien de garde : si la boucle de relevé s'arrête (thread UI occupé, pilote bloqué, exception
         // en boucle dans GetSnapshot), toutes les consignes en mode Courbe/Manuel resteraient figées
         // indéfiniment sans lui. Il rend alors chaque ventilateur au firmware.
         _watchdogTimer = new DispatcherTimer { Interval = WatchdogCheckInterval };
         _watchdogTimer.Tick += (_, _) => CheckSnapshotWatchdog();
         _watchdogTimer.Start();
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        foreach (FanControlItemViewModel item in Fans) item.ForgetSentPercent();
     }
 
     /// <summary>Durée sans relevé au-delà de laquelle le chien de garde rend les ventilateurs au firmware.</summary>
@@ -1337,6 +1348,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         _watchdogTimer?.Stop();
         _watchdogTimer = null;
 
