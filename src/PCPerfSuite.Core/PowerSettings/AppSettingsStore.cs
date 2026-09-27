@@ -378,6 +378,21 @@ public static class AppSettingsStore
         }
     }
 
+    /// <summary>Lit, modifie et enregistre sous un seul verrou : contrairement à un Load() suivi d'un
+    /// Save() séparé, deux appels concurrents (ex. l'interface et un service qui écrit depuis le pool de
+    /// threads, comme PowerPlanService) ne peuvent pas s'intercaler et perdre l'un des deux changements.
+    /// À préférer à Load()/Save() pour toute lecture-modification-écriture.</summary>
+    public static void Update(Action<AppSettings> mutate)
+    {
+        // Réentrant : Load() et Save() reprennent le même verrou sur ce thread sans blocage.
+        lock (Gate)
+        {
+            AppSettings settings = Load();
+            mutate(settings);
+            Save(settings);
+        }
+    }
+
     /// <summary>Renomme le fichier illisible en .corrupt pour qu'il survive à l'enregistrement suivant.</summary>
     private static void TryBackupUnreadableFile()
     {

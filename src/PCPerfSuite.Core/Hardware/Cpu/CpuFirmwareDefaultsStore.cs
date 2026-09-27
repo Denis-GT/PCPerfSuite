@@ -24,23 +24,32 @@ public static class CpuFirmwareDefaultsStore
     public static (float Sustained, float Burst) Resolve(float freshlyReadSustained, float freshlyReadBurst)
     {
         long currentBoot = CurrentBootTimestampTicks();
+        float resultSustained = freshlyReadSustained;
+        float resultBurst = freshlyReadBurst;
 
-        AppSettings settings = AppSettingsStore.Load();
-        CpuControlSettings cpu = settings.Cpu;
-
-        if (cpu.OriginalBootTimestampTicks is { } stored
-            && Math.Abs(stored - currentBoot) <= BootTimeTolerance.Ticks
-            && cpu.OriginalSustainedWatts is { } sustained
-            && cpu.OriginalBurstWatts is { } burst)
+        // Update() plutôt que Load()/Save() séparés : le backend Intel et le backend AMD ne s'exécutent
+        // jamais ensemble, mais un appel concurrent depuis l'interface (relecture manuelle) ne doit pas
+        // pouvoir s'intercaler et perdre la capture.
+        AppSettingsStore.Update(settings =>
         {
-            return (sustained, burst);
-        }
+            CpuControlSettings cpu = settings.Cpu;
 
-        cpu.OriginalSustainedWatts = freshlyReadSustained;
-        cpu.OriginalBurstWatts = freshlyReadBurst;
-        cpu.OriginalBootTimestampTicks = currentBoot;
-        AppSettingsStore.Save(settings);
-        return (freshlyReadSustained, freshlyReadBurst);
+            if (cpu.OriginalBootTimestampTicks is { } stored
+                && Math.Abs(stored - currentBoot) <= BootTimeTolerance.Ticks
+                && cpu.OriginalSustainedWatts is { } sustained
+                && cpu.OriginalBurstWatts is { } burst)
+            {
+                resultSustained = sustained;
+                resultBurst = burst;
+                return;
+            }
+
+            cpu.OriginalSustainedWatts = freshlyReadSustained;
+            cpu.OriginalBurstWatts = freshlyReadBurst;
+            cpu.OriginalBootTimestampTicks = currentBoot;
+        });
+
+        return (resultSustained, resultBurst);
     }
 
     private static long CurrentBootTimestampTicks()

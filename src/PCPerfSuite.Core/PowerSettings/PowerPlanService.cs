@@ -53,8 +53,10 @@ public sealed partial class PowerPlanService
         string guid = m.Value.ToLowerInvariant();
         await RunPowercfgAsync($"-setactive {guid}");
 
-        settings.UltimatePerformanceGuid = guid;
-        AppSettingsStore.Save(settings);
+        // Update() plutôt que réutiliser `settings` chargé avant les deux appels powercfg ci-dessus :
+        // pendant cette attente, l'interface a pu enregistrer un autre changement, que réenregistrer
+        // notre copie devenue périmée aurait sinon écrasé.
+        AppSettingsStore.Update(s => s.UltimatePerformanceGuid = guid);
         return guid;
     }
 
@@ -77,8 +79,7 @@ public sealed partial class PowerPlanService
 
         if (!WellKnownSchemeGuids.Standard.Contains(active.Guid))
         {
-            settings.UltimatePerformanceGuid = active.Guid;
-            AppSettingsStore.Save(settings);
+            AppSettingsStore.Update(s => s.UltimatePerformanceGuid = active.Guid);
             return true;
         }
 
