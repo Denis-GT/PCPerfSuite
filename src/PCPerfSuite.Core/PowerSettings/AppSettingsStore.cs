@@ -88,6 +88,16 @@ public sealed class AppWindowSettings
     /// <summary>Le message expliquant que l'app continue en arrière-plan n'est affiché qu'une fois :
     /// passé la première fermeture, l'utilisateur sait où retrouver la fenêtre.</summary>
     public bool TrayHintShown { get; set; }
+
+    /// <summary>Taille et position de la dernière fermeture normale (pas réduite dans la zone de
+    /// notification), en unités indépendantes du périphérique (DIP). Nuls tant que l'utilisateur n'a
+    /// jamais fermé l'app : la fenêtre garde alors sa taille par défaut, centrée (U4 du rapport de revue —
+    /// sans ça, la taille par défaut pouvait dépasser un écran de portable et devenir impossible à redimensionner).</summary>
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? Left { get; set; }
+    public double? Top { get; set; }
+    public bool IsMaximized { get; set; }
 }
 
 /// <summary>
