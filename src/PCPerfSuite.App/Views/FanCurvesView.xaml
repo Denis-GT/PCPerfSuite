@@ -112,6 +112,16 @@
                     <TextBlock Text="{Binding PumpNote}" Style="{StaticResource Caption}" Margin="0,8,0,0"
                                Visibility="{Binding IsPump, Converter={StaticResource BoolToVisibility}}"/>
 
+                    <!-- Régulation dégradée (température absente/douteuse, ou relevés interrompus) : le
+                         ventilateur a été rendu au firmware, ce que la carte doit dire au lieu de laisser
+                         croire que le mode choisi est toujours actif. -->
+                    <Border Background="{StaticResource WarnBrush}" Opacity="0.9" CornerRadius="{StaticResource ControlRadius}"
+                            Padding="10,7" Margin="0,10,0,0"
+                            Visibility="{Binding DegradedWarning, Converter={StaticResource NullToVisibility}}">
+                        <TextBlock Text="{Binding DegradedWarning}" Style="{StaticResource Body}" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Border>
+
                     <!-- Manuel -->
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
                                 Visibility="{Binding Mode, Converter={StaticResource EnumEqualsVisibility}, ConverterParameter=Manual}">

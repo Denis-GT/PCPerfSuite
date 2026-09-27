@@ -28,6 +28,25 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// identique à chaque relevé. Null : rien n'est posé, le ventilateur est au firmware.</summary>
     private float? _lastSentPercent;
 
+    /// <summary>Relevés consécutifs, en mode Courbe, sans température exploitable (source absente ou
+    /// valeur invraisemblable). Au-delà de <see cref="MaxMissingTempStreak"/>, le ventilateur est rendu
+    /// au firmware plutôt que de rester figé à sa dernière vitesse logicielle : sans ce repli, une
+    /// protection GPU à 88 °C ne jouerait plus si la source de température disparaît.</summary>
+    private int _missingTempStreak;
+
+    private const int MaxMissingTempStreak = 3;
+
+    /// <summary>Bornes de plausibilité d'une température de composant. Hors de cet intervalle, la valeur
+    /// est traitée comme absente plutôt que de piloter la courbe avec un chiffre aberrant (sonde non
+    /// branchée, entrée flottante d'une puce Super I/O).</summary>
+    private const float MinPlausibleTempC = -40f;
+    private const float MaxPlausibleTempC = 150f;
+
+    /// <summary>Message affiché sur la carte quand la régulation par courbe est dégradée (température
+    /// absente ou douteuse depuis plusieurs relevés) : le ventilateur a alors été rendu au firmware.</summary>
+    [ObservableProperty]
+    private string? degradedWarning;
+
     /// <summary>Identifiant stable du ventilateur (voir <see cref="FanIdentityOverride.FanId"/>) : ce à quoi se rattachent
     /// sa courbe, son nom et sa catégorie enregistrés.</summary>
     public string FanId { get; }
@@ -287,6 +306,10 @@ public sealed partial class FanControlItemViewModel : ObservableObject
     /// <summary>Applique le mode courant au ventilateur pour ce relevé.</summary>
     public void Apply(float? tempC)
     {
+        // Valeur invraisemblable (sonde non branchée, entrée flottante) : traitée comme absente plutôt
+        // que de piloter la courbe avec un chiffre aberrant.
+        if (tempC is { } raw && (raw < MinPlausibleTempC || raw > MaxPlausibleTempC)) tempC = null;
+
         SourceTempC = tempC;
 
         // Pendant le repérage, la régulation est suspendue : elle repartirait sur la consigne du mode avant la fin.
@@ -294,6 +317,35 @@ public sealed partial class FanControlItemViewModel : ObservableObject
         {
             TargetPercent = 100;
             return;
+        }
+
+        if (Mode == FanControlMode.Curve)
+        {
+            if (tempC is null)
+            {
+                _missingTempStreak++;
+                if (_missingTempStreak >= MaxMissingTempStreak)
+                {
+                    // La température manque depuis trop longtemps : on rend la main au firmware plutôt
+                    // que de laisser le ventilateur figé à sa dernière vitesse logicielle, qui pourrait
+                    // être très en dessous de ce qu'il faudrait sans plus aucune régulation active.
+                    if (_lastSentPercent is not null) _controller.TrySetAuto(FanId);
+                    _lastSentPercent = null;
+                    TargetPercent = null;
+                    DegradedWarning = "Température indisponible : ventilateur rendu au BIOS.";
+                    return;
+                }
+            }
+            else
+            {
+                _missingTempStreak = 0;
+                DegradedWarning = null;
+            }
+        }
+        else
+        {
+            _missingTempStreak = 0;
+            DegradedWarning = null;
         }
 
         float? target = Mode switch
@@ -727,6 +779,41 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
         };
 
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
+        _lastSnapshotUtc = DateTime.UtcNow;
+
+        // Chien de garde : si la boucle de relevé s'arrête (thread UI occupé, pilote bloqué, exception
+        // en boucle dans GetSnapshot), toutes les consignes en mode Courbe/Manuel resteraient figées
+        // indéfiniment sans lui. Il rend alors chaque ventilateur au firmware.
+        _watchdogTimer = new DispatcherTimer { Interval = WatchdogCheckInterval };
+        _watchdogTimer.Tick += (_, _) => CheckSnapshotWatchdog();
+        _watchdogTimer.Start();
+    }
+
+    /// <summary>Durée sans relevé au-delà de laquelle le chien de garde rend les ventilateurs au firmware.</summary>
+    private static readonly TimeSpan WatchdogTimeout = TimeSpan.FromSeconds(15);
+
+    private static readonly TimeSpan WatchdogCheckInterval = TimeSpan.FromSeconds(5);
+
+    private DispatcherTimer? _watchdogTimer;
+    private DateTime _lastSnapshotUtc;
+    private bool _watchdogTripped;
+
+    private void CheckSnapshotWatchdog()
+    {
+        if (DateTime.UtcNow - _lastSnapshotUtc < WatchdogTimeout)
+        {
+            _watchdogTripped = false;
+            return;
+        }
+
+        if (_watchdogTripped) return;
+        _watchdogTripped = true;
+
+        foreach (FanControlItemViewModel item in Fans)
+        {
+            item.RestoreAuto();
+            item.DegradedWarning = "Relevés interrompus : ventilateur rendu au BIOS.";
+        }
     }
 
     // ---- Profils ----
@@ -947,6 +1034,9 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
+        _lastSnapshotUtc = DateTime.UtcNow;
+        _watchdogTripped = false;
+
         HasGpu = snapshot.Gpu is not null;
 
         // Une carte graphique arrive par deux chemins (voir GpuFanPairing) : ses coolers sont pilotés par l'API du
@@ -1247,6 +1337,8 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
+        _watchdogTimer?.Stop();
+        _watchdogTimer = null;
 
         foreach (FanControlItemViewModel item in Fans)
         {
