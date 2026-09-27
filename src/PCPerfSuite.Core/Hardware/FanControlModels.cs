@@ -61,6 +61,13 @@ public sealed class FanCurveConfig
     /// Tous les ventilateurs ne redémarrent pas proprement : à utiliser en connaissance de cause.</summary>
     public float? StopBelowTempC { get; set; }
 
+    /// <summary>De combien de points de % par seconde la consigne peut monter (voir <see cref="FanSpeedRamp"/>).
+    /// <see cref="FanSpeedRamp.MaxPercentPerSecond"/> = sans limite, le comportement d'avant ce réglage.</summary>
+    public float RampUpPercentPerSecond { get; set; } = FanSpeedRamp.MaxPercentPerSecond;
+
+    /// <summary>De combien de points de % par seconde la consigne peut descendre.</summary>
+    public float RampDownPercentPerSecond { get; set; } = FanSpeedRamp.MaxPercentPerSecond;
+
     /// <summary>Copie indépendante, points compris : modifier un ventilateur ne doit pas modifier le profil
     /// où sa configuration a été enregistrée, ni l'inverse.</summary>
     public FanCurveConfig Clone() => new()
@@ -74,6 +81,8 @@ public sealed class FanCurveConfig
         MinPercent = MinPercent,
         MaxPercent = MaxPercent,
         StopBelowTempC = StopBelowTempC,
+        RampUpPercentPerSecond = RampUpPercentPerSecond,
+        RampDownPercentPerSecond = RampDownPercentPerSecond,
     };
 }
 
@@ -242,5 +251,82 @@ public sealed class FanCurveRegulator
     {
         _referenceTempC = null;
         _stopped = false;
+    }
+}
+
+/// <summary>
+/// Vitesse de changement de régime : la consigne envoyée au ventilateur rejoint celle de la courbe à un rythme borné,
+/// un pour la montée (accélération) et un pour la descente (décélération), en points de % par seconde. Un ventilateur
+/// qui change de régime d'un coup s'entend bien plus qu'un qui glisse ; beaucoup préfèrent une montée rapide, pour
+/// suivre la chauffe, et une descente lente, qui passe inaperçue.
+///
+/// Complète l'hystérésis sans la remplacer : l'hystérésis décide QUAND la consigne descend, la rampe À QUELLE
+/// VITESSE le ventilateur y va. Le temps est celui qui s'est réellement écoulé entre deux relevés : la rampe ne
+/// dépend pas de la cadence de rafraîchissement choisie dans le Monitoring.
+///
+/// Un état par ventilateur (la dernière consigne posée et son heure), d'où une petite classe.
+/// </summary>
+public sealed class FanSpeedRamp
+{
+    public const float MinPercentPerSecond = 1;
+
+    /// <summary>À partir de cette valeur, pas de limite : la consigne suit la courbe d'un coup.</summary>
+    public const float MaxPercentPerSecond = 100;
+
+    private float? _output;
+    private TimeSpan _lastStep;
+
+    /// <summary>
+    /// La consigne à poser maintenant pour aller vers <paramref name="target"/>.
+    /// </summary>
+    /// <param name="currentPercent">Consigne lue sur le matériel : point de départ de la rampe quand elle n'en a pas
+    /// encore (lancement de l'app, passage en mode Courbe), pour qu'un ventilateur laissé à 40 % par le BIOS monte ou
+    /// descende depuis 40 % au lieu de sauter. Null si elle n'est pas lue : la rampe part alors de la cible.</param>
+    /// <param name="now">Horloge monotone (pas l'heure murale, qui peut reculer).</param>
+    public float Step(float target, float upPercentPerSecond, float downPercentPerSecond, float? currentPercent, TimeSpan now)
+    {
+        if (_output is not { } previous)
+        {
+            previous = currentPercent is { } read && float.IsFinite(read) ? Math.Clamp(read, 0, 100) : target;
+            _lastStep = now;
+        }
+
+        double seconds = Math.Max(0, (now - _lastStep).TotalSeconds);
+        _lastStep = now;
+
+        // Un ventilateur à l'arrêt repart directement à sa consigne : aux petits pourcentages par lesquels la rampe le
+        // ferait passer, beaucoup de ventilateurs n'ont pas assez de couple pour démarrer.
+        float next = previous <= 0 && target > 0
+            ? target
+            : Advance(previous, target, upPercentPerSecond, downPercentPerSecond, seconds);
+
+        _output = next;
+        return next;
+    }
+
+    /// <summary>Pose une consigne sans rampe — la protection thermique ne doit pas attendre. La suite repart de là, pour
+    /// que la redescente reste progressive.</summary>
+    public void Jump(float percent, TimeSpan now)
+    {
+        _output = percent;
+        _lastStep = now;
+    }
+
+    /// <summary>Oublie la dernière consigne : la prochaine partira de ce que le matériel indique. À appeler quand
+    /// quelqu'un d'autre que la rampe a changé la vitesse (mode Auto, repérage, autre mode).</summary>
+    public void Reset() => _output = null;
+
+    /// <summary>Le pas autorisé en <paramref name="seconds"/> secondes, de <paramref name="from"/> vers <paramref name="to"/>,
+    /// sans jamais dépasser la cible. Un rythme illisible (fichier édité à la main) vaut « sans limite », jamais « figé ».</summary>
+    public static float Advance(float from, float to, float upPercentPerSecond, float downPercentPerSecond, double seconds)
+    {
+        float rate = to >= from ? upPercentPerSecond : downPercentPerSecond;
+        if (!float.IsFinite(rate) || rate >= MaxPercentPerSecond) return to;
+
+        // Horloge immobile, qui recule ou illisible : on ne bouge pas, et surtout pas à l'envers.
+        if (!(seconds > 0)) return from;
+
+        float step = (float)(Math.Max(rate, MinPercentPerSecond) * seconds);
+        return to > from ? Math.Min(to, from + step) : Math.Max(to, from - step);
     }
 }
