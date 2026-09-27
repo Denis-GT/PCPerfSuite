@@ -13,6 +13,11 @@ public sealed class AppSettings
     /// (le nom du plan est localisé par Windows donc on ne peut pas le retrouver de façon fiable par son nom).</summary>
     public string? UltimatePerformanceGuid { get; set; }
 
+    /// <summary>Plan actif juste avant que l'utilisateur n'active « Performances ultimes », pour le lui
+    /// rendre en décochant plutôt que de retomber systématiquement sur « Équilibré » (voir M10 du
+    /// rapport de revue : un plan OEM ou personnalisé actif avant coup était sinon perdu).</summary>
+    public string? PreUltimatePerformanceSchemeGuid { get; set; }
+
     /// <summary>Intervalle de rafraîchissement du monitoring, en millisecondes.</summary>
     public int MonitoringRefreshMs { get; set; } = 1000;
 
