@@ -75,9 +75,18 @@ public partial class MainWindow : Window
     /// s'exécute ici et une seule fois, une fenêtre ne déclenchant Closed qu'au plus une fois.</summary>
     private void OnClosed(object? sender, EventArgs e)
     {
-        _tray.Dispose();
-        _viewModel.Dispose();
-        Application.Current.Shutdown();
+        // Shutdown() dans un finally : avec OnExplicitShutdown, une exception dans _tray.Dispose() ou
+        // _viewModel.Dispose() laisserait sinon un processus sans fenêtre ni icône tourner indéfiniment
+        // — exactement le « processus invisible » que OnExplicitShutdown cherche à éviter.
+        try
+        {
+            _tray.Dispose();
+            _viewModel.Dispose();
+        }
+        finally
+        {
+            Application.Current.Shutdown();
+        }
     }
 
     private void UpdateWindowShown() => _viewModel.IsWindowShown = IsVisible && WindowState != WindowState.Minimized;

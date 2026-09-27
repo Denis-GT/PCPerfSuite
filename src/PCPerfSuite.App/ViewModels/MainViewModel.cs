@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.SystemInfo;
@@ -161,16 +162,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
+        // Chaque étape est protégée individuellement : _fans (retour au firmware) et _gpu/_cpu (retrait
+        // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
+        // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
         // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
-        _processes.Dispose();
-        _installations.Dispose();
-        _fans.Dispose();
-        _gpu.Dispose();
-        _cpu.Dispose();
-        _overlay.Dispose();
-        _monitoring.Dispose();
-        _gpuControl.Dispose();
-        _cpuControl.Dispose();
-        _hardware.Dispose();
+        DisposeSafely(_processes.Dispose, nameof(_processes));
+        DisposeSafely(_installations.Dispose, nameof(_installations));
+        DisposeSafely(_fans.Dispose, nameof(_fans));
+        DisposeSafely(_gpu.Dispose, nameof(_gpu));
+        DisposeSafely(_cpu.Dispose, nameof(_cpu));
+        DisposeSafely(_overlay.Dispose, nameof(_overlay));
+        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
+        DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
+        DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
+        DisposeSafely(_hardware.Dispose, nameof(_hardware));
+    }
+
+    private static void DisposeSafely(Action dispose, string name)
+    {
+        try { dispose(); }
+        catch (Exception ex) { CrashLog.Record(ex, $"fermeture {name}"); }
     }
 }

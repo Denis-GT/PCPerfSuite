@@ -914,9 +914,17 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
-        float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
-        control.SetSoftware(clamped);
-        return true;
+        try
+        {
+            float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
+            control.SetSoftware(clamped);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Best-effort (règle 2) : un pilote qui refuse l'écriture ne doit jamais planter l'app.
+            return false;
+        }
     }
 
     /// <summary>
@@ -941,8 +949,15 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         IControl? control = FindControl(controlSensorId);
         if (control is null) return false;
 
-        control.SetDefault();
-        return true;
+        try
+        {
+            control.SetDefault();
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private IControl? FindControl(string controlSensorId)
