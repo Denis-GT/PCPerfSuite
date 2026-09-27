@@ -104,8 +104,14 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         HardwareSnapshot? snapshot = _lastSample?.Hardware;
 
         string identity = string.Join(" ", new[] { machine.Manufacturer, machine.Model }.Where(s => s.Length > 0));
+        string identityDetail = identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS";
+        if (!machine.IsIdentityKnown)
+        {
+            identityDetail += " — Windows (WMI) n'a pas répondu : traité comme un portable par prudence, " +
+                "pour ne jamais écrire sur un éventuel contrôleur embarqué de ventilateurs.";
+        }
         yield return new CompatibilityRow("Machine", machine.IsLaptop ? "Portable" : "PC de bureau",
-            identity.Length > 0 ? identity : "Fabricant et modèle non communiqués par le BIOS", true);
+            identityDetail, machine.IsIdentityKnown);
 
         bool elevated = ElevationHelper.IsAdministrator();
         bool pawnIoInstalled = PawnIoDriver.IsInstalled;
