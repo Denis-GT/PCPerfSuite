@@ -58,6 +58,12 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// correspondent à celle qu'on overclocke. Null : le dernier GPU rencontré, comme avant.</summary>
     public GpuVendor? PreferredGpuVendor { get; set; }
 
+    /// <summary>Nom de la carte pilotée par l'onglet GPU (NVAPI/ADLX/IGCL), pour départager deux GPU de
+    /// la même marque (APU Ryzen + Radeon dédiée, UHD + Arc) que <see cref="PreferredGpuVendor"/> seul ne
+    /// distingue pas : sans lui, le relevé retombait sur le premier des deux rencontré par
+    /// LibreHardwareMonitor, parfois l'iGPU plutôt que la carte réellement overclockée/ventilée.</summary>
+    public string? PreferredGpuName { get; set; }
+
     /// <summary>Groupes lus au moins une fois depuis le démarrage : une valeur encore nulle après la lecture de
     /// son groupe n'est pas "en attente" mais absente de ce PC.</summary>
     private readonly bool[] _everRead = new bool[Enum.GetValues<SensorGroup>().Length];
@@ -215,7 +221,14 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
                 case HardwareType.GpuAmd:
                 case HardwareType.GpuIntel:
                     bool preferred = IsPreferredGpu(hardware.HardwareType);
-                    if (PreferredGpuVendor is null || gpu is null || (preferred && !gpuIsPreferred))
+                    // À marque égale (deux GPU de la même marque : APU + carte dédiée, UHD + Arc), le nom
+                    // de la carte réellement pilotée (NVAPI/ADLX/IGCL) départage plutôt que de garder le
+                    // premier des deux rencontré par LibreHardwareMonitor.
+                    bool nameMatch = preferred && GpuNameMatches(hardware.Name);
+                    bool gpuIsNameMatch = gpu is not null && GpuNameMatches(gpu.Name);
+                    if (PreferredGpuVendor is null || gpu is null
+                        || (preferred && !gpuIsPreferred)
+                        || (preferred && gpuIsPreferred && nameMatch && !gpuIsNameMatch))
                     {
                         gpu = ReadGpu(hardware, laptopGpuFan);
                         gpuIsPreferred = preferred;
@@ -406,6 +419,21 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         (GpuVendor.Intel, HardwareType.GpuIntel) => true,
         _ => false,
     };
+
+    /// <summary>Comparaison tolérante : NVAPI/ADLX/IGCL et LibreHardwareMonitor n'orthographient pas
+    /// forcément le nom de la carte à l'identique (espaces, sigles ® / (R), suffixes). L'un contenant
+    /// l'autre suffit à départager deux GPU de la même marque.</summary>
+    private bool GpuNameMatches(string hardwareName)
+    {
+        if (string.IsNullOrWhiteSpace(PreferredGpuName) || string.IsNullOrWhiteSpace(hardwareName)) return false;
+
+        string a = NormalizeGpuName(PreferredGpuName);
+        string b = NormalizeGpuName(hardwareName);
+        return a.Length > 0 && b.Length > 0 && (a.Contains(b, StringComparison.OrdinalIgnoreCase) || b.Contains(a, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeGpuName(string name) =>
+        new string(name.Where(char.IsLetterOrDigit).ToArray());
 
     /// <param name="laptopFan">Ventilateur GPU du portable, repris quand le pilote graphique n'en expose aucun
     /// (NVAPI, ADLX et IGCL ne voient pas les ventilateurs pilotés par le contrôleur embarqué d'un portable).</param>

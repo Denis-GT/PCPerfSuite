@@ -84,6 +84,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
         _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
+        _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
