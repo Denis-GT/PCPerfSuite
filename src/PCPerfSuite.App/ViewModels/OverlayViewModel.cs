@@ -71,11 +71,15 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable
     private long _lastRenderTimestamp;
     private OverlayWindow? _window;
 
-    [ObservableProperty] private bool isEnabled;
-    [ObservableProperty] private bool useRtss;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowRtssStatus))] private bool isEnabled;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowRtssStatus))] private bool useRtss;
     [ObservableProperty] private bool useWindow;
     [ObservableProperty] private bool oneLinePerMetric;
     [ObservableProperty] private bool isRtssDetected;
+
+    /// <summary>N'affiche le statut RTSS que quand l'overlay est réellement actif : désactivé, IsRtssDetected
+    /// retombe à faux (StopOutputs) sans que RTSS lui-même ait disparu, et l'afficher accuserait RTSS à tort.</summary>
+    public bool ShowRtssStatus => IsEnabled && UseRtss;
 
     /// <summary>Faux quand aucune ligne n'est affichée (rien de coché) : la liste d'ordre le dit au lieu de rester vide.</summary>
     [ObservableProperty] private bool hasLineOrderItems;

@@ -105,8 +105,11 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
                             <TextBlock Text="Activer l'overlay" Style="{StaticResource H2}"/>
+                            <!-- IsEnabled ET UseRtss : overlay désactivé, IsRtssDetected retombe à faux (StopOutputs)
+                                 sans que ça veuille dire que RTSS lui-même a disparu — afficher "introuvable" dans
+                                 ce cas accuserait RTSS à tort d'un état qui ne vient que de l'overlay éteint. -->
                             <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
-                                       Visibility="{Binding UseRtss, Converter={StaticResource BoolToVisibility}}">
+                                       Visibility="{Binding ShowRtssStatus, Converter={StaticResource BoolToVisibility}}">
                                 <Run Text="{Binding IsRtssDetected, Converter={StaticResource RtssStatus}}"/>
                             </TextBlock>
                         </StackPanel>
