@@ -1284,7 +1284,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
         for (int i = Fans.Count - 1; i >= 0; i--)
         {
-            if (!expected.Contains(Fans[i].FanId)) Fans.RemoveAt(i);
+            if (expected.Contains(Fans[i].FanId)) continue;
+
+            // Rendu au BIOS avant de le perdre de vue : hors de la liste, Dispose ne le rendrait plus à la
+            // fermeture, et un ventilateur en Courbe ou en Manuel resterait figé sur sa dernière consigne.
+            Fans[i].RestoreAuto();
+            Fans.RemoveAt(i);
         }
 
         bool added = false;

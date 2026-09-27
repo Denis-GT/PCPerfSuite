@@ -168,24 +168,32 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private static string Glyph(int codePoint) => char.ConvertFromUtf32(codePoint);
 
-    /// <summary>Ordre important : les ventilateurs repassent en automatique avant que le service NVAPI
-    /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
+    /// <summary>Ordre important : le relevé s'arrête avant que les ventilateurs repassent en automatique,
+    /// et ceux-ci y repassent avant que le service NVAPI ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
         // Chaque étape est protégée individuellement : _fans (retour au firmware) et _gpu/_cpu (retrait
         // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
         // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
-        // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
+        // Le relevé s'arrête AVANT le retour des ventilateurs au BIOS : il lisait encore la puce des
+        // ventilateurs pendant qu'on la leur rendait, et LibreHardwareMonitor abandonne alors l'écriture
+        // sans le dire (voir HardwareMonitorService.RunWithIsaBus). Les abonnés qui se désabonnent ensuite
+        // d'un Monitoring déjà arrêté n'y perdent rien.
+        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
         DisposeSafely(_fans.Dispose, nameof(_fans));
         DisposeSafely(_gpu.Dispose, nameof(_gpu));
         DisposeSafely(_cpu.Dispose, nameof(_cpu));
         DisposeSafely(_overlay.Dispose, nameof(_overlay));
-        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
         DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
         DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
         DisposeSafely(_hardware.Dispose, nameof(_hardware));
+
+        if (_hardware.FanReleaseProblem is { } problem)
+        {
+            CrashLog.Record(new InvalidOperationException(problem), "fermeture : retour des ventilateurs au BIOS");
+        }
     }
 
     private static void DisposeSafely(Action dispose, string name)

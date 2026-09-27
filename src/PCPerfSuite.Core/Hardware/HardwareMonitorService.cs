@@ -944,19 +944,83 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
-        IControl? control = FindControl(controlSensorId);
-        if (control is null) return false;
-
-        try
+        lock (_gate)
         {
-            float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
-            control.SetSoftware(clamped);
+            if (_disposed) return false;
+
+            IControl? control = FindControl(controlSensorId);
+            if (control is null) return false;
+
+            try
+            {
+                float clamped = Math.Clamp(percent, control.MinSoftwareValue, control.MaxSoftwareValue);
+                RunWithIsaBus(FanWriteBusTimeout, () => control.SetSoftware(clamped));
+                return true;
+            }
+            catch (Exception)
+            {
+                // Best-effort (règle 2) : un pilote qui refuse l'écriture ne doit jamais planter l'app.
+                return false;
+            }
+        }
+    }
+
+    /// <summary>Nom du verrou global qui protège l'accès aux puces Super I/O : LibreHardwareMonitor le crée,
+    /// et les utilitaires des fabricants (Armoury Crate, AI Suite, MSI Center, HWiNFO…) le respectent aussi.</summary>
+    private const string IsaBusMutexName = @"Global\Access_ISABUS.HTP.Method";
+
+    /// <summary>Attente du verrou pour une consigne de courbe : manquée, elle est renvoyée au relevé suivant.</summary>
+    private static readonly TimeSpan FanWriteBusTimeout = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Attente du verrou pour rendre un ventilateur au BIOS : cette écriture-là n'est jamais retentée
+    /// (voir <see cref="RunWithIsaBus"/>), elle doit passer.</summary>
+    private static readonly TimeSpan FanReleaseBusTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>Attente du verrou à la fermeture, où chaque ventilateur est rendu au BIOS une dernière fois.</summary>
+    private static readonly TimeSpan CloseBusTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Exécute <paramref name="action"/> en tenant le verrou du bus ISA, attendu jusqu'à <paramref name="timeout"/>.
+    /// LibreHardwareMonitor n'attend ce verrou que 10 ms avant d'écrire sur la puce des ventilateurs (Nuvoton) et,
+    /// passé ce délai, abandonne l'écriture SANS le signaler : <see cref="IControl.SetDefault"/> se croit alors fait
+    /// et ne réessaiera jamais. Avec un logiciel qui interroge la puce en continu (Armoury Crate, observé), ou notre
+    /// propre relevé en cours, la main n'était pas rendue au BIOS à la fermeture : la puce restait en mode manuel,
+    /// sans plus personne pour la piloter, et les ventilateurs de boîtier s'emballaient jusqu'au lancement suivant.
+    /// Un mutex Windows appartient à un thread : tant que celui-ci le tient, l'attente de 10 ms de
+    /// LibreHardwareMonitor sur ce même thread réussit tout de suite. Sans le verrou (introuvable, ou toujours
+    /// occupé), l'action s'exécute quand même et LibreHardwareMonitor tente sa chance comme avant.
+    /// </summary>
+    /// <returns>Vrai si le verrou a été obtenu (ou n'existe pas sur ce PC, faute de puce Super I/O).</returns>
+    private static bool RunWithIsaBus(TimeSpan timeout, Action action)
+    {
+        if (!Mutex.TryOpenExisting(IsaBusMutexName, out Mutex? mutex))
+        {
+            action();
             return true;
         }
-        catch (Exception)
+
+        using (mutex)
         {
-            // Best-effort (règle 2) : un pilote qui refuse l'écriture ne doit jamais planter l'app.
-            return false;
+            bool acquired;
+            try
+            {
+                acquired = mutex.WaitOne(timeout);
+            }
+            catch (AbandonedMutexException)
+            {
+                // Le processus qui le tenait s'est terminé sans le rendre : le verrou est à nous.
+                acquired = true;
+            }
+
+            try
+            {
+                action();
+            }
+            finally
+            {
+                if (acquired) mutex.ReleaseMutex();
+            }
+            return acquired;
         }
     }
 
@@ -979,17 +1043,22 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
-        IControl? control = FindControl(controlSensorId);
-        if (control is null) return false;
+        lock (_gate)
+        {
+            if (_disposed) return false;
 
-        try
-        {
-            control.SetDefault();
-            return true;
-        }
-        catch (Exception)
-        {
-            return false;
+            IControl? control = FindControl(controlSensorId);
+            if (control is null) return false;
+
+            try
+            {
+                RunWithIsaBus(FanReleaseBusTimeout, control.SetDefault);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 
@@ -1013,8 +1082,17 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
         return sensor?.Control;
     }
 
+    /// <summary>Compte rendu du retour des ventilateurs au BIOS à la fermeture, pour le journal d'erreurs.
+    /// Null tant que <see cref="Dispose"/> n'a pas fermé le matériel, ou quand tout s'est bien passé.</summary>
+    public string? FanReleaseProblem { get; private set; }
+
     /// <summary>Ferme les sources de capteurs. Attend qu'un relevé encore en vol se termine — quelques
-    /// centaines de millisecondes au pire — plutôt que de lui retirer le matériel sous les pieds.</summary>
+    /// centaines de millisecondes au pire — plutôt que de lui retirer le matériel sous les pieds.
+    /// La fermeture de LibreHardwareMonitor rend chaque ventilateur au BIOS (<c>SuperIOHardware.Close</c>) :
+    /// elle se fait en tenant le verrou du bus ISA, pour la même raison que <see cref="TrySetFanAuto"/>.
+    /// Limite connue : après un arrêt brutal (processus tué, débogueur arrêté), la puce reste en mode manuel et
+    /// LibreHardwareMonitor prend ce mode pour l'état initial au lancement suivant. Seul un redémarrage du PC
+    /// rétablit alors le réglage du BIOS.</summary>
     public void Dispose()
     {
         lock (_gate)
@@ -1028,7 +1106,18 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
 
         if (_openTask.IsCompleted)
         {
-            _computer.Close();
+            try
+            {
+                if (!RunWithIsaBus(CloseBusTimeout, _computer.Close))
+                {
+                    FanReleaseProblem = "le verrou d'accès à la puce des ventilateurs est resté occupé par un autre "
+                        + "logiciel (Armoury Crate, AI Suite, MSI Center, HWiNFO… ?) : leur retour au BIOS n'est pas garanti.";
+                }
+            }
+            catch (Exception ex)
+            {
+                FanReleaseProblem = $"la fermeture du matériel a échoué ({ex.Message}) : le retour des ventilateurs au BIOS n'est pas garanti.";
+            }
         }
         else
         {
