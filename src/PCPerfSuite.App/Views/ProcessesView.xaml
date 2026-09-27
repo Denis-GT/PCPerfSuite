@@ -435,7 +435,7 @@
                                         Text="{Binding MemberCountDisplay, Mode=OneWay}"
                                         Foreground="{StaticResource TextTertiaryBrush}"/>
                                 </TextBlock>
-                                <TextBox Text="{Binding PathDisplay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                <TextBox Text="{Binding PathDisplay, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
                                          TextWrapping="Wrap"/>
                                 <!-- Un agrégat n'a ni PID ni parent : cette ligne ne le concerne pas. -->
                                 <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap"

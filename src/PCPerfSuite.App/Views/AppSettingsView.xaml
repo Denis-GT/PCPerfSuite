@@ -164,8 +164,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Margin="0,0,24,0">
-                                                <TextBox Text="{Binding Title}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"/>
-                                                <TextBox Text="{Binding Detail}" Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                                <TextBox Text="{Binding Title, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"/>
+                                                <TextBox Text="{Binding Detail, Mode=OneWay}" Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,3,0,0"/>
                                             </StackPanel>
                                             <Border x:Name="StatusBadge" Grid.Column="1" Style="{StaticResource BadgeSuccess}" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Status}" Style="{StaticResource BadgeText}"/>
