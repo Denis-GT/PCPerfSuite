@@ -113,6 +113,21 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return new CompatibilityRow("Machine", machine.IsLaptop ? "Portable" : "PC de bureau",
             identityDetail, machine.IsIdentityKnown);
 
+        if (!_hardware.IsReady)
+        {
+            // Recensement du matériel toujours en cours (voir HardwareMonitorService.IsReady) : au-delà
+            // de quelques secondes, un autre outil (MSI Afterburner, Armoury Crate...) tient probablement
+            // un mutex partagé (SMBus) que PCPerfSuite attend aussi. Fermer l'autre outil débloque
+            // généralement la situation ; sinon, redémarrer Windows.
+            double seconds = _hardware.InitializingDuration.TotalSeconds;
+            yield return new CompatibilityRow("Capteurs matériel", "Initialisation en cours…",
+                seconds < 10
+                    ? "Le recensement du matériel (LibreHardwareMonitor) démarre : les métriques affichent « -- » le temps qu'il se termine."
+                    : $"Toujours en cours après {seconds:0} s : un autre logiciel de contrôle (MSI Afterburner, Armoury Crate, HWiNFO...) " +
+                      "tient probablement un accès exclusif au matériel (bus SMBus). Fermez-le puis relancez PCPerfSuite si les métriques restent à « -- ».",
+                seconds < 10);
+        }
+
         bool elevated = ElevationHelper.IsAdministrator();
         bool pawnIoInstalled = PawnIoDriver.IsInstalled;
         yield return new CompatibilityRow("Droits administrateur", elevated ? "Oui" : "Non",

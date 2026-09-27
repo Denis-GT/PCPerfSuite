@@ -65,6 +65,25 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// <summary>Ventilateurs des portables, lus via l'interface du constructeur (LibreHardwareMonitor ne les voit pas).</summary>
     public LaptopFanService LaptopFans { get; }
 
+    /// <summary>Termine quand <see cref="Computer.Open"/> a fini de recenser le matériel. Lancé en tâche de
+    /// fond dès la construction plutôt qu'exécuté ici : un incident déjà observé (MSI Afterburner ou
+    /// Armoury Crate tenant le mutex SMBus) bloque cet appel indéfiniment, et l'exécuter sur le thread
+    /// appelant — celui de l'interface, avant l'affichage de la fenêtre — laissait alors l'app sans
+    /// fenêtre ni icône, en apparence non démarrée.</summary>
+    private readonly Task _openTask;
+
+    private readonly long _openStartedTimestamp = Stopwatch.GetTimestamp();
+
+    /// <summary>Faux tant que le matériel n'a pas fini d'être recensé (voir <see cref="_openTask"/>).
+    /// Les onglets affichent alors les métriques en attente (« -- ») plutôt que rien, et les écritures
+    /// (ventilateurs) sont refusées le temps que ce soit prêt, plutôt que de risquer de toucher
+    /// <see cref="_computer"/> pendant qu'il est encore en cours d'ouverture sur l'autre thread.</summary>
+    public bool IsReady => _openTask.IsCompleted;
+
+    /// <summary>Depuis combien de temps l'ouverture est en cours, pour afficher un message si elle traîne
+    /// (voir le diagnostic de compatibilité). Zéro une fois prête.</summary>
+    public TimeSpan InitializingDuration => IsReady ? TimeSpan.Zero : Stopwatch.GetElapsedTime(_openStartedTimestamp);
+
     public HardwareMonitorService()
     {
         _computer = new Computer
@@ -79,7 +98,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             IsPsuEnabled = true,
         };
 
-        _computer.Open();
+        _openTask = Task.Run(() => _computer.Open());
 
         LaptopFans = new LaptopFanService(MachineInfo.Current);
     }
@@ -90,6 +109,10 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// d'un relevé, et à ce stade l'app est en train de se fermer.</exception>
     public HardwareSnapshot GetSnapshot(long epoch, long tick)
     {
+        // Attend hors du verrou : si l'ouverture est bloquée (voir _openTask), Dispose() doit pouvoir
+        // fermer l'app sans attendre après elle.
+        _openTask.GetAwaiter().GetResult();
+
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -428,6 +451,8 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// </summary>
     public IReadOnlyList<string> DescribeMemorySensors()
     {
+        if (!IsReady) return new[] { "Capteurs en cours d'initialisation…" };
+
         lock (_gate)
         {
             if (_disposed) return Array.Empty<string>();
@@ -853,6 +878,9 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// ou si la machine est un portable (voir <see cref="LaptopControlRefused"/>).</summary>
     public bool TrySetFanPercent(string controlSensorId, float percent)
     {
+        // Le matériel n'a pas fini d'être recensé (voir IsReady) : _computer.Hardware est encore en
+        // cours de construction sur l'autre thread, le parcourir ici serait une course sur le même objet.
+        if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
         IControl? control = FindControl(controlSensorId);
@@ -879,6 +907,7 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
     /// <summary>Rend le pilotage du ventilateur au firmware de la carte mère (courbe BIOS par défaut).</summary>
     public bool TrySetFanAuto(string controlSensorId)
     {
+        if (!IsReady) return false;
         if (LaptopControlRefused()) return false;
 
         IControl? control = FindControl(controlSensorId);
@@ -919,7 +948,21 @@ public sealed class HardwareMonitorService : IFanController, IDisposable
             _cpuLoad.Dispose();
             _battery.Dispose();
             LaptopFans.Dispose();
+        }
+
+        if (_openTask.IsCompleted)
+        {
             _computer.Close();
+        }
+        else
+        {
+            // L'ouverture est toujours bloquée (voir _openTask) : fermer _computer maintenant toucherait
+            // le même objet natif que le thread qui l'ouvre encore, avec un risque de plantage natif non
+            // rattrapable. On ferme dès que l'ouverture se débloque, sans jamais attendre ici — l'app doit
+            // pouvoir se fermer tout de suite même si le matériel reste coincé.
+            _ = _openTask.ContinueWith(
+                _ => { try { _computer.Close(); } catch { /* best-effort à la fermeture */ } },
+                TaskScheduler.Default);
         }
     }
 }
