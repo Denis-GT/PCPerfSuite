@@ -246,6 +246,16 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string platformText = "";
     [ObservableProperty] private string driverText = "";
 
+    /// <summary>La boîte aux lettres SMU d'AMD est pilotée à la main, sans documentation officielle
+    /// (voir AmdSmuBackend), contrairement au MSR Intel qui est un registre documenté par le fabricant.
+    /// Marqué expérimental (règle 6 de CLAUDE.md) tant qu'elle n'a pas été vérifiée sur davantage de
+    /// machines réelles.</summary>
+    public bool IsExperimentalBackend => _cpu.Platform.Vendor == CpuVendor.Amd;
+
+    public string? ExperimentalNotice => IsExperimentalBackend
+        ? "Réglage des limites AMD par commande SMU non documentée officiellement : pas encore vérifié sur un grand nombre de machines. À utiliser avec prudence."
+        : null;
+
     /// <summary>Vrai quand le pilote PawnIO manque ou est inutilisable : l'interface propose alors de l'installer.</summary>
     [ObservableProperty] private bool isDriverMissing;
 
