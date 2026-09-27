@@ -957,6 +957,14 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     {
         if (profile is null) return;
 
+        // Suppression immédiate et sans annulation (U2 du rapport de revue) : une confirmation évite
+        // qu'un clic malheureux perde un réglage qui a pu prendre du temps à peaufiner.
+        var result = System.Windows.MessageBox.Show(
+            $"Supprimer le profil « {profile.Name} » ? Cette action ne peut pas être annulée.",
+            "Supprimer le profil", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+        if (result != System.Windows.MessageBoxResult.Yes) return;
+
         Profiles.Remove(profile);
         ProfileStatus = $"Profil « {profile.Name} » supprimé.";
         PersistProfiles();

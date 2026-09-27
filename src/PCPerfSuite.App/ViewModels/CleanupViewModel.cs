@@ -1,3 +1,4 @@
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
@@ -222,6 +223,17 @@ public sealed partial class CleanupViewModel : ObservableObject
     [RelayCommand]
     private async Task CleanAllAsync()
     {
+        // Action irréversible sur potentiellement plusieurs catégories d'un coup (U2 du rapport de revue) :
+        // une confirmation qui récapitule ce qui va être touché, plutôt qu'un seul clic.
+        string recycleBinNote = IncludeRecycleBinInCleanAll && RecycleBin.CanEmpty
+            ? "\n\nLa corbeille sera aussi vidée définitivement."
+            : "";
+        var result = MessageBox.Show(
+            $"Nettoyer maintenant {Items.Count(i => i.Exists)} catégorie(s), pour {TotalReclaimableDisplay} " +
+            $"récupérables ?{recycleBinNote}\n\nLes fichiers supprimés ne peuvent pas être restaurés.",
+            "Tout nettoyer", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
         foreach (CacheItemViewModel item in Items.Where(i => i.Exists).ToList())
         {
             await CleanAsync(item);
@@ -230,7 +242,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         // Une corbeille vide n'a rien à libérer : inutile d'écrire « 0 o libérés » sur sa ligne.
         if (IncludeRecycleBinInCleanAll && RecycleBin.CanEmpty)
         {
-            await EmptyRecycleBinAsync();
+            await EmptyRecycleBinCoreAsync();
         }
     }
 
@@ -248,6 +260,20 @@ public sealed partial class CleanupViewModel : ObservableObject
     /// chaque changement de la corbeille.</summary>
     [RelayCommand]
     private async Task EmptyRecycleBinAsync()
+    {
+        // SHEmptyRecycleBinW est appelé avec SHERB_NOCONFIRMATION : sans cette confirmation à nous, un
+        // clic suffisait à supprimer définitivement le contenu de la corbeille (U2 du rapport de revue).
+        // Pas demandée depuis CleanAllAsync, qui a déjà sa propre confirmation récapitulative.
+        var result = MessageBox.Show(
+            $"Vider définitivement la corbeille ({ByteFormatter.Format(RecycleBin.SizeBytes)}) ? " +
+            "Son contenu ne pourra plus être restauré.",
+            "Vider la corbeille", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
+        await EmptyRecycleBinCoreAsync();
+    }
+
+    private async Task EmptyRecycleBinCoreAsync()
     {
         long before = RecycleBin.SizeBytes;
         RecycleBin.IsBusy = true;

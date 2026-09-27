@@ -583,6 +583,12 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
     {
         if (profile is null) return;
 
+        var result = System.Windows.MessageBox.Show(
+            $"Supprimer le profil « {profile.Name} » ? Cette action ne peut pas être annulée.",
+            "Supprimer le profil", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+        if (result != System.Windows.MessageBoxResult.Yes) return;
+
         Profiles.Remove(profile);
         Persist();
     }
