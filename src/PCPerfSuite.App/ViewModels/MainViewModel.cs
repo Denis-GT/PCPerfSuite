@@ -91,6 +91,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
         _installations.PropertyChanged += (_, _) => UpdateAttention();
+        AppSettings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AppSettingsViewModel.EcoModeWhenHidden)) UpdateEcoMode();
+        };
 
         NavItems = new ObservableCollection<NavEntry>
         {
@@ -106,6 +110,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         };
 
         SelectedNavItem = NavItems[0];
+
+        // Démarrage dans la zone de notification (session Windows) : la fenêtre n'est jamais affichée, le mode éco
+        // doit donc s'appliquer d'emblée. Au démarrage normal, il cesse dès l'affichage de la fenêtre.
+        UpdateEcoMode();
     }
 
     /// <summary>Un choix dans la liste l'affiche ; la désélection (passage aux Paramètres) ne change rien.</summary>
@@ -133,7 +141,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnIsWindowShownChanged(bool value) => UpdateAttention();
+    partial void OnIsWindowShownChanged(bool value)
+    {
+        UpdateAttention();
+        UpdateEcoMode();
+    }
+
+    /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, et réglage activé. Seuls
+    /// l'overlay, les courbes de ventilateurs et la sécurité thermique du CPU continuent d'être nourris.</summary>
+    private void UpdateEcoMode()
+        => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
+            new IBackgroundSensorConsumer[] { _overlay, _fans, _cpu });
 
     /// <summary>Vrai quand l'onglet Processus est celui sélectionné, indépendamment de la visibilité de la
     /// fenêtre (voir <see cref="UpdateAttention"/>, qui combine les deux pour <see cref="ProcessesViewModel.IsActive"/>).</summary>
@@ -168,24 +186,32 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private static string Glyph(int codePoint) => char.ConvertFromUtf32(codePoint);
 
-    /// <summary>Ordre important : les ventilateurs repassent en automatique avant que le service NVAPI
-    /// ne rende la carte au pilote et ne décharge NVAPI.</summary>
+    /// <summary>Ordre important : le relevé s'arrête avant que les ventilateurs repassent en automatique,
+    /// et ceux-ci y repassent avant que le service NVAPI ne rende la carte au pilote et ne décharge NVAPI.</summary>
     public void Dispose()
     {
         // Chaque étape est protégée individuellement : _fans (retour au firmware) et _gpu/_cpu (retrait
         // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
         // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
-        // Avant le Monitoring : la liste des processus est abonnée à ses relevés.
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
+        // Le relevé s'arrête AVANT le retour des ventilateurs au BIOS : il lisait encore la puce des
+        // ventilateurs pendant qu'on la leur rendait, et LibreHardwareMonitor abandonne alors l'écriture
+        // sans le dire (voir HardwareMonitorService.RunWithIsaBus). Les abonnés qui se désabonnent ensuite
+        // d'un Monitoring déjà arrêté n'y perdent rien.
+        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
         DisposeSafely(_fans.Dispose, nameof(_fans));
         DisposeSafely(_gpu.Dispose, nameof(_gpu));
         DisposeSafely(_cpu.Dispose, nameof(_cpu));
         DisposeSafely(_overlay.Dispose, nameof(_overlay));
-        DisposeSafely(_monitoring.Dispose, nameof(_monitoring));
         DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
         DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
         DisposeSafely(_hardware.Dispose, nameof(_hardware));
+
+        if (_hardware.FanReleaseProblem is { } problem)
+        {
+            CrashLog.Record(new InvalidOperationException(problem), "fermeture : retour des ventilateurs au BIOS");
+        }
     }
 
     private static void DisposeSafely(Action dispose, string name)

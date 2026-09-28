@@ -228,8 +228,11 @@ public partial class MainWindow : Window
         AppWindowSettings window = settings.Window ?? new AppWindowSettings();
         if (window.TrayHintShown) return;
 
+        string running = _viewModel.AppSettings.EcoModeWhenHidden
+            ? "L'overlay et les courbes de ventilation tournent toujours, en mode éco."
+            : "Le monitoring, l'overlay et les courbes de ventilation tournent toujours.";
         _tray.ShowHint("PCPerfSuite continue en arrière-plan",
-            "Le monitoring et l'overlay tournent toujours. Clic sur l'icône pour rouvrir la fenêtre, clic droit pour quitter.");
+            $"{running} Clic sur l'icône pour rouvrir la fenêtre, clic droit pour quitter.");
 
         window.TrayHintShown = true;
         settings.Window = window;

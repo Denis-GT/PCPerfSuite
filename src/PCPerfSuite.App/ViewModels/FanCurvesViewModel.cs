@@ -722,7 +722,7 @@ public sealed partial class FanProfileViewModel : ObservableObject
 /// S'appuie sur les instantanés déjà produits par MonitoringViewModel plutôt que de repoller le
 /// matériel en double : la consigne est recalculée à chaque nouveau relevé de température.
 /// </summary>
-public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
+public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, IBackgroundSensorConsumer
 {
     private readonly HardwareMonitorService _hardware;
     private readonly GpuControlService _gpu;
@@ -1169,6 +1169,17 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
     private static string Plural(int count, string singular, string plural)
         => count > 1 ? $"{count} {plural}" : $"{count} {singular}";
 
+    /// <summary>Seuls les ventilateurs que l'app pilote (courbe, manuel, repérage) ont besoin de relevés fenêtre
+    /// cachée : ceux en Auto appartiennent au BIOS.</summary>
+    public void AddRequiredGroups(ISet<SensorGroup> into)
+    {
+        foreach (FanControlItemViewModel item in Fans)
+        {
+            if (item.Mode == FanControlMode.Auto && !item.IsLocating) continue;
+            BackgroundSensorNeeds.AddForFan(into, IsGpuCooler(item.FanId) || item.IsGpu, item.Source);
+        }
+    }
+
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
         _lastSnapshotUtc = DateTime.UtcNow;
@@ -1284,7 +1295,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable
 
         for (int i = Fans.Count - 1; i >= 0; i--)
         {
-            if (!expected.Contains(Fans[i].FanId)) Fans.RemoveAt(i);
+            if (expected.Contains(Fans[i].FanId)) continue;
+
+            // Rendu au BIOS avant de le perdre de vue : hors de la liste, Dispose ne le rendrait plus à la
+            // fermeture, et un ventilateur en Courbe ou en Manuel resterait figé sur sa dernière consigne.
+            Fans[i].RestoreAuto();
+            Fans.RemoveAt(i);
         }
 
         bool added = false;

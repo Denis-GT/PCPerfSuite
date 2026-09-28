@@ -220,7 +220,7 @@ public sealed class CpuProfileViewModel
 /// fonction indisponible la raison exacte. Une limite écrite est systématiquement relue — si le firmware
 /// impose la sienne, l'interface le dit au lieu d'afficher une valeur que le processeur ignore.
 /// </summary>
-public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
+public sealed partial class CpuControlViewModel : ObservableObject, IDisposable, IBackgroundSensorConsumer
 {
     private readonly CpuControlService _cpu;
     private readonly MonitoringViewModel _monitoring;
@@ -709,8 +709,22 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable
         _suppressApply = false;
     }
 
+    /// <summary>Limites de puissance relevées : la sécurité thermique doit continuer de lire la température du CPU,
+    /// même fenêtre cachée.</summary>
+    public void AddRequiredGroups(ISet<SensorGroup> into)
+    {
+        if (_cpu.NeedsTemperatureWatch) into.Add(SensorGroup.Cpu);
+    }
+
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
+        // Mode éco : seule la sécurité thermique compte, l'affichage attendra la réouverture.
+        if (_monitoring.IsBackgroundMode)
+        {
+            _cpu.NoteTemperature(snapshot.Cpu.PackageTempC);
+            return;
+        }
+
         PowerWatts = snapshot.Cpu.PowerWatts;
         PackageTempC = snapshot.Cpu.PackageTempC;
         MaxClockMhz = snapshot.Cpu.MaxClockMhz;

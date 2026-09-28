@@ -595,7 +595,8 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable
 
     private void OnSnapshotUpdated(HardwareSnapshot snapshot)
     {
-        if (!IsAvailable) return;
+        // Mode éco (fenêtre cachée) : rien que de l'affichage ici, plus une interrogation du pilote par seconde.
+        if (!IsAvailable || _monitoring.IsBackgroundMode) return;
 
         LoadPercent = snapshot.Gpu?.LoadPercent;
         CoreTempC = snapshot.Gpu?.CoreTempC;

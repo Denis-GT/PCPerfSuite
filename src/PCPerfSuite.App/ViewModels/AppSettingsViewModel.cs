@@ -45,6 +45,10 @@ public sealed partial class AppSettingsViewModel : ObservableObject
     /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
     [ObservableProperty] private bool minimizeToTrayOnClose;
 
+    /// <summary>Mode éco en arrière-plan (voir <see cref="AppWindowSettings.EcoModeWhenHidden"/>) : suivi par
+    /// <see cref="MainViewModel"/>, qui l'applique dès que la fenêtre est réduite ou cachée.</summary>
+    [ObservableProperty] private bool ecoModeWhenHidden;
+
     /// <summary>Lancer PCPerfSuite à l'ouverture de session Windows, par une tâche planifiée (voir
     /// <see cref="StartupTask"/>). L'état est celui de la tâche elle-même, pas une copie dans settings.json : si
     /// l'utilisateur la supprime dans le Planificateur de tâches, l'interrupteur le reflète.</summary>
@@ -88,7 +92,9 @@ public sealed partial class AppSettingsViewModel : ObservableObject
 
         // Le champ plutôt que la propriété : passer par la propriété déclencherait l'enregistrement
         // du fichier au démarrage, avant toute action de l'utilisateur.
-        minimizeToTrayOnClose = AppSettingsStore.Load().Window?.MinimizeToTrayOnClose ?? true;
+        AppWindowSettings? windowSettings = AppSettingsStore.Load().Window;
+        minimizeToTrayOnClose = windowSettings?.MinimizeToTrayOnClose ?? true;
+        ecoModeWhenHidden = windowSettings?.EcoModeWhenHidden ?? true;
 
         Installations.PropertyChanged += (_, _) => UpdateAttention();
         UpdateAttention();
@@ -192,4 +198,7 @@ public sealed partial class AppSettingsViewModel : ObservableObject
         settings.Window = window;
         AppSettingsStore.Save(settings);
     }
+
+    partial void OnEcoModeWhenHiddenChanged(bool value)
+        => AppSettingsStore.Update(settings => (settings.Window ??= new AppWindowSettings()).EcoModeWhenHidden = value);
 }

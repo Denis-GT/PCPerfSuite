@@ -17,4 +17,9 @@
     <PackageReference Include="System.Management" Version="10.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Échéancier des capteurs (SensorReadSchedule), interne mais testé -->
+    <InternalsVisibleTo Include="PCPerfSuite.Core.Tests" />
+  </ItemGroup>
+
 </Project>
