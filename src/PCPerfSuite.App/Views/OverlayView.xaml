@@ -177,8 +177,14 @@
                         </Grid>
 
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>
-                        <TextBlock Text="Métriques affichées" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,0,0,10"/>
-                        <controls:MetricPicker DataContext="{Binding Metrics}"/>
+                        <!-- Replié au départ, comme « Choisir les graphiques » du monitoring. L'état ouvert/fermé
+                             est purement visuel : il reste dans la vue et n'est pas enregistré. -->
+                        <ToggleButton x:Name="MetricsToggle" Content="Métriques affichées" Style="{StaticResource DropDownToggleButton}"
+                                      HorizontalAlignment="Left" Margin="0,0,0,10"
+                                      ToolTip="Choisir les capteurs affichés dans l'overlay"/>
+                        <controls:RevealPanel IsOpen="{Binding IsChecked, ElementName=MetricsToggle}">
+                            <controls:MetricPicker DataContext="{Binding Metrics}"/>
+                        </controls:RevealPanel>
 
                         <!-- Ordre des lignes : celui du mode affiché (une ligne par catégorie ou par métrique).
                              Une entrée par ligne réellement affichée ; les autres gardent leur place en coulisse. -->
