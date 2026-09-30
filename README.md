@@ -1,8 +1,39 @@
 # PCPerfSuite
 
-App Windows (WPF, .NET 8) de monitoring et de tuning PC. Construite pour ta config
-(i5-14600K, RTX 5070 Ti, ASUS TUF B760-PLUS WIFI) mais faite pour rester compatible
-avec la plupart des configs Intel/AMD + NVIDIA/AMD/Intel.
+App Windows (WPF, .NET 8) de monitoring et de tuning PC, pour les PC de bureau comme pour les
+portables, de toutes marques : processeur Intel ou AMD, carte graphique NVIDIA, AMD ou Intel.
+Ce qui dépend du matériel est détecté au lancement ; une fonction absente sur un PC le dit, avec
+la raison (voir « Compatibilité et capteurs non disponibles »).
+
+## Organisation de l'app
+
+La barre latérale range les pages en quatre sections. Les pages marquées *(bientôt disponible)*
+sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles feront.
+
+| Section | Pages |
+|---|---|
+| **Surveiller** | Monitoring, Processus, Overlay |
+| **Régler** | Processeur, GPU, Ventilateurs, Profils *(bientôt disponible)*, OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
+| **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
+| **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils *(bientôt disponible)*, Mémoire *(bientôt disponible)* |
+
+**Paramètres** est en bas de la barre. Une page qui grossit reçoit des sous-onglets en pastilles
+(comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes) plutôt qu'une entrée de
+plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, et le diagnostic de
+Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
+tourne que tant que sa page est affichée : l'app démarre plus vite, même lancée dans la zone de
+notification. Le relevé des capteurs (Monitoring, overlay, ventilateurs, limites) tourne, lui, dès
+le lancement.
+
+Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings.json`
+(réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
+des ventilateurs au démarrage et à la fermeture), et le témoin du contrôle GPU AMD
+(`adlx-plantage.temoin`). Seuls les installeurs téléchargés passent par un dossier temporaire
+(`%TEMP%\PCPerfSuite`).
+
+Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
+page sont dans `docs/navigation.md` ; les décisions transverses et les briques partagées dans
+`docs/decisions.md`.
 
 ## Ce que fait l'app
 
@@ -321,8 +352,9 @@ WMI de la marque, comme son utilitaire officiel :
 pas encore confirmé sur une vraie machine. Les autres marques de portables sont signalées « non
 prises en charge ».
 
-Le **contrôle GPU** (onglet GPU) ne fonctionne qu'avec NVIDIA pour l'instant ; le monitoring GPU,
-lui, couvre NVIDIA, AMD et Intel.
+Le **contrôle GPU** (onglet GPU) passe par NVAPI pour NVIDIA, ADLX pour AMD Radeon et IGCL pour
+Intel Arc. AMD et Intel sont encore **expérimentaux** (codés, pas encore vérifiés sur de vraies
+cartes) : l'onglet l'affiche dans un bandeau. Le monitoring GPU couvre les trois marques.
 
 ## Points d'attention importants
 
@@ -354,6 +386,10 @@ lui, couvre NVIDIA, AMD et Intel.
   « Quitter » depuis l'icône qui les repasse en automatique et rend la carte au pilote.
 - Les réglages sont stockés dans
   `%LOCALAPPDATA%\PCPerfSuite\settings.json` (lisible et modifiable à la main).
+- **Rapport de compatibilité** : « Copier le rapport » masque le nom du compte Windows, y compris
+  dans les chemins des profils (remplacés par `%LOCALAPPDATA%`, `%USERPROFILE%` ou
+  `C:\Users\(compte)`). Relis-le quand même avant de le coller dans un signalement public : un
+  nom de PC ou de dossier personnel peut apparaître ailleurs.
 
 ## Compiler et lancer
 
@@ -374,3 +410,8 @@ La solution compile sans erreur (C# et XAML), mais elle n'a pas pu être *exécu
 vraie machine Windows depuis cette session : le comportement des appels NVAPI, ADLX et IGCL
 dépend de ta carte et de ton pilote. Si un réglage ne prend pas, l'onglet GPU affiche le refus — copie
 le message, on ajuste.
+
+## Licence
+
+PCPerfSuite est un logiciel propriétaire, à utilisation gratuite (voir `LICENSE`). Les composants
+tiers livrés avec l'app restent sous leur propre licence (voir `THIRD-PARTY-NOTICES.md`).

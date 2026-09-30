@@ -1,7 +1,7 @@
 namespace PCPerfSuite.App.ViewModels;
 
-/// <summary>Vue de remplacement pour les fonctionnalités prévues en phase 2/3 (ventilateurs, GPU, overlay) —
-/// garde la navigation complète visible dès la 1ère version, avec le détail de ce qui arrive.</summary>
+/// <summary>Page ou onglet pas encore livré (« Bientôt disponible ») : les pages à venir restent visibles dans la
+/// navigation, avec ce qu'elles feront (voir <see cref="ComingSoonPages"/>, et l'onglet Paramètres › Thèmes).</summary>
 public sealed class ComingSoonViewModel
 {
     public string Title { get; }

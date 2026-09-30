@@ -394,25 +394,31 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
 
     private void Persist()
     {
-        // Relit le fichier plutôt que de garder une copie : le Monitoring enregistre aussi ses réglages.
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Overlay.Enabled = IsEnabled;
-        settings.Overlay.UseRtss = UseRtss;
-        settings.Overlay.UseWindow = UseWindow;
-        settings.Overlay.OneLinePerMetric = OneLinePerMetric;
-        settings.Overlay.RefreshMs = RefreshMs;
-        settings.Overlay.MetricIds = Metrics.SelectedIds;
-        settings.Overlay.LineOrder = StoredOrder(_categoryOrder, CategoryKeys);
-        settings.Overlay.MetricLineOrder = StoredOrder(_metricOrder, MetricKeys);
+        // Lecture-modification-écriture sous un seul verrou : le Monitoring enregistre aussi ses réglages, et un
+        // Load() suivi d'un Save() séparé pouvait perdre le sien. Les listes sont calculées avant, hors du verrou.
+        List<string> metricIds = Metrics.SelectedIds;
+        List<string>? lineOrder = StoredOrder(_categoryOrder, CategoryKeys);
+        List<string>? metricLineOrder = StoredOrder(_metricOrder, MetricKeys);
 
-        OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();
-        Appearance.WriteTo(appearance);
-        settings.Overlay.Appearance = appearance;
+        AppSettingsStore.Update(settings =>
+        {
+            settings.Overlay.Enabled = IsEnabled;
+            settings.Overlay.UseRtss = UseRtss;
+            settings.Overlay.UseWindow = UseWindow;
+            settings.Overlay.OneLinePerMetric = OneLinePerMetric;
+            settings.Overlay.RefreshMs = RefreshMs;
+            settings.Overlay.MetricIds = metricIds;
+            settings.Overlay.LineOrder = lineOrder;
+            settings.Overlay.MetricLineOrder = metricLineOrder;
 
-        settings.Overlay.ShowCpu = null;
-        settings.Overlay.ShowGpu = null;
-        settings.Overlay.ShowRam = null;
-        AppSettingsStore.Save(settings);
+            OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();
+            Appearance.WriteTo(appearance);
+            settings.Overlay.Appearance = appearance;
+
+            settings.Overlay.ShowCpu = null;
+            settings.Overlay.ShowGpu = null;
+            settings.Overlay.ShowRam = null;
+        });
     }
 
     /// <summary>Null tant que l'ordre est celui du catalogue : le fichier ne garde que ce que l'utilisateur a

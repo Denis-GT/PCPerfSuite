@@ -87,9 +87,10 @@ public sealed partial class DriveOption : ObservableObject
     }
 }
 
-public sealed partial class StorageViewModel : ObservableObject
+public sealed partial class StorageViewModel : ObservableObject, IPageLifecycle
 {
     private const string DialogTitle = "PCPerfSuite";
+    private const string LoadingDrivesMessage = "Lecture des lecteurs…";
     private const string StaleNodeMessage = "Cet élément ne fait plus partie de la carte affichée. Relance l'analyse pour la remettre à jour.";
 
     private readonly DiskSpaceScanner _scanner = new();
@@ -109,16 +110,27 @@ public sealed partial class StorageViewModel : ObservableObject
     /// redessine en gardant ses blocs dépliés, ce qu'une réaffectation de RootNode ne permettrait pas.</summary>
     [ObservableProperty] private int treeVersion;
 
-    public StorageViewModel()
+    /// <summary>Posé par MainViewModel (voir <see cref="IPageLifecycle"/>).</summary>
+    [ObservableProperty] private bool isPageShown;
+
+    private bool _drivesRequested;
+
+    /// <summary>La liste des lecteurs se lit à la première ouverture de l'onglet, plus au démarrage. Hors du thread
+    /// UI : DriveInfo.IsReady attend le délai d'expiration SMB sur un lecteur réseau dont le serveur est hors ligne
+    /// (plusieurs secondes).</summary>
+    partial void OnIsPageShownChanged(bool value)
     {
-        // Le peuplement part hors du thread UI : DriveInfo.IsReady attend le délai d'expiration SMB sur un
-        // lecteur réseau dont le serveur est hors ligne (plusieurs secondes), et ce constructeur est appelé
-        // depuis celui de MainViewModel, donc avant que la fenêtre principale ne s'affiche.
+        if (!value || _drivesRequested) return;
+
+        _drivesRequested = true;
         _ = LoadDrivesAsync();
     }
 
     private async Task LoadDrivesAsync()
     {
+        // Un lecteur réseau hors ligne fait attendre plusieurs secondes : la liste vide ne doit pas passer pour un PC
+        // sans disque.
+        StatusText = LoadingDrivesMessage;
         string? systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
 
         List<DriveOption> options = await Task.Run(() =>
@@ -133,6 +145,12 @@ public sealed partial class StorageViewModel : ObservableObject
 
         Drives.ReplaceAll(options);
         if (Drives.Count > 0) Drives[0].IsSelected = true;
+
+        // Une analyse lancée entre-temps a déjà son propre message.
+        if (StatusText == LoadingDrivesMessage)
+        {
+            StatusText = Drives.Count == 0 ? "Aucun lecteur lisible n'a été trouvé sur ce PC." : null;
+        }
     }
 
     /// <summary>L'énumération elle-même peut lever sur une configuration inhabituelle (volume monté sans

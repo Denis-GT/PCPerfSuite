@@ -78,7 +78,7 @@ public sealed partial class RecycleBinItemViewModel : ObservableObject
     public string Name => "Corbeille";
 
     public string Description => !IsKnown
-        ? "Windows n'a pas communiqué le contenu de la corbeille."
+        ? (IsBusy ? "Analyse…" : "Windows n'a pas communiqué le contenu de la corbeille.")
         : ItemCount switch
         {
             0 => "La corbeille est vide.",
@@ -109,7 +109,7 @@ public sealed partial class RecycleBinItemViewModel : ObservableObject
     }
 }
 
-public sealed partial class CleanupViewModel : ObservableObject
+public sealed partial class CleanupViewModel : ObservableObject, IPageLifecycle
 {
     private readonly CacheCleanerService _service = new();
 
@@ -142,8 +142,25 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         IncludeRecycleBinInCleanAll = AppSettingsStore.Load().Cleanup.IncludeRecycleBinInCleanAll;
         _initialized = true;
+    }
 
-        _ = ScanAllAsync();
+    /// <summary>Posé par MainViewModel (voir <see cref="IPageLifecycle"/>).</summary>
+    [ObservableProperty] private bool isPageShown;
+
+    private bool _scanRequested;
+
+    /// <summary>Les caches s'analysent à la première ouverture de l'onglet, plus au démarrage : parcourir tous les
+    /// dossiers de cache pour une page peut-être jamais ouverte ralentissait le lancement, y compris dans la zone de
+    /// notification.</summary>
+    partial void OnIsPageShownChanged(bool value)
+    {
+        if (!value || _scanRequested) return;
+
+        _scanRequested = true;
+
+        // Par la commande : « Ré-analyser » reste grisé pendant cette première analyse, au lieu d'en lancer une seconde
+        // en parallèle.
+        _ = ScanAllCommand.ExecuteAsync(null);
     }
 
     partial void OnIncludeRecycleBinInCleanAllChanged(bool value)
@@ -151,15 +168,19 @@ public sealed partial class CleanupViewModel : ObservableObject
         UpdateTotal();
         if (!_initialized) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Cleanup.IncludeRecycleBinInCleanAll = value;
-        AppSettingsStore.Save(settings);
+        AppSettingsStore.Update(settings => settings.Cleanup.IncludeRecycleBinInCleanAll = value);
     }
 
     [RelayCommand]
     private async Task ScanAllAsync()
     {
         IsScanning = true;
+
+        // Les catégories s'analysent une par une : celles qui attendent leur tour affichent « Analyse… », pas un
+        // « 0 o » ou un « N/D » qui n'ont pas été mesurés.
+        RecycleBin.IsBusy = true;
+        foreach (CacheItemViewModel item in Items) item.IsBusy = true;
+
         try
         {
             await ScanRecycleBinAsync();
@@ -175,6 +196,8 @@ public sealed partial class CleanupViewModel : ObservableObject
         }
         finally
         {
+            // Une analyse interrompue ne laisse pas des catégories bloquées en « Analyse… ».
+            foreach (CacheItemViewModel item in Items) item.IsBusy = false;
             IsScanning = false;
         }
     }
@@ -220,7 +243,13 @@ public sealed partial class CleanupViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    /// <summary>Pas pendant l'analyse : la confirmation récapitulerait des tailles pas encore mesurées, et la corbeille
+    /// pourrait être vidée avant que le moindre cache soit compté.</summary>
+    private bool CanCleanAll() => !IsScanning;
+
+    partial void OnIsScanningChanged(bool value) => CleanAllCommand.NotifyCanExecuteChanged();
+
+    [RelayCommand(CanExecute = nameof(CanCleanAll))]
     private async Task CleanAllAsync()
     {
         // Action irréversible sur potentiellement plusieurs catégories d'un coup (U2 du rapport de revue) :

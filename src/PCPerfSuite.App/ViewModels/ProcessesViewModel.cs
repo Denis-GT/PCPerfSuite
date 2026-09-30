@@ -678,7 +678,7 @@ public sealed class ProcessRowCollection : ObservableCollection<ProcessRowViewMo
 /// les lignes n'entrent et ne sortent pas de la liste tant que le pointeur est dessus (voir
 /// <c>UpdateFilterMembership</c> et <c>RemoveVanishedRows</c>).
 /// </summary>
-public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
+public sealed partial class ProcessesViewModel : ObservableObject, IPageLifecycle, IDisposable
 {
     private const string DialogTitle = "PCPerfSuite";
 
@@ -884,6 +884,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             }
         }
     }
+
+    /// <summary>Page affichée et fenêtre visible (MainViewModel) : c'est exactement quand le relevé doit tourner. Le
+    /// gel (« Figer ») lit <see cref="IsActive"/> pour savoir s'il doit reprendre.</summary>
+    bool IPageLifecycle.IsPageShown { set => IsActive = value; }
 
     public ProcessesViewModel(MonitoringViewModel monitoring)
     {
@@ -2175,15 +2179,19 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         if (!_initialized) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Processes.RefreshMs = SelectedRefresh?.Ms ?? DefaultRefreshMs;
-        settings.Processes.SortColumnId = SortColumnId;
-        settings.Processes.SortDescending = SortDescending;
-        settings.Processes.VisibleColumnIds = Columns.VisibleIds;
-        settings.Processes.NetworkColumnOffered = true;
-        settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
-        settings.Processes.ShowDetails = ShowDetails;
-        AppSettingsStore.Save(settings);
+        List<string> visibleColumnIds = Columns.VisibleIds;
+        string kindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
+
+        AppSettingsStore.Update(settings =>
+        {
+            settings.Processes.RefreshMs = SelectedRefresh?.Ms ?? DefaultRefreshMs;
+            settings.Processes.SortColumnId = SortColumnId;
+            settings.Processes.SortDescending = SortDescending;
+            settings.Processes.VisibleColumnIds = visibleColumnIds;
+            settings.Processes.NetworkColumnOffered = true;
+            settings.Processes.KindFilter = kindFilter;
+            settings.Processes.ShowDetails = ShowDetails;
+        });
     }
 
     private static MessageBoxResult ShowMessage(string text, MessageBoxImage image,

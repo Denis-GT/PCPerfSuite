@@ -1,4 +1,5 @@
 using System.Globalization;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Hardware.Gpu;
 
@@ -34,9 +35,8 @@ namespace PCPerfSuite.Core.Hardware.Gpu;
 /// </summary>
 public static class AdlxProbeGuard
 {
-    private static readonly string SentinelPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PCPerfSuite", "adlx-plantage.temoin");
+    /// <summary>Relu à chaque accès : la racine du dossier de données se choisit au démarrage (mode portable).</summary>
+    private static string SentinelPath => AppDataPaths.Current.AdlxSentinelFile;
 
     /// <summary>Deux : de quoi absorber un arrêt accidentel sans laisser un vrai plantage se rejouer plus
     /// d'une fois de trop.</summary>

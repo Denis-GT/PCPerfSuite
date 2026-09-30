@@ -1488,11 +1488,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
         // Appliquer un profil modifie des dizaines de propriétés : l'enregistrement se fait une fois, à la fin.
         if (_applyingProfile) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.FanCurves = _settings.FanCurves;
-        settings.FanIdentities = _settings.FanIdentities;
-        settings.FanProfiles = _settings.FanProfiles;
-        AppSettingsStore.Save(settings);
+        AppSettingsStore.Update(settings =>
+        {
+            settings.FanCurves = _settings.FanCurves;
+            settings.FanIdentities = _settings.FanIdentities;
+            settings.FanProfiles = _settings.FanProfiles;
+        });
     }
 
     /// <summary>Rend tous les ventilateurs actuellement pilotés au firmware — appelé à la fermeture de

@@ -1,0 +1,28 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ============================================================ -->
+    <!-- Barre latérale : en-têtes de section et entrées de page.      -->
+    <!-- Fusionné juste après Theme.xaml, dont il réutilise les        -->
+    <!-- pinceaux, Eyebrow et NavListItem.                             -->
+    <!-- ============================================================ -->
+
+    <!-- En-tête de section (Surveiller, Régler…) : le Name du groupe est NavEntry.SectionTitle. Discret, en gris,
+         pour ne pas disputer l'accent à l'entrée sélectionnée. Marge du haut sur tous les groupes : elle sépare la
+         section de la précédente, et la première reste proche de la marque. -->
+    <DataTemplate x:Key="NavSectionHeader">
+        <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" Foreground="{StaticResource TextTertiaryBrush}"
+                   Margin="24,10,0,3"/>
+    </DataTemplate>
+
+    <!-- Entrée de page : NavListItem, plus l'état « bientôt disponible » (page pas encore livrée, voir ComingSoonPages),
+         atténué et expliqué au survol. Elle reste cliquable : elle ouvre la page d'attente, qui dit ce qu'elle fera. -->
+    <Style x:Key="NavPageItem" TargetType="ListBoxItem" BasedOn="{StaticResource NavListItem}">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsComingSoon}" Value="True">
+                <Setter Property="Opacity" Value="0.6"/>
+                <Setter Property="ToolTip" Value="Bientôt disponible"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+</ResourceDictionary>

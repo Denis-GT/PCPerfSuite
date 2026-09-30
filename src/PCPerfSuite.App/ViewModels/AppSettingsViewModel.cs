@@ -26,7 +26,7 @@ public sealed partial class AppSettingsSection : ObservableObject
 /// "Paramètres" (bouton en bas de la barre latérale) : les réglages de PCPerfSuite lui-même, par sous-onglets.
 /// Ajouter un onglet : une entrée dans <see cref="Sections"/>, puis son panneau dans AppSettingsView.
 /// </summary>
-public sealed partial class AppSettingsViewModel : ObservableObject
+public sealed partial class AppSettingsViewModel : ObservableObject, IPageLifecycle
 {
     public IReadOnlyList<AppSettingsSection> Sections { get; } = new[]
     {
@@ -38,8 +38,8 @@ public sealed partial class AppSettingsViewModel : ObservableObject
 
     [ObservableProperty] private AppSettingsSection selectedSection;
 
-    /// <summary>Vrai quand la page Paramètres est affichée et la fenêtre visible : posé par <see cref="MainViewModel"/>.
-    /// Un onglet ne clignote que s'il peut être vu.</summary>
+    /// <summary>Vrai quand la page Paramètres est affichée et la fenêtre visible : posé par <see cref="MainViewModel"/>
+    /// (voir <see cref="IPageLifecycle"/>). Un onglet ne clignote que s'il peut être vu.</summary>
     [ObservableProperty] private bool isPageShown;
 
     /// <summary>Lue par <see cref="MainWindow"/> à chaque fermeture de la fenêtre.</summary>
@@ -176,9 +176,30 @@ public sealed partial class AppSettingsViewModel : ObservableObject
         await RefreshLaunchAtStartupAsync();
     }
 
-    partial void OnIsPageShownChanged(bool value) => UpdateAttention();
+    partial void OnIsPageShownChanged(bool value)
+    {
+        UpdateAttention();
+        UpdateSectionShown();
 
-    partial void OnSelectedSectionChanged(AppSettingsSection value) => UpdateAttention();
+        // L'utilisateur a pu installer quelque chose, ou supprimer la tâche de démarrage dans le Planificateur de
+        // tâches, depuis la dernière fois : on relit à chaque fois que la page revient sous ses yeux.
+        if (value)
+        {
+            _ = Installations.RefreshAsync();
+            _ = RefreshLaunchAtStartupAsync();
+        }
+    }
+
+    partial void OnSelectedSectionChanged(AppSettingsSection value)
+    {
+        UpdateAttention();
+        UpdateSectionShown();
+    }
+
+    /// <summary>Un sous-onglet qui a son propre cycle de vie l'apprend de sa page : affiché quand la page l'est et
+    /// qu'il est l'onglet choisi. SelectedSection peut être null : Ctrl+clic sur la pastille active la désélectionne.</summary>
+    private void UpdateSectionShown()
+        => Compatibility.IsPageShown = IsPageShown && SelectedSection?.Key == "compatibility";
 
     /// <summary>L'onglet Installations clignote tant qu'un logiciel manque, que les Paramètres sont sous les yeux de
     /// l'utilisateur, et qu'il n'est pas déjà dessus : une fois l'onglet ouvert, c'est son contenu qui parle.</summary>
@@ -189,15 +210,9 @@ public sealed partial class AppSettingsViewModel : ObservableObject
         section.ToolTip = Installations.MissingSummary;
     }
 
+    // Relit le fichier plutôt que de garder une copie : les autres onglets y écrivent aussi.
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
-    {
-        // Relit le fichier plutôt que de garder une copie : les autres onglets y écrivent aussi.
-        AppSettings settings = AppSettingsStore.Load();
-        AppWindowSettings window = settings.Window ?? new AppWindowSettings();
-        window.MinimizeToTrayOnClose = value;
-        settings.Window = window;
-        AppSettingsStore.Save(settings);
-    }
+        => AppSettingsStore.Update(settings => (settings.Window ??= new AppWindowSettings()).MinimizeToTrayOnClose = value);
 
     partial void OnEcoModeWhenHiddenChanged(bool value)
         => AppSettingsStore.Update(settings => (settings.Window ??= new AppWindowSettings()).EcoModeWhenHidden = value);

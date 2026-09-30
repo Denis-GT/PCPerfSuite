@@ -92,7 +92,7 @@ public sealed partial class TweakItemViewModel : ObservableObject
 
 /// <summary>Onglet "Optimisation Windows" : réglages de performance de Windows, y compris ceux masqués dans les
 /// menus standards. Les réglages de l'app elle-même sont dans <see cref="AppSettingsViewModel"/>.</summary>
-public sealed partial class OptimizationViewModel : ObservableObject
+public sealed partial class OptimizationViewModel : ObservableObject, IPageLifecycle
 {
     private readonly WindowsPerformanceSettingsService _service = new();
 
@@ -101,12 +101,27 @@ public sealed partial class OptimizationViewModel : ObservableObject
 
     [ObservableProperty] private bool isLoading;
 
+    /// <summary>Posé par MainViewModel (voir <see cref="IPageLifecycle"/>).</summary>
+    [ObservableProperty] private bool isPageShown;
+
+    private bool _loadRequested;
+
     public OptimizationViewModel()
     {
         foreach (PerformanceTweak tweak in _service.GetTweaks())
         {
             Tweaks.Add(new TweakItemViewModel(tweak));
         }
+    }
+
+    /// <summary>L'état des réglages se lit à la première ouverture de l'onglet, plus au démarrage : une dizaine
+    /// d'appels à powercfg pour une page que l'utilisateur n'ouvre peut-être pas, y compris quand l'app démarre dans
+    /// la zone de notification.</summary>
+    partial void OnIsPageShownChanged(bool value)
+    {
+        if (!value || _loadRequested) return;
+
+        _loadRequested = true;
         _ = LoadCommand.ExecuteAsync(null);
     }
 
@@ -114,6 +129,11 @@ public sealed partial class OptimizationViewModel : ObservableObject
     private async Task LoadAsync()
     {
         IsLoading = true;
+
+        // Les réglages se lisent un par un : ceux qui attendent leur tour restent grisés, plutôt que d'afficher un
+        // « désactivé » qui n'a pas été lu et de se laisser basculer sur cette base.
+        foreach (TweakItemViewModel item in Tweaks) item.IsBusy = true;
+
         foreach (TweakItemViewModel item in Tweaks)
         {
             await item.RefreshStateAsync();

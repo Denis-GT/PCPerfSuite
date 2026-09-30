@@ -477,41 +477,44 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
 
     private void ApplyAndSave()
     {
-        AppSettings settings = AppSettingsStore.Load();
-        ApplyTo(settings);
-        AppSettingsStore.Save(settings);
+        ApplyToSampling();
+        AppSettingsStore.Update(WriteTo);
     }
 
-    /// <summary>
-    /// Applique la cadence au matériel et inscrit le réglage dans <paramref name="settings"/>, sans
-    /// enregistrer.
-    ///
-    /// Changer l'actualisation globale recopie sa valeur dans les dix groupes de capteurs : laisser chacun
-    /// relire puis réécrire le fichier de réglages ferait dix cycles complets pour un seul geste de
-    /// l'utilisateur. L'appelant enregistre une fois, à la fin.
-    /// </summary>
-    public void ApplyTo(AppSettings settings)
+    /// <summary>Applique la cadence au relevé, au texte et au timer. Hors du verrou des réglages : ce n'est pas une
+    /// simple inscription dans le fichier.</summary>
+    private void ApplyToSampling()
     {
-        TimeSpan? manual = IsAuto ? null : TimeSpan.FromMilliseconds(ManualMs);
-        _hardware.SetManualInterval(Group, manual);
-
-        if (manual is null) settings.SensorGroupIntervalsMs.Remove(Group.ToString());
-        else settings.SensorGroupIntervalsMs[Group.ToString()] = ManualMs;
+        _hardware.SetManualInterval(Group, IsAuto ? null : TimeSpan.FromMilliseconds(ManualMs));
 
         // Le texte et le timer suivent tout de suite le réglage, sans attendre le prochain relevé.
         Apply(_hardware.GetGroupStatus(Group), _lastRefreshMs);
         _onIntervalChanged();
     }
 
-    /// <summary>Change la cadence imposée sans déclencher son propre enregistrement : l'appelant a déjà
-    /// le fichier de réglages en main et enregistrera pour tout le lot.</summary>
-    public void SetManualMsWithoutSaving(int value, AppSettings settings)
+    /// <summary>
+    /// Inscrit la cadence dans <paramref name="settings"/>, sans rien appliquer : sûr sous le verrou
+    /// d'<see cref="AppSettingsStore.Update"/>.
+    ///
+    /// Changer l'actualisation globale recopie sa valeur dans les dix groupes de capteurs : laisser chacun
+    /// relire puis réécrire le fichier de réglages ferait dix cycles complets pour un seul geste de
+    /// l'utilisateur. L'appelant inscrit tout le lot dans un seul Update().
+    /// </summary>
+    public void WriteTo(AppSettings settings)
+    {
+        if (IsAuto) settings.SensorGroupIntervalsMs.Remove(Group.ToString());
+        else settings.SensorGroupIntervalsMs[Group.ToString()] = ManualMs;
+    }
+
+    /// <summary>Change la cadence imposée et l'applique, sans l'enregistrer : l'appelant inscrit tout le lot
+    /// d'un coup (voir <see cref="WriteTo"/>).</summary>
+    public void SetManualMsWithoutSaving(int value)
     {
         _deferSave = true;
         try { ManualMs = value; }
         finally { _deferSave = false; }
 
-        ApplyTo(settings);
+        ApplyToSampling();
     }
 
     private bool _deferSave;
@@ -585,19 +588,20 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
             _hardware.SetBaseInterval(TimeSpan.FromMilliseconds(clamped));
 
-            // Un seul cycle lecture/écriture du fichier de réglages pour tout le lot : l'actualisation
-            // globale fait référence, et sa valeur est recopiée dans la cadence imposée de chaque groupe
-            // (celle qu'appliquent les groupes hors automatique), soit une dizaine de réglages d'un coup.
-            AppSettings settings = AppSettingsStore.Load();
-            settings.MonitoringRefreshMs = clamped;
-
+            // L'actualisation globale fait référence : sa valeur est recopiée dans la cadence imposée de chaque
+            // groupe (celle qu'appliquent les groupes hors automatique). Le relevé suit d'abord, hors du verrou des
+            // réglages ; puis un seul Update() inscrit la dizaine de réglages d'un coup.
             foreach (SensorGroupCadenceViewModel cadence in SensorCadences)
             {
-                cadence.SetManualMsWithoutSaving(clamped, settings);
+                cadence.SetManualMsWithoutSaving(clamped);
                 cadence.Apply(_hardware.GetGroupStatus(cadence.Group), clamped);
             }
 
-            AppSettingsStore.Save(settings);
+            AppSettingsStore.Update(settings =>
+            {
+                settings.MonitoringRefreshMs = clamped;
+                foreach (SensorGroupCadenceViewModel cadence in SensorCadences) cadence.WriteTo(settings);
+            });
 
             OnPropertyChanged(nameof(SensorCadencesHint));
             UpdateTimerInterval();
@@ -688,9 +692,8 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
     {
         SyncMyMetricTiles();
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.MonitoringSensorIds = MyMetrics.SelectedIds;
-        AppSettingsStore.Save(settings);
+        List<string> ids = MyMetrics.SelectedIds;
+        AppSettingsStore.Update(settings => settings.MonitoringSensorIds = ids);
     }
 
     private void SyncMyMetricTiles()

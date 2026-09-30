@@ -4,6 +4,7 @@ using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Overlay;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.PowerSettings;
 
@@ -340,9 +341,9 @@ public sealed class OverlayAppearanceSettings
 /// </summary>
 public static class AppSettingsStore
 {
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PCPerfSuite", "settings.json");
+    /// <summary>Relu à chaque accès plutôt que figé : la racine du dossier de données se choisit au démarrage
+    /// (mode portable), et ce type peut être touché avant.</summary>
+    private static string FilePath => AppDataPaths.Current.SettingsFile;
 
     private static readonly object Gate = new();
 
@@ -355,11 +356,12 @@ public static class AppSettingsStore
     {
         lock (Gate)
         {
+            string path = FilePath;
             try
             {
-                if (File.Exists(FilePath))
+                if (File.Exists(path))
                 {
-                    string json = File.ReadAllText(FilePath);
+                    string json = File.ReadAllText(path);
                     AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings is not null) return settings;
                 }
@@ -371,7 +373,7 @@ public static class AppSettingsStore
                 // Le fichier illisible est mis de côté plutôt qu'écrasé au prochain enregistrement :
                 // c'est la seule trace de ce que l'utilisateur avait réglé, et de quoi comprendre
                 // ce qui l'a abîmé.
-                TryBackupUnreadableFile();
+                TryBackupUnreadableFile(path);
                 LastError = $"Réglages illisibles, remis à zéro ({ex.Message}).";
                 return new AppSettings();
             }
@@ -382,16 +384,17 @@ public static class AppSettingsStore
     {
         lock (Gate)
         {
-            string temp = FilePath + ".tmp";
+            string path = FilePath;
+            string temp = path + ".tmp";
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
 
                 // Écriture atomique : on écrit un fichier temporaire complet, puis on le met à la place
                 // de l'ancien par un remplacement que le système de fichiers garantit indivisible.
                 File.WriteAllText(temp, json);
-                File.Move(temp, FilePath, overwrite: true);
+                File.Move(temp, path, overwrite: true);
                 LastError = null;
             }
             catch (Exception ex)
@@ -418,11 +421,11 @@ public static class AppSettingsStore
     }
 
     /// <summary>Renomme le fichier illisible en .corrupt pour qu'il survive à l'enregistrement suivant.</summary>
-    private static void TryBackupUnreadableFile()
+    private static void TryBackupUnreadableFile(string path)
     {
         try
         {
-            if (File.Exists(FilePath)) File.Move(FilePath, FilePath + ".corrupt", overwrite: true);
+            if (File.Exists(path)) File.Move(path, path + ".corrupt", overwrite: true);
         }
         catch { /* best-effort : si on n'y arrive pas, le fichier sera écrasé, tant pis */ }
     }

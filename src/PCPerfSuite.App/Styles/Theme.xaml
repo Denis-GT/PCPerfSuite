@@ -538,7 +538,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
                     <Grid Margin="10,1">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,9">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,5">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="28"/>
@@ -585,7 +585,7 @@
                     <Grid Margin="10,1">
                         <Border x:Name="Pulse" Background="{StaticResource WarnBrush}" Opacity="0" IsHitTestVisible="False"
                                 CornerRadius="{StaticResource ControlRadius}"/>
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,9">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="{StaticResource ControlRadius}" Padding="12,5">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="28"/>
