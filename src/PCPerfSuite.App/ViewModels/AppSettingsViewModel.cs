@@ -189,15 +189,9 @@ public sealed partial class AppSettingsViewModel : ObservableObject
         section.ToolTip = Installations.MissingSummary;
     }
 
+    // Relit le fichier plutôt que de garder une copie : les autres onglets y écrivent aussi.
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
-    {
-        // Relit le fichier plutôt que de garder une copie : les autres onglets y écrivent aussi.
-        AppSettings settings = AppSettingsStore.Load();
-        AppWindowSettings window = settings.Window ?? new AppWindowSettings();
-        window.MinimizeToTrayOnClose = value;
-        settings.Window = window;
-        AppSettingsStore.Save(settings);
-    }
+        => AppSettingsStore.Update(settings => (settings.Window ??= new AppWindowSettings()).MinimizeToTrayOnClose = value);
 
     partial void OnEcoModeWhenHiddenChanged(bool value)
         => AppSettingsStore.Update(settings => (settings.Window ??= new AppWindowSettings()).EcoModeWhenHidden = value);

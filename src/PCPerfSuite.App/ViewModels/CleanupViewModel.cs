@@ -151,9 +151,7 @@ public sealed partial class CleanupViewModel : ObservableObject
         UpdateTotal();
         if (!_initialized) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Cleanup.IncludeRecycleBinInCleanAll = value;
-        AppSettingsStore.Save(settings);
+        AppSettingsStore.Update(settings => settings.Cleanup.IncludeRecycleBinInCleanAll = value);
     }
 
     [RelayCommand]

@@ -2175,15 +2175,19 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
     {
         if (!_initialized) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Processes.RefreshMs = SelectedRefresh?.Ms ?? DefaultRefreshMs;
-        settings.Processes.SortColumnId = SortColumnId;
-        settings.Processes.SortDescending = SortDescending;
-        settings.Processes.VisibleColumnIds = Columns.VisibleIds;
-        settings.Processes.NetworkColumnOffered = true;
-        settings.Processes.KindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
-        settings.Processes.ShowDetails = ShowDetails;
-        AppSettingsStore.Save(settings);
+        List<string> visibleColumnIds = Columns.VisibleIds;
+        string kindFilter = KindKey(SelectedKind?.Value ?? ProcessKindFilter.All);
+
+        AppSettingsStore.Update(settings =>
+        {
+            settings.Processes.RefreshMs = SelectedRefresh?.Ms ?? DefaultRefreshMs;
+            settings.Processes.SortColumnId = SortColumnId;
+            settings.Processes.SortDescending = SortDescending;
+            settings.Processes.VisibleColumnIds = visibleColumnIds;
+            settings.Processes.NetworkColumnOffered = true;
+            settings.Processes.KindFilter = kindFilter;
+            settings.Processes.ShowDetails = ShowDetails;
+        });
     }
 
     private static MessageBoxResult ShowMessage(string text, MessageBoxImage image,
