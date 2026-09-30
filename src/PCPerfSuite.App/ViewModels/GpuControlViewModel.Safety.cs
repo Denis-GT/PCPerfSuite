@@ -23,7 +23,10 @@ public sealed partial class GpuControlViewModel
 
     private Dispatcher? _dispatcher;
     private DispatcherTimer? _watchdog;
-    private DateTimeOffset _lastNoteAt = DateTimeOffset.UtcNow;
+
+    /// <summary>Distingue une veille (à oublier) d'une panne de relevé (perte de température).</summary>
+    private readonly ReadingWatchdog _readings = new(WatchdogInterval, MonotonicNow());
+
     private CancellationTokenSource? _resumeDelay;
     private bool _disposed;
 
@@ -50,16 +53,23 @@ public sealed partial class GpuControlViewModel
         UpdateThermalSafetyText();
     }
 
-    /// <summary>Trois relevés manqués (au moins 5 s) : la sécurité vérifie la perte de température. Un relevé lent
-    /// choisi par l'utilisateur (jusqu'à 60 s) ne compte donc pas comme une panne.</summary>
     private void OnWatchdogTick(object? sender, EventArgs e)
     {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        TimeSpan silence = TimeSpan.FromTicks(Math.Max(WatchdogInterval.Ticks, 3 * _monitoring.TickInterval.Ticks));
-        if (!IsAvailable || !_gpuControl.ThermalSafety.IsArmed || now - _lastNoteAt < silence) return;
-
-        _gpuControl.ThermalSafety.NoteNoReading(now);
+        DateTimeOffset now = MonotonicNow();
+        switch (_readings.OnTick(now, _monitoring.TickInterval))
+        {
+            case WatchdogAction.Restart:
+                _gpuControl.ThermalSafety.Restart();
+                break;
+            case WatchdogAction.CheckLoss when IsAvailable:
+                _gpuControl.ThermalSafety.NoteNoReading(now);
+                break;
+        }
     }
+
+    /// <summary>Heure monotone pour les délais de la sécurité : insensible à un recalage de l'horloge Windows. Elle
+    /// avance pendant la veille, d'où la détection du silence ci-dessus.</summary>
+    private static DateTimeOffset MonotonicNow() => DateTimeOffset.UnixEpoch.AddMilliseconds(Environment.TickCount64);
 
     /// <summary>Overclock relevé par l'app : la sécurité thermique doit continuer de lire la température du GPU, même
     /// fenêtre cachée.</summary>
@@ -70,9 +80,12 @@ public sealed partial class GpuControlViewModel
 
     private void NoteSafety(HardwareSnapshot snapshot)
     {
+        // Premier relevé après une veille, parfois avant le chien de garde et avant l'événement Resume : repartir de zéro.
+        DateTimeOffset now = MonotonicNow();
+        if (_readings.OnReading(now, _monitoring.TickInterval) == WatchdogAction.Restart) _gpuControl.ThermalSafety.Restart();
+
         // Relevé sans GPU (capteur absent, groupe en pause) : null, que la sécurité traite comme « non lue ».
-        _lastNoteAt = DateTimeOffset.UtcNow;
-        _gpuControl.ThermalSafety.Note(_lastNoteAt, snapshot.Gpu?.CoreTempC, snapshot.Gpu?.HotSpotTempC);
+        _gpuControl.ThermalSafety.Note(now, snapshot.Gpu?.CoreTempC, snapshot.Gpu?.HotSpotTempC);
         if (!_monitoring.IsBackgroundMode) UpdateThermalSafetyText();
     }
 
@@ -103,11 +116,14 @@ public sealed partial class GpuControlViewModel
         LoadPowerLimit();
         LoadOverclock();
 
-        // Sans cela, le prochain lancement remettrait l'overclock qui vient de faire chauffer la carte. Décocher
-        // enregistre aussi les valeurs relues (Persist).
+        // Sans cela, le prochain lancement remettrait l'overclock qui vient de faire chauffer la carte. Seule la case
+        // est enregistrée : les réglages enregistrés ne sont pas écrasés par les valeurs d'origine relues.
         if (ApplyOverclockAtStartup)
         {
+            _suppressApply = true;
             ApplyOverclockAtStartup = false;
+            _suppressApply = false;
+            AppSettingsStore.Update(settings => settings.Gpu.ApplyOverclockAtStartup = false);
             message += " « Appliquer au démarrage » a été décoché : cet overclock ne sera pas remis au prochain lancement.";
         }
 
@@ -181,7 +197,7 @@ public sealed partial class GpuControlViewModel
     {
         if (_disposed) return;
 
-        _lastNoteAt = DateTimeOffset.UtcNow;
+        _readings.Restarted(MonotonicNow());
         _gpuControl.ThermalSafety.Restart();
     }
 

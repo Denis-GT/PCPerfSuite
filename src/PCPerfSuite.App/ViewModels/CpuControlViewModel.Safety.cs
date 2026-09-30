@@ -42,11 +42,14 @@ public sealed partial class CpuControlViewModel
             _suppressApply = false;
         }
 
-        // Sans cela, le prochain lancement reposerait les limites qui viennent de faire chauffer le processeur.
-        // Décocher enregistre aussi les limites relues (Persist).
+        // Sans cela, le prochain lancement reposerait les limites qui viennent de faire chauffer le processeur. Seule
+        // la case est enregistrée : les limites enregistrées ne sont pas écrasées par les limites d'origine relues.
         if (ApplyAtStartup)
         {
+            _suppressApply = true;
             ApplyAtStartup = false;
+            _suppressApply = false;
+            AppSettingsStore.Update(settings => settings.Cpu.ApplyAtStartup = false);
             message += " « Appliquer au démarrage » a été décoché : ces limites ne seront pas reposées au prochain lancement.";
         }
 

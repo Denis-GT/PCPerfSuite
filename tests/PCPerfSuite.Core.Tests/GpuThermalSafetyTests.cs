@@ -11,6 +11,15 @@ public class GpuThermalSafetyTests
 
     private static DateTimeOffset At(double seconds) => T0.AddSeconds(seconds);
 
+    /// <summary>Heure murale du déclenchement, distincte de l'heure (monotone) des délais.</summary>
+    private static readonly DateTimeOffset WallTime = new(2026, 9, 30, 14, 5, 0, TimeSpan.FromHours(2));
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now.ToUniversalTime();
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.CreateCustomTimeZone("test", now.Offset, "test", "test");
+    }
+
     private static GpuOverclockSnapshot Oc(int core = 0, int memory = 0, int temperature = 83, int voltage = 0) => new()
     {
         CoreOffsetSupported = true,
@@ -73,7 +82,7 @@ public class GpuThermalSafetyTests
     public void Armed_HotForFifteenSeconds_RestoresReadsBackAndWarns()
     {
         var card = new FakeCard();
-        var safety = new GpuThermalSafety(card);
+        var safety = new GpuThermalSafety(card, new FixedClock(WallTime));
         string? warned = null;
         safety.EmergencyRestored += message => warned = message;
         safety.UpdateArming(true);
@@ -89,7 +98,7 @@ public class GpuThermalSafetyTests
         Assert.Contains("rétablis", warned);
         Assert.Contains("cœur +0 MHz", warned);
         Assert.Equal(warned, safety.LastTripMessage);
-        Assert.Equal(At(15), safety.LastTripAt);
+        Assert.Equal(WallTime, safety.LastTripAt);
     }
 
     [Fact]

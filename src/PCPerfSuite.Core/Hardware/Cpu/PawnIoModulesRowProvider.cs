@@ -40,6 +40,9 @@ public sealed class PawnIoModulesRowProvider : ICompatibilityRowProvider
         IReadOnlyList<PawnIoModuleInfo> loaded, IReadOnlyList<PawnIoModuleInfo> shipped,
         IReadOnlyDictionary<string, string> failures, bool driverReady, string? driverReason)
     {
+        // Sans pilote, un échec de chargement n'est que la conséquence : c'est le pilote manquant qui se dit (règle 3).
+        if (!driverReady) failures = new Dictionary<string, string>();
+
         var rows = new List<CompatibilityRow>();
 
         foreach (PawnIoModuleInfo module in loaded)

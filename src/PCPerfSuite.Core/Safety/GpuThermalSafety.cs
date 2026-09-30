@@ -24,10 +24,14 @@ public sealed class GpuThermalSafety
 
     private readonly IGpuOverclockTarget _target;
     private readonly ThermalGuard _guard;
+    private readonly TimeProvider _wallClock;
 
-    public GpuThermalSafety(IGpuOverclockTarget target)
+    /// <param name="wallClock">Heure affichée du dernier déclenchement. Les délais, eux, se comptent sur l'heure
+    /// donnée à <see cref="Note"/>, que l'appelant peut prendre monotone.</param>
+    public GpuThermalSafety(IGpuOverclockTarget target, TimeProvider? wallClock = null)
     {
         _target = target;
+        _wallClock = wallClock ?? TimeProvider.System;
         _guard = new ThermalGuard([CoreLimit, HotSpotLimit], lossDelay: CoreLimit.Delay);
     }
 
@@ -88,11 +92,9 @@ public sealed class GpuThermalSafety
 
         ThermalVerdict verdict = _guard.Note(now, [coreTempC, hotSpotTempC]);
         State = verdict.State;
-        if (verdict.State is ThermalState.Tripped or ThermalState.Lost) Trip(now, verdict);
+        if (verdict.State is ThermalState.Tripped or ThermalState.Lost) Trip(verdict);
     }
 
-    /// <summary>Désarme, puis rend la carte d'origine. Si ce retour échoue, la cible réarme la sécurité d'après ce
-    /// qu'elle relit (<see cref="GpuControlService.RefreshArming"/>) : un nouvel essai aura lieu au bout du délai.</summary>
     /// <summary>À appeler quand plus aucun relevé n'arrive (chien de garde de l'onglet) : conclut à la perte de
     /// température après le délai, sans remettre à zéro une chaleur en cours.</summary>
     public void NoteNoReading(DateTimeOffset now)
@@ -103,11 +105,17 @@ public sealed class GpuThermalSafety
         if (verdict.State == ThermalState.Lost)
         {
             State = ThermalState.Lost;
-            Trip(now, verdict);
+            Trip(verdict);
         }
     }
 
-    private void Trip(DateTimeOffset now, ThermalVerdict verdict)
+    /// <summary>
+    /// Désarme, puis rend la carte d'origine. Si ce retour échoue, la cible réarme la sécurité d'après ce qu'elle relit
+    /// (<see cref="GpuControlService.RefreshArming"/>) : pour la chaleur, un nouvel essai a lieu au bout du délai. Après
+    /// une perte de température, il faut d'abord qu'une température revienne : sans lecture, la sécurité reste
+    /// armée mais aveugle, et l'onglet le dit.
+    /// </summary>
+    private void Trip(ThermalVerdict verdict)
     {
         IsArmed = false;
         _guard.Reset();
@@ -129,7 +137,7 @@ public sealed class GpuThermalSafety
 
         string message = DescribeTrip(verdict, overclock, power);
         LastTripMessage = message;
-        LastTripAt = now;
+        LastTripAt = _wallClock.GetLocalNow();
         EmergencyRestored?.Invoke(message);
     }
 

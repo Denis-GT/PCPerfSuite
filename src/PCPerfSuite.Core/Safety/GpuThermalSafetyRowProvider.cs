@@ -34,7 +34,7 @@ public sealed class GpuThermalSafetyRowProvider : ICompatibilityRowProvider
         string followed = $"Suivi : cœur {Temperature(safety.LastCoreTempC, safety.CoreEverRead)}, " +
                           $"point chaud {Temperature(safety.LastHotSpotTempC, safety.HotSpotEverRead)}.";
         string lastTrip = safety.LastTripMessage is { } trip && safety.LastTripAt is { } at
-            ? $" Dernier déclenchement à {at.ToLocalTime():HH:mm:ss} : {trip}"
+            ? $" Dernier déclenchement à {at:HH:mm:ss} : {trip}"
             : "";
 
         bool monitorable = safety.CoreEverRead || safety.HotSpotEverRead;

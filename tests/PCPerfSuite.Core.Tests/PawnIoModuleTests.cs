@@ -205,6 +205,24 @@ public class PawnIoModuleTests
     }
 
     [Fact]
+    public void Diagnostic_DriverMissing_BlamesTheDriver_NotALoadFailure()
+    {
+        // Sans PawnIO, TryLoadModule échoue forcément : la raison à donner est le pilote manquant, pas un échec rouge.
+        var shipped = Candidate(PawnIoModuleSource.PCPerfSuite, "ioctl_read_msr", "ioctl_write_msr").Info;
+        var failures = new Dictionary<string, string>
+        {
+            ["IntelMSR"] = "Le pilote PawnIO n'est pas installé.",
+            ["RyzenSMU"] = "Le pilote PawnIO n'est pas installé.",
+        };
+
+        CompatibilityRow row = Assert.Single(
+            PawnIoModulesRowProvider.BuildRows([], [shipped], failures, false, "Le pilote PawnIO n'est pas installé."));
+
+        Assert.Equal("Livré, non chargé", row.Status);
+        Assert.True(row.IsSupported);
+    }
+
+    [Fact]
     public void Diagnostic_ShippedModuleNotRequested_IsNotAProblem()
     {
         var shipped = Candidate(PawnIoModuleSource.PCPerfSuite, "ioctl_read_msr", "ioctl_write_msr").Info;

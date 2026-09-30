@@ -489,6 +489,9 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     partial void OnApplyAtStartupChanged(bool value)
     {
         _cpu.KeepLimitsOnExit = value;
+
+        // Recocher la case après un déclenchement de la sécurité, c'est redemander ces limites : le réveil les repose.
+        if (value && !_suppressApply) _emergencyThisSession = false;
         Persist();
     }
 

@@ -524,6 +524,9 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     partial void OnApplyOverclockAtStartupChanged(bool value)
     {
         _gpuControl.KeepOverclockOnExit = value;
+
+        // Recocher la case après un déclenchement de la sécurité, c'est redemander l'overclock : le réveil le réapplique.
+        if (value && !_suppressApply) _emergencyThisSession = false;
         Persist();
     }
 
