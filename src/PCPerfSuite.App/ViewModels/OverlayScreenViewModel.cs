@@ -38,7 +38,16 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
     private DisplayTopologySnapshot? _snapshot;
     private IReadOnlyDictionary<string, string> _serialHashes = NoSerials;
     private DisplayIdentity? _saved;
+
+    /// <summary>Dernière fenêtre de jeu vue au premier plan, et l'écran où elle était au dernier relevé : c'est la
+    /// fenêtre qu'on suit, pas l'écran (un jeu qui se déplace lui-même ne repasse pas au premier plan, et un
+    /// branchement recrée les HMONITOR).</summary>
+    private IntPtr _gameWindow;
     private IntPtr _gameMonitor;
+
+    /// <summary>Chemins des écrans dont les numéros de série ont été demandés : une nouvelle lecture WMI seulement si
+    /// les écrans branchés changent.</summary>
+    private HashSet<string>? _serialPaths;
     private DisplayMonitor? _lastTarget;
     private CancellationTokenSource? _serialRead;
     private bool _syncing;
@@ -48,7 +57,9 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
     [
         new(OverlayScreenMode.Primary, "Écran principal", "L'écran principal de Windows."),
         new(OverlayScreenMode.Fixed, "Cet écran", "L'écran choisi dans la liste, retrouvé même s'il change de connecteur."),
-        new(OverlayScreenMode.Game, "Écran du jeu", "L'écran de la fenêtre au premier plan. La barre des tâches, le bureau et PCPerfSuite ne comptent pas."),
+        new(OverlayScreenMode.Game, "Écran du jeu",
+            "L'écran de la fenêtre au premier plan. La barre des tâches, le bureau et PCPerfSuite ne comptent pas. "
+            + "Expérimental : pas encore vérifié sur une vraie machine à plusieurs écrans."),
     ];
 
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsFixedMode))] private OverlayScreenModeOption selectedMode;
@@ -86,10 +97,7 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         {
             if (value == _pageShown) return;
             _pageShown = value;
-            if (!value) return;
-
-            RefreshTopology();
-            ReadSerialsInBackground();
+            if (value) RefreshTopology();
         }
     }
 
@@ -108,17 +116,19 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         _snapshot = DisplayTopology.Read();
         RebuildDisplays();
         UpdateStatus();
-        if (HasIdenticalScreens(_snapshot)) ReadSerialsInBackground();
+        if (DisplayIdentityResolver.HasIdenticalScreens(_snapshot)) ReadSerialsInBackground();
     }
 
-    /// <summary>Mode « écran du jeu » : note la fenêtre passée au premier plan. Vrai si l'overlay doit changer d'écran.
-    /// Les fenêtres du shell et de PCPerfSuite sont ignorées : un clic sur la barre des tâches ne fait rien bouger.</summary>
+    /// <summary>Mode « écran du jeu » : note la fenêtre passée au premier plan (IntPtr.Zero pour seulement revérifier
+    /// l'écran de la fenêtre déjà suivie, à chaque rendu). Vrai si l'overlay doit changer d'écran. Les fenêtres du shell
+    /// et de PCPerfSuite sont ignorées : un clic sur la barre des tâches ne fait rien bouger.</summary>
     public bool NoteForeground(IntPtr hwnd)
     {
         if (SelectedMode.Mode != OverlayScreenMode.Game) return false;
-        if (DisplayTopology.IsIgnoredForegroundWindow(hwnd)) return false;
+        if (hwnd != IntPtr.Zero && !DisplayTopology.IsIgnoredForegroundWindow(hwnd)) _gameWindow = hwnd;
 
-        IntPtr monitor = DisplayTopology.MonitorFromWindow(hwnd);
+        // Fenêtre fermée : MonitorFromWindow rend zéro, l'overlay reste où il est jusqu'au prochain jeu.
+        IntPtr monitor = DisplayTopology.MonitorFromWindow(_gameWindow);
         if (monitor == IntPtr.Zero || monitor == _gameMonitor) return false;
 
         _gameMonitor = monitor;
@@ -148,7 +158,7 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         {
             // Premier passage en « Cet écran » : l'écran où est l'overlay aujourd'hui, pour que rien ne bouge.
             OverlayDisplayOption? current = Displays.FirstOrDefault(d => d.Monitor == _lastTarget) ?? Displays.FirstOrDefault();
-            if (current is not null) _saved = DisplayIdentity.FromMonitor(current.Monitor, _serialHashes, current.Number);
+            if (current is not null) _saved = DisplayIdentity.FromMonitor(current.Monitor, _serialHashes);
             SyncSelection();
         }
 
@@ -160,7 +170,7 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
     {
         if (_syncing || value is null) return;
 
-        _saved = DisplayIdentity.FromMonitor(value.Monitor, _serialHashes, value.Number);
+        _saved = DisplayIdentity.FromMonitor(value.Monitor, _serialHashes);
         UpdateStatus();
         _onChanged();
     }
@@ -218,31 +228,31 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         => _dispatcher.BeginInvoke(() =>
         {
             RefreshTopology();
+            // Les HMONITOR sont recréés : on relit l'écran de la fenêtre du jeu.
+            _gameMonitor = IntPtr.Zero;
+            NoteForeground(IntPtr.Zero);
             _onTargetMoved();
         });
 
-    /// <summary>Deux écrans du même modèle : seul leur numéro de série les départage.</summary>
-    private static bool HasIdenticalScreens(DisplayTopologySnapshot snapshot)
-        => snapshot.Monitors
-            .SelectMany(m => m.Targets)
-            .Where(t => t.HasEdid)
-            .GroupBy(t => (t.EdidManufacturerId, t.EdidProductCodeId))
-            .Any(g => g.Count() > 1);
-
-    /// <summary>Numéros de série par WMI, hors du thread d'interface. Au retour, l'écran enregistré garde l'empreinte
-    /// du sien (pour le retrouver entre deux écrans identiques), et l'overlay change d'écran si la résolution change.</summary>
+    /// <summary>Numéros de série par WMI, hors du thread d'interface, seulement quand les écrans branchés ont changé.
+    /// Au retour, l'écran enregistré garde l'empreinte du sien (pour le retrouver entre deux écrans identiques), et
+    /// l'overlay change d'écran si la résolution change.</summary>
     private async void ReadSerialsInBackground()
     {
-        _serialRead?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _serialRead = cancellation;
-
         List<string> paths = (_snapshot?.Monitors ?? Array.Empty<DisplayMonitor>())
             .SelectMany(m => m.Targets)
             .Select(t => t.DevicePath)
             .OfType<string>()
             .ToList();
         if (paths.Count == 0) return;
+
+        var requested = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        if (_serialPaths is not null && _serialPaths.SetEquals(requested)) return;
+        _serialPaths = requested;
+
+        _serialRead?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _serialRead = cancellation;
 
         try
         {
@@ -259,16 +269,17 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         }
         catch
         {
-            // WMI muet : deux écrans identiques ne seront pas départagés, le message le dira.
+            // WMI muet : deux écrans identiques ne seront pas départagés, le message le dira. Une prochaine
+            // relecture des écrans pourra réessayer.
+            _serialPaths = null;
         }
     }
 
     /// <summary>Ajoute à l'écran enregistré l'empreinte de son numéro de série, s'il est branché et qu'elle manque.</summary>
     private bool RememberSerial()
     {
-        if (_saved is null || _snapshot is null || !string.IsNullOrEmpty(_saved.SerialHash)) return false;
-        if (DisplayIdentityResolver.Resolve(_saved, _snapshot, _serialHashes).Monitor is not { } monitor) return false;
-        if (monitor.Targets.FirstOrDefault()?.DevicePath is not { } path || !_serialHashes.TryGetValue(path, out string? hash)) return false;
+        if (_saved is null || _snapshot is null) return false;
+        if (DisplayIdentityResolver.SerialHashToRemember(_saved, _snapshot, _serialHashes) is not { } hash) return false;
 
         _saved.SerialHash = hash;
         return true;

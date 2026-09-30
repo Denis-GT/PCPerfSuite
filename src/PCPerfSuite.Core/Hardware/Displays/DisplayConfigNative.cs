@@ -7,7 +7,7 @@ namespace PCPerfSuite.Core.Hardware.Displays;
 /// Appels Win32 de l'inventaire des écrans : CCD (QueryDisplayConfig, DisplayConfigGetDeviceInfo) pour les noms, l'EDID,
 /// la sortie et l'adaptateur ; EnumDisplayMonitors / GetMonitorInfoW pour les bornes en pixels physiques ; shcore pour
 /// l'échelle. Rien ne demande de droits administrateur. Les tailles des structures sont vérifiées par un test
-/// (DisplayConfigLayoutTests) : une structure mal alignée ferait lire n'importe quoi sans erreur.
+/// (DisplayTopologyTests.NativeStructures_HaveTheWindowsLayout) : une structure mal alignée ferait lire n'importe quoi sans erreur.
 /// </summary>
 internal static class DisplayConfigNative
 {

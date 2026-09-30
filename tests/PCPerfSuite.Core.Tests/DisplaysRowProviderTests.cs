@@ -65,12 +65,37 @@ public class DisplaysRowProviderTests
     }
 
     [Fact]
-    public void Rows_NeverMentionASerial()
+    public void SingleScreens_NoIdenticalScreensRow()
+        => Assert.DoesNotContain(DisplaysRowProvider.BuildRows(Snapshot(Primary)), r => r.Title == "Écrans identiques");
+
+    [Fact]
+    public void IdenticalScreens_SayHowManySerialsWereRead_WithoutShowingThem()
     {
-        foreach (CompatibilityRow row in DisplaysRowProvider.BuildRows(Snapshot(Primary)))
+        DisplayMonitor twin = Monitor(2, new PixelRect(2560, 0, 5120, 1440), targets: Target("DELL U2720Q", @"\\?\DISPLAY#DEL4123#z#{y}"));
+        var hashes = new Dictionary<string, string> { [@"\\?\DISPLAY#DEL4123#x#{y}"] = "0123456789ABCDEF" };
+
+        IReadOnlyList<CompatibilityRow> rows = DisplaysRowProvider.BuildRows(Snapshot(Primary, twin), hashes);
+        CompatibilityRow row = Assert.Single(rows, r => r.Title == "Écrans identiques");
+
+        Assert.Equal("Départagés en partie", row.Status);
+        Assert.Contains("lu pour 1 d'entre eux", row.Detail);
+        Assert.Contains("Expérimental", row.Detail);
+        Assert.False(row.IsSupported);
+        foreach (CompatibilityRow r in rows)
         {
-            Assert.DoesNotContain("série", row.Status + row.Detail, StringComparison.OrdinalIgnoreCase);
-            Assert.False(row.IsPersonal);
+            Assert.DoesNotContain("0123456789ABCDEF", r.Status + r.Detail);
+            Assert.False(r.IsPersonal);
         }
+    }
+
+    [Fact]
+    public void IdenticalScreens_AllSerialsRead_AreSupported()
+    {
+        DisplayMonitor twin = Monitor(2, new PixelRect(2560, 0, 5120, 1440), targets: Target("DELL U2720Q", @"\\?\DISPLAY#DEL4123#z#{y}"));
+        var hashes = new Dictionary<string, string> { [@"\\?\DISPLAY#DEL4123#x#{y}"] = "A", [@"\\?\DISPLAY#DEL4123#z#{y}"] = "B" };
+
+        CompatibilityRow row = Assert.Single(DisplaysRowProvider.BuildRows(Snapshot(Primary, twin), hashes), r => r.Title == "Écrans identiques");
+        Assert.Equal("Départagés", row.Status);
+        Assert.True(row.IsSupported);
     }
 }

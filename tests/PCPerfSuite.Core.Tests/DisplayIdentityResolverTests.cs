@@ -91,11 +91,63 @@ public class DisplayIdentityResolverTests
         Assert.Same(clone, DisplayIdentityResolver.Resolve(Saved(PathA), Snapshot(Primary, clone), NoSerials).Monitor);
     }
 
+    /// <summary>Deux écrans identiques, câbles échangés : le chemin enregistré désigne maintenant l'autre écran, et
+    /// seul le numéro de série le dit.</summary>
+    [Fact]
+    public void SwappedCables_BetweenIdenticalScreens_FollowTheSerial()
+    {
+        DisplayMonitor aOnB = Monitor(2, DellA.Bounds, targets: Target("DELL U2720Q", PathB));
+        DisplayMonitor bOnA = Monitor(3, DellB.Bounds, targets: Target("DELL U2720Q", PathA));
+        var serials = new Dictionary<string, string> { [PathB] = "AAAA", [PathA] = "BBBB" };
+
+        DisplayResolution result = DisplayIdentityResolver.Resolve(Saved(PathA, "aaaa"), Snapshot(Primary, aOnB, bOnA), serials);
+
+        Assert.Equal(DisplayMatch.EdidAndSerial, result.Match);
+        Assert.Same(aOnB, result.Monitor);
+    }
+
+    [Fact]
+    public void SerialNotReadYet_KeepsTheExactPath()
+        => Assert.Equal(DisplayMatch.ExactPath,
+            DisplayIdentityResolver.Resolve(Saved(PathA, "aaaa"), Snapshot(Primary, DellA, DellB), NoSerials).Match);
+
+    [Fact]
+    public void HasIdenticalScreens()
+    {
+        Assert.True(DisplayIdentityResolver.HasIdenticalScreens(Snapshot(Primary, DellA, DellB)));
+        Assert.False(DisplayIdentityResolver.HasIdenticalScreens(Snapshot(Primary, DellA)));
+
+        // Sans EDID, deux écrans ne sont pas « identiques » : rien à départager par le numéro de série.
+        DisplayMonitor noEdidA = Monitor(2, DellA.Bounds, targets: Target(null, "x", null, null));
+        DisplayMonitor noEdidB = Monitor(3, DellB.Bounds, targets: Target(null, "y", null, null));
+        Assert.False(DisplayIdentityResolver.HasIdenticalScreens(Snapshot(Primary, noEdidA, noEdidB)));
+    }
+
+    [Fact]
+    public void SerialHashToRemember_OnlyWhenMissingAndFound()
+    {
+        var serials = new Dictionary<string, string> { [PathA] = "AAAA", [PathB] = "BBBB" };
+
+        Assert.Equal("AAAA", DisplayIdentityResolver.SerialHashToRemember(Saved(PathA), Snapshot(Primary, DellA, DellB), serials));
+        Assert.Null(DisplayIdentityResolver.SerialHashToRemember(Saved(PathA, "AAAA"), Snapshot(Primary, DellA, DellB), serials));
+        Assert.Null(DisplayIdentityResolver.SerialHashToRemember(Saved(PathA), Snapshot(Primary), serials));
+        Assert.Null(DisplayIdentityResolver.SerialHashToRemember(Saved(PathA), Snapshot(Primary, DellA), NoSerials));
+    }
+
+    [Fact]
+    public void SerialHashToRemember_UsesTheRecognizedTarget_OfClonedScreens()
+    {
+        DisplayMonitor clone = Monitor(2, DellA.Bounds, targets: [Target("LG", @"\\?\DISPLAY#GSM5B09#x#{y}", 0x6D1E, 0x5B09), Target("DELL U2720Q", PathA)]);
+        var serials = new Dictionary<string, string> { [@"\\?\DISPLAY#GSM5B09#x#{y}"] = "LGLG", [PathA] = "AAAA" };
+
+        Assert.Equal("AAAA", DisplayIdentityResolver.SerialHashToRemember(Saved(PathA), Snapshot(Primary, clone), serials));
+    }
+
     [Fact]
     public void FromMonitor_NeverKeepsTheGdiName()
     {
         var serials = new Dictionary<string, string> { [PathA] = "ABCD" };
-        DisplayIdentity identity = DisplayIdentity.FromMonitor(DellA, serials, 2);
+        DisplayIdentity identity = DisplayIdentity.FromMonitor(DellA, serials);
 
         Assert.Equal(PathA, identity.DevicePath);
         Assert.Equal(Dell, identity.EdidManufacturerId);
@@ -103,4 +155,9 @@ public class DisplayIdentityResolverTests
         Assert.Equal("ABCD", identity.SerialHash);
         Assert.DoesNotContain("DISPLAY2", JsonSerializer.Serialize(identity));
     }
+
+    /// <summary>« Écran 2 (…) » change avec la disposition : un écran sans nom n'en enregistre aucun.</summary>
+    [Fact]
+    public void FromMonitor_WithoutName_KeepsNoNumberedName()
+        => Assert.Null(DisplayIdentity.FromMonitor(Monitor(2, DellA.Bounds, targets: Target(" ", PathA)), NoSerials).FriendlyName);
 }

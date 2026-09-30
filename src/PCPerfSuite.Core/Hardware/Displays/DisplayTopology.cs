@@ -72,6 +72,22 @@ public static class DisplayTopology
         catch { return IntPtr.Zero; }
     }
 
+    /// <summary>Échelle actuelle d'un écran (1,5 = 150 %), relue à la demande : l'utilisateur peut la changer sans que
+    /// Windows signale un changement de configuration. Null si l'écran n'existe plus ou ne la donne pas.</summary>
+    public static double? ReadScale(IntPtr monitorHandle)
+    {
+        if (monitorHandle == IntPtr.Zero) return null;
+
+        try
+        {
+            return GetDpiForMonitor(monitorHandle, MDT_EFFECTIVE_DPI, out uint dpiX, out _) == 0 && dpiX > 0 ? dpiX / 96.0 : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Fenêtre au premier plan, IntPtr.Zero si aucune (bureau sécurisé, verrouillage).</summary>
     public static IntPtr ForegroundWindow()
     {

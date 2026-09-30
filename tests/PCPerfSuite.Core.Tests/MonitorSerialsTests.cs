@@ -26,12 +26,18 @@ public class MonitorSerialsTests
     [Fact]
     public void Hash_IsShortStableAndHidesTheSerial()
     {
-        string hash = MonitorSerials.HashSerial("CN0ABC123");
+        byte[] key = "clé du PC"u8.ToArray();
+        string hash = MonitorSerials.HashSerial("CN0ABC123", key);
         Assert.Equal(16, hash.Length);
-        Assert.Equal(hash, MonitorSerials.HashSerial(" CN0ABC123 "));
-        Assert.NotEqual(hash, MonitorSerials.HashSerial("CN0ABC124"));
+        Assert.Equal(hash, MonitorSerials.HashSerial(" CN0ABC123 ", key));
+        Assert.NotEqual(hash, MonitorSerials.HashSerial("CN0ABC124", key));
         Assert.DoesNotContain("ABC123", hash);
     }
+
+    /// <summary>Le même écran sur deux PC ne donne pas la même empreinte : deux rapports ne se relient pas.</summary>
+    [Fact]
+    public void Hash_DependsOnThePc()
+        => Assert.NotEqual(MonitorSerials.HashSerial("CN0ABC123", "PC 1"u8.ToArray()), MonitorSerials.HashSerial("CN0ABC123", "PC 2"u8.ToArray()));
 
     [Fact]
     public void WmiString_StopsAtTheFirstZero()

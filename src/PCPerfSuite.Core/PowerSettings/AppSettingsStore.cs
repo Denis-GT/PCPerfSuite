@@ -324,7 +324,7 @@ public sealed class OverlayAppearanceSettings
 
     public OverlayAnchor Anchor { get; set; } = OverlayAnchor.TopLeft;
 
-    /// <summary>Marge depuis le bord de l'écran, en pixels (overlay fenêtre).</summary>
+    /// <summary>Marge depuis le bord de l'écran, en DIP (overlay fenêtre) : multipliée par l'échelle de l'écran visé.</summary>
     public int MarginX { get; set; } = 24;
 
     public int MarginY { get; set; } = 24;

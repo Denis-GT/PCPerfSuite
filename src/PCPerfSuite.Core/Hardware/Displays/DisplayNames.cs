@@ -45,7 +45,7 @@ public static class DisplayNames
         4 => DisplayOutputKind.Dvi,
         5 => DisplayOutputKind.Hdmi,
         6 or 11 or 13 or 0x80000000 => DisplayOutputKind.Internal,
-        10 or 12 => DisplayOutputKind.DisplayPort,
+        10 => DisplayOutputKind.DisplayPort,
         15 => DisplayOutputKind.Wireless,
         16 or 17 => DisplayOutputKind.Indirect,
         18 => DisplayOutputKind.UsbDisplayPort,

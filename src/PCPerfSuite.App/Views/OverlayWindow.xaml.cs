@@ -37,8 +37,13 @@ public partial class OverlayWindow : Window
         Closed += OnClosed;
     }
 
-    /// <summary>Remet la fenêtre devant les autres fenêtres toujours au-dessus (barre des tâches...).</summary>
-    public void BringToTop() => _topmost?.BringToTop();
+    /// <summary>Remet la fenêtre devant les autres fenêtres toujours au-dessus (barre des tâches...), à chaque rendu. En
+    /// mode « écran du jeu », revérifie au passage l'écran du jeu : il a pu se déplacer sans repasser au premier plan.</summary>
+    public void BringToTop()
+    {
+        _topmost?.BringToTop();
+        if (_viewModel?.Screen.NoteForeground(IntPtr.Zero) == true) Reposition();
+    }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
@@ -110,11 +115,19 @@ public partial class OverlayWindow : Window
             return;
         }
 
+        // Échelle relue maintenant : l'utilisateur a pu la changer sur cet écran sans que l'overlay y soit.
+        double scale = DisplayTopology.ReadScale(target.Handle) ?? target.Scale;
         OverlayAppearanceViewModel appearance = _viewModel.Appearance;
         PixelPoint position = OverlayPlacement.Compute(appearance.Anchor, appearance.MarginX, appearance.MarginY,
-            target.Bounds, target.Scale, ActualWidth, ActualHeight);
+            target.Bounds, scale, ActualWidth, ActualHeight);
 
-        if (WindowPlacement.GetPosition(_hwnd) == position) return;
+        if (WindowPlacement.GetPosition(_hwnd) == position)
+        {
+            // Position stable : un prochain changement d'échelle aura droit à ses propres replacements. Une vraie
+            // boucle ne devient jamais stable, la limite tient toujours.
+            _dpiReplacements = 0;
+            return;
+        }
         WindowPlacement.MoveTo(_hwnd, position);
     }
 

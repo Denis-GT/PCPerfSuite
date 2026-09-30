@@ -14,20 +14,34 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
 
     private const string Experimental = "Expérimental : ce cas n'a pas encore été vérifié sur une vraie machine.";
 
-    private DisplayTopologySnapshot? _snapshot;
+    /// <summary>Écrans et empreintes des numéros de série, publiés ensemble par <see cref="RefreshAsync"/>.</summary>
+    private sealed record Reading(DisplayTopologySnapshot Snapshot, IReadOnlyDictionary<string, string>? SerialHashes);
+
+    private Reading? _reading;
 
     public string Title => RowTitle;
 
+    /// <summary>Hors du thread d'interface : les numéros de série (WMI, lent) ne sont lus que s'il y a deux écrans du
+    /// même modèle, seul cas où ils servent.</summary>
     public Task RefreshAsync(CancellationToken cancellationToken)
     {
-        Volatile.Write(ref _snapshot, DisplayTopology.Read());
+        DisplayTopologySnapshot snapshot = DisplayTopology.Read();
+        IReadOnlyDictionary<string, string>? hashes = DisplayIdentityResolver.HasIdenticalScreens(snapshot)
+            ? MonitorSerials.ReadHashes(snapshot.Monitors.SelectMany(m => m.Targets).Select(t => t.DevicePath).OfType<string>(), cancellationToken)
+            : null;
+        Volatile.Write(ref _reading, new Reading(snapshot, hashes));
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<CompatibilityRow> GetRows() => BuildRows(Volatile.Read(ref _snapshot));
+    public IReadOnlyList<CompatibilityRow> GetRows()
+    {
+        Reading? reading = Volatile.Read(ref _reading);
+        return BuildRows(reading?.Snapshot, reading?.SerialHashes);
+    }
 
-    /// <summary>Les lignes, isolées ici pour être testées sans écran.</summary>
-    public static IReadOnlyList<CompatibilityRow> BuildRows(DisplayTopologySnapshot? snapshot)
+    /// <summary>Les lignes, isolées ici pour être testées sans écran. <paramref name="serialHashes"/> : empreintes lues
+    /// (null si non demandées) ; seul leur nombre est affiché.</summary>
+    public static IReadOnlyList<CompatibilityRow> BuildRows(DisplayTopologySnapshot? snapshot, IReadOnlyDictionary<string, string>? serialHashes = null)
     {
         if (snapshot is null) return [new CompatibilityRow(RowTitle, "Pas encore lu", "Lecture des écrans en cours.", true)];
 
@@ -50,7 +64,36 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
         rows.Add(new CompatibilityRow(RowTitle, summary, summaryDetail, snapshot.Problem is null));
 
         for (int i = 0; i < count; i++) rows.Add(BuildMonitorRow(snapshot.Monitors[i], i + 1));
+        if (BuildIdenticalScreensRow(snapshot, serialHashes) is { } identical) rows.Add(identical);
         return rows;
+    }
+
+    /// <summary>Deux écrans du même modèle ou plus : l'overlay les départage par leur numéro de série. On dit pour
+    /// combien il a été lu, sans jamais le montrer (ni son empreinte).</summary>
+    private static CompatibilityRow? BuildIdenticalScreensRow(DisplayTopologySnapshot snapshot, IReadOnlyDictionary<string, string>? serialHashes)
+    {
+        List<DisplayTarget> twins = snapshot.Monitors
+            .SelectMany(m => m.Targets)
+            .Where(t => t.HasEdid)
+            .GroupBy(t => (t.EdidManufacturerId, t.EdidProductCodeId))
+            .Where(g => g.Count() > 1)
+            .SelectMany(g => g)
+            .ToList();
+        if (twins.Count == 0) return null;
+
+        const string title = "Écrans identiques";
+        if (serialHashes is null)
+            return new CompatibilityRow(title, "Pas encore lu", "Numéros de série pas encore lus.", true);
+
+        int read = twins.Count(t => t.DevicePath is { } path && serialHashes.ContainsKey(path));
+        string status = read == twins.Count ? "Départagés" : read == 0 ? "Non départagés" : "Départagés en partie";
+        string detail = $"{twins.Count} écrans du même modèle : numéro de série lu pour {read} d'entre eux (WmiMonitorID). "
+                        + (read == twins.Count
+                            ? "L'overlay retrouve l'écran choisi même après un échange de câbles."
+                            : "Sans numéro (WMI muet, ou écran qui n'en donne pas), l'écran choisi est retrouvé par son connecteur seulement ; "
+                              + "s'il change de connecteur, l'overlay passe sur l'écran principal et le dit.")
+                        + $" {Experimental}";
+        return new CompatibilityRow(title, status, detail, read == twins.Count);
     }
 
     private static CompatibilityRow BuildMonitorRow(DisplayMonitor monitor, int number)
