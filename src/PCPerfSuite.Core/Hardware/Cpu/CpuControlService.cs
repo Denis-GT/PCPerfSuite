@@ -51,6 +51,14 @@ public sealed class CpuControlService : IDisposable
         Backend = CreateBackend(Platform);
     }
 
+    /// <summary>Pour les tests : un backend factice et une horloge réglable, sans détection du processeur.</summary>
+    internal CpuControlService(CpuPlatform platform, ICpuTuningBackend backend, TimeProvider time)
+    {
+        _time = time;
+        Platform = platform;
+        Backend = backend;
+    }
+
     private static ICpuTuningBackend CreateBackend(CpuPlatform platform)
     {
         if (platform.Vendor == CpuVendor.Qualcomm)
@@ -79,17 +87,34 @@ public sealed class CpuControlService : IDisposable
     public bool TrySetPowerLimits(float sustainedWatts, float? burstWatts, out string message)
     {
         bool ok = Backend.TrySetPowerLimits(sustainedWatts, burstWatts, out message);
-        if (!ok) return false;
+
+        // Sans écriture possible (verrou du BIOS, module qui ne sait que lire), rien n'a bougé. Sinon, même un refus
+        // à la relecture (« retenu 110 W au lieu de 125 W ») a pu changer le registre : c'est la relecture qui décide.
+        if (!ok && !Backend.PowerLimit.CanWrite) return false;
 
         _touched = true;
         _guard.Reset();
+        _limitsRaised = IsRaised(Backend.ReadPowerLimits());
 
-        // La surveillance thermique ne sert que si l'utilisateur a *relevé* une limite : l'abaisser ne peut
-        // pas faire chauffer davantage, et déclencher un retour d'office dans ce cas serait absurde.
-        CpuPowerLimitSnapshot? snapshot = Backend.ReadPowerLimits();
-        _limitsRaised = snapshot is not null && snapshot.SustainedWatts > snapshot.DefaultSustainedWatts + 1f;
+        return ok;
+    }
 
-        return true;
+    /// <summary>
+    /// La surveillance thermique ne sert que si une limite a été *relevée*, soutenue ou de pointe (PL2 se règle à
+    /// part) : l'abaisser ne peut pas faire chauffer davantage, et déclencher un retour d'office dans ce cas serait
+    /// absurde.
+    /// </summary>
+    public static bool IsRaised(CpuPowerLimitSnapshot? limits)
+        => limits is not null
+           && (limits.SustainedWatts > limits.DefaultSustainedWatts + 1f
+               || (limits.BurstWatts is { } burst && limits.DefaultBurstWatts is { } defaultBurst && burst > defaultBurst + 1f));
+
+    /// <summary>Au réveil de veille : la veille ne compte pas comme chaleur tenue, et le firmware a pu reposer ses
+    /// limites. L'armement ne tient plus que si les limites relues sont encore relevées.</summary>
+    public void RefreshAfterResume()
+    {
+        _guard.Reset();
+        _limitsRaised = _limitsRaised && IsRaised(Backend.ReadPowerLimits());
     }
 
     public bool TryRestoreDefaults(out string message)

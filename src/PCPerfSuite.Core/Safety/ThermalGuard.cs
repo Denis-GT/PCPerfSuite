@@ -105,6 +105,21 @@ public sealed class ThermalGuard
         return new ThermalVerdict(ThermalState.Ok);
     }
 
+    /// <summary>Quand aucun relevé n'arrive plus du tout (lecture qui lève ou bloque) : vérifie seulement la perte, sans
+    /// toucher aux délais de chaleur en cours, qu'un relevé vide remettrait à zéro.</summary>
+    public ThermalVerdict CheckLoss(DateTimeOffset now)
+    {
+        if (_lastReadAt is not { } lastRead) return new ThermalVerdict(ThermalState.NotMonitorable);
+
+        if (_lossDelay is { } lossDelay && now - lastRead >= lossDelay)
+        {
+            Reset();
+            return new ThermalVerdict(ThermalState.Lost);
+        }
+
+        return new ThermalVerdict(ThermalState.Ok);
+    }
+
     /// <summary>Oublie les délais en cours et les lectures passées (réarmement, après un déclenchement).</summary>
     public void Reset()
     {

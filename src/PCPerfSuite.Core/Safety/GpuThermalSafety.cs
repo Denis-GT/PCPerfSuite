@@ -8,8 +8,9 @@ namespace PCPerfSuite.Core.Safety;
 /// réglages, on la rend d'origine, on relit ce qu'elle a retenu et on prévient. Elle complète le ventilateur passé à
 /// 100 % dès 88 °C (onglet Ventilateurs), qui ne retire pas l'overclock.
 ///
-/// Armée seulement quand l'app a elle-même relevé quelque chose (voir <see cref="GpuControlService.RefreshArming"/>) :
-/// un overclock posé par un autre outil n'est jamais retiré. Le point chaud ne compte que s'il est lu : les RTX 50 ne
+/// Armée seulement quand un bloc de réglages que l'app a écrit est relu au-dessus de l'origine (voir
+/// <see cref="GpuControlService.RefreshArming"/>) : un overclock posé par un autre outil n'arme rien tant que l'app n'a
+/// pas écrit ce bloc. Un déclenchement rend toute la carte d'origine. Le point chaud ne compte que s'il est lu : les RTX 50 ne
 /// le publient pas, la sécurité tient alors sur le cœur seul. Ne plus lire aucune température pendant le délai, après
 /// en avoir lu, déclenche aussi : l'app ne surveille plus rien alors que l'overclock tient.
 ///
@@ -66,6 +67,14 @@ public sealed class GpuThermalSafety
         State = ThermalState.NotMonitorable;
     }
 
+    /// <summary>Oublie les délais en cours et les dernières lectures sans changer l'armement : au réveil de veille,
+    /// l'heure a sauté de toute la durée de la veille, qui ne doit compter ni comme chaleur tenue ni comme perte.</summary>
+    public void Restart()
+    {
+        _guard.Reset();
+        State = ThermalState.NotMonitorable;
+    }
+
     /// <summary>À appeler à chaque relevé, avec la température du cœur et celle du point chaud (null si non lues, ou
     /// si le relevé n'a pas de GPU).</summary>
     public void Note(DateTimeOffset now, float? coreTempC, float? hotSpotTempC)
@@ -80,6 +89,22 @@ public sealed class GpuThermalSafety
         ThermalVerdict verdict = _guard.Note(now, [coreTempC, hotSpotTempC]);
         State = verdict.State;
         if (verdict.State is ThermalState.Tripped or ThermalState.Lost) Trip(now, verdict);
+    }
+
+    /// <summary>Désarme, puis rend la carte d'origine. Si ce retour échoue, la cible réarme la sécurité d'après ce
+    /// qu'elle relit (<see cref="GpuControlService.RefreshArming"/>) : un nouvel essai aura lieu au bout du délai.</summary>
+    /// <summary>À appeler quand plus aucun relevé n'arrive (chien de garde de l'onglet) : conclut à la perte de
+    /// température après le délai, sans remettre à zéro une chaleur en cours.</summary>
+    public void NoteNoReading(DateTimeOffset now)
+    {
+        if (!IsArmed) return;
+
+        ThermalVerdict verdict = _guard.CheckLoss(now);
+        if (verdict.State == ThermalState.Lost)
+        {
+            State = ThermalState.Lost;
+            Trip(now, verdict);
+        }
     }
 
     private void Trip(DateTimeOffset now, ThermalVerdict verdict)

@@ -174,6 +174,7 @@ l'onglet l'explique au lieu d'afficher des curseurs sans effet.
   qui raisonne dans la même unité, et l'overclock n'est pas réappliqué au démarrage après un
   changement de carte : l'app reconnaît la carte à sa marque, son nom et ses identifiants PCI
   quand le pilote les donne (les réglages d'une version précédente n'avaient que la marque).
+  L'onglet le dit, et « Compatibilité de ce PC › Carte GPU pilotée » montre les deux identités.
 - **Ce qui bride la carte** en direct (puissance, température, tension, pas de charge), comme la
   ligne « perf cap » de GPU-Z — fourni par NVIDIA seulement, « N/D » ailleurs.
 - Ce que la carte n'expose pas est listé sous les curseurs avec la raison (« N/D sur cette
@@ -189,10 +190,15 @@ l'onglet l'explique au lieu d'afficher des curseurs sans effet.
 - **Sécurité thermique** : si la carte reste à 90 °C ou plus au cœur pendant 15 secondes (ou à
   105 °C au point chaud, quand la carte le publie, ce que les RTX 50 ne font pas) alors que l'app a
   relevé un réglage (décalage positif, puissance, température ou tension au-dessus de l'origine),
-  l'app lui rend ses réglages d'origine, relit ce qu'elle a retenu et prévient. Elle continue quand
-  la fenêtre est cachée ou dans la zone de notification. Si la température du GPU n'est plus lue
-  pendant 15 secondes alors qu'elle l'était, l'overclock est retiré aussi. Un overclock posé par
-  un autre outil (Afterburner…) n'est jamais retiré.
+  l'app lui rend ses réglages d'origine, relit ce qu'elle a retenu et prévient ; « Appliquer au
+  démarrage » est alors décoché, pour que le prochain lancement ne remette pas cet overclock. Elle
+  continue quand la fenêtre est cachée ou dans la zone de notification. Si la température du GPU
+  n'est plus lue pendant 15 secondes alors qu'elle l'était (ou si plus aucun relevé n'arrive, après
+  un plantage du pilote par exemple), l'overclock est retiré aussi. Si le pilote refuse le retour
+  d'origine, elle réessaie 15 secondes plus tard. Un overclock posé par un autre outil
+  (Afterburner…) n'arme rien tant que l'app n'a pas écrit le même bloc de réglages (horloges,
+  température et tension d'un côté, limite de puissance de l'autre) ; une fois armée, un
+  déclenchement rend toute la carte d'origine. La durée d'une veille ne compte pas.
 - **Réveil de veille** : l'onglet relit la carte quelques secondes après le réveil et affiche ses
   vraies valeurs. Les réglages enregistrés ne sont réappliqués que si « Appliquer au démarrage »
   est coché, et pas si la sécurité thermique les a retirés pendant la session.
@@ -251,7 +257,8 @@ Garde-fous :
   un succès en l'air.
 - Un avertissement est à accepter une fois avant le premier réglage.
 - **Sécurité thermique** : si le processeur reste à 98 °C pendant 15 secondes avec une limite
-  relevée, l'app rétablit d'elle-même les limites d'origine.
+  relevée (soutenue ou de pointe), l'app rétablit d'elle-même les limites d'origine et décoche
+  « Appliquer au démarrage ».
 - **Au réveil de veille**, les limites sont toujours relues (le firmware a pu reposer les siennes) ;
   elles ne sont réappliquées que si « Appliquer au démarrage » est coché, et pas si la sécurité
   thermique les a retirées pendant la session.

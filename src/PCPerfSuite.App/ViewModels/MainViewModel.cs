@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.SystemChanges;
 using PCPerfSuite.Core.SystemInfo;
@@ -100,6 +101,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _overlay = new OverlayViewModel(_monitoring);
 
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
+        _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
 
         AppSettings = new AppSettingsViewModel(

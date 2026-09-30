@@ -263,7 +263,16 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
             UnsupportedNotes = DescribeUnsupported();
 
             // Rien n'est posé au lancement sans la case « Appliquer au démarrage ».
-            if (ShouldReapplyAtStartup(settings.Gpu)) ReapplySaved(settings.Gpu, "Réglages enregistrés réappliqués au démarrage.");
+            if (ShouldReapplyAtStartup(settings.Gpu))
+            {
+                ReapplySaved(settings.Gpu, "Réglages enregistrés réappliqués au démarrage.");
+            }
+            else if (ApplyOverclockAtStartup && !SettingsMatchCurrentGpu(settings.Gpu))
+            {
+                // Règle 3 : dire pourquoi « Appliquer au démarrage » n'a rien fait.
+                GpuIdentity other = settings.Gpu.OverclockGpu ?? new GpuIdentity(settings.Gpu.OverclockVendor ?? GpuVendor.Nvidia);
+                OverclockStatus = $"Réglages enregistrés non réappliqués : ils ont été faits sur une autre carte ({other.Describe()}).";
+            }
         }
 
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
@@ -365,6 +374,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
             TemperatureLimitC = IsTemperatureLimitSupported && saved.TemperatureLimitC is { } temp
                 ? (int)ClampTo(temp, TemperatureLimitMin, TemperatureLimitMax) : null,
             Voltage = IsVoltageSupported && voltage is { } volts ? (int)ClampTo(volts, VoltageMin, VoltageMax) : null,
+            VoltageUnit = _voltageUnit,
         };
 
         _suppressApply = true;
@@ -463,10 +473,11 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(PowerLimitKey, () =>
         {
-            if (!_gpuControl.TrySetPowerLimitPercent((float)PowerLimitPercent))
-            {
-                OverclockStatus = "Le pilote a refusé la limite de puissance.";
-            }
+            GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { PowerLimitPercent = (float)PowerLimitPercent });
+            OverclockStatus = report.AnyRefused
+                ? "Le pilote a refusé la limite de puissance."
+                : Summarize(report, $"Limite de puissance : {PowerLimitPercent:0} %.");
+            AppliedOffsetsText = report.Describe();
             Persist();
         });
     }
@@ -482,9 +493,11 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
         _applyDebounce.Schedule(TemperatureLimitKey, () =>
         {
             double limit = TemperatureLimitC;
-            OverclockStatus = _gpuControl.TrySetTemperatureLimit((int)Math.Round(limit))
-                ? $"Limite de température : {limit:0} °C."
-                : "Le pilote a refusé la limite de température.";
+            GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { TemperatureLimitC = (int)Math.Round(limit) });
+            OverclockStatus = report.AnyRefused
+                ? "Le pilote a refusé la limite de température."
+                : Summarize(report, $"Limite de température : {limit:0} °C.");
+            AppliedOffsetsText = report.Describe();
             Persist();
         });
     }
@@ -498,9 +511,12 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(VoltageKey, () =>
         {
-            OverclockStatus = _gpuControl.TrySetVoltage((int)Math.Round(VoltageValue))
-                ? $"{VoltageLabel} : {VoltageText}."
-                : "Le pilote a refusé la tension.";
+            GpuApplyReport report = _gpuControl.ApplyAndVerify(
+                new GpuOverclockRequest { Voltage = (int)Math.Round(VoltageValue), VoltageUnit = _voltageUnit });
+            OverclockStatus = report.AnyRefused
+                ? "Le pilote a refusé la tension."
+                : Summarize(report, $"{VoltageLabel} : {VoltageText}.");
+            AppliedOffsetsText = report.Describe();
             Persist();
         });
     }
@@ -640,6 +656,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
             PowerLimitPercent = IsPowerLimitSupported ? (float)PowerLimitPercent : null,
             TemperatureLimitC = IsTemperatureLimitSupported ? (int)Math.Round(TemperatureLimitC) : null,
             Voltage = IsVoltageSupported && voltage is not null ? (int)Math.Round(VoltageValue) : null,
+            VoltageUnit = _voltageUnit,
         });
 
         OverclockStatus = Summarize(report, $"Profil « {profile.Name} » appliqué.");

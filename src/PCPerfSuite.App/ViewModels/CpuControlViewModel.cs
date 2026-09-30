@@ -239,13 +239,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     private const string PowerLimitKey = "limites de puissance";
 
-    private readonly System.Windows.Threading.Dispatcher _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-    private bool _disposed;
-
-    /// <summary>Vrai dès que la sécurité thermique a rendu les limites d'origine pendant cette session : le réveil ne
-    /// réapplique plus les limites enregistrées.</summary>
-    private bool _emergencyThisSession;
-
     private float _defaultSustainedWatts;
     private float _defaultBurstWatts;
 
@@ -362,62 +355,8 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
             Profiles.Add(new CpuProfileViewModel(profile, BuildSummary(profile)));
         }
 
-        _cpu.EmergencyRestored += OnEmergencyRestored;
         _monitoring.SnapshotUpdated += OnSnapshotUpdated;
-
-        // Une veille S3 réinitialise les limites MSR/SMU au firmware : sans ce ré-armement, l'onglet
-        // continuait d'afficher la limite posée avant la veille comme si elle tenait toujours.
-        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
-    }
-
-    /// <summary>Levé sur le fil de SystemEvents : la relecture touche l'interface, elle passe par son fil.</summary>
-    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
-    {
-        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
-
-        try { _dispatcher.InvokeAsync(OnResumed); }
-        catch { /* interface déjà fermée */ }
-    }
-
-    /// <summary>
-    /// Au réveil, les limites sont toujours relues : le firmware a pu reposer les siennes, et l'onglet ne doit pas
-    /// afficher une valeur qui ne tient plus. Elles ne sont réappliquées que si « Appliquer au démarrage » est coché,
-    /// qu'elles sont modifiables, que l'avertissement a été accepté, et que la sécurité thermique ne les a pas
-    /// retirées pendant la session.
-    /// </summary>
-    private void OnResumed()
-    {
-        if (_disposed) return;
-
-        _applyDebounce.Cancel(PowerLimitKey);
-        if (_cpu.ReadPowerLimits() is { } snapshot)
-        {
-            _suppressApply = true;
-            SustainedWatts = snapshot.SustainedWatts;
-            BurstWatts = snapshot.BurstWatts ?? snapshot.SustainedWatts;
-            _suppressApply = false;
-
-            Status = $"Réveil de veille : limites relues, {snapshot.SustainedWatts:0} W en soutenu"
-                     + (snapshot.BurstWatts is { } burst ? $", {burst:0} W en pointe." : ".");
-        }
-
-        if (!ApplyAtStartup || !IsPowerLimitAvailable || !RiskAccepted) return;
-
-        if (_emergencyThisSession)
-        {
-            Status += " Les limites enregistrées ne sont pas réappliquées : la sécurité thermique les a retirées pendant cette session.";
-            return;
-        }
-
-        AppSettings settings = AppSettingsStore.Load();
-        if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
-
-        _suppressApply = true;
-        SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
-        BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
-        _suppressApply = false;
-
-        ApplyNow();
+        InitializeSafety();
     }
 
     /// <summary>Lit les limites en place, puis — uniquement si l'utilisateur l'a demandé — réapplique
@@ -454,7 +393,10 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         Status = $"Limites actuelles : {snapshot.SustainedWatts:0} W en soutenu"
                  + (snapshot.BurstWatts is { } burst ? $", {burst:0} W en pointe." : ".");
 
-        if (!ApplyAtStartup || settings.Cpu.SustainedWatts is not { } storedSustained) return;
+        // En lecture seule (verrou du BIOS, module sans écriture), on affiche ce qui est en place, jamais une valeur
+        // enregistrée qu'on ne peut pas poser.
+        if (!ApplyAtStartup || !IsPowerLimitAvailable || !RiskAccepted
+            || settings.Cpu.SustainedWatts is not { } storedSustained) return;
 
         _suppressApply = true;
         SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
@@ -763,21 +705,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
                           && _cpu.Platform.Vendor is CpuVendor.Intel or CpuVendor.Amd;
     }
 
-    private void OnEmergencyRestored(string message)
-    {
-        _emergencyThisSession = true;
-        _applyDebounce.Cancel(PowerLimitKey);
-        Status = message;
-
-        CpuPowerLimitSnapshot? snapshot = _cpu.ReadPowerLimits();
-        if (snapshot is null) return;
-
-        _suppressApply = true;
-        SustainedWatts = snapshot.SustainedWatts;
-        BurstWatts = snapshot.BurstWatts ?? snapshot.SustainedWatts;
-        _suppressApply = false;
-    }
-
     /// <summary>Limites de puissance relevées : la sécurité thermique doit continuer de lire la température du CPU,
     /// même fenêtre cachée.</summary>
     public void AddRequiredGroups(ISet<SensorGroup> into)
@@ -826,13 +753,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     /// l'app juste après avoir lâché un curseur doit retrouver son réglage au prochain lancement.</summary>
     public void Dispose()
     {
-        _disposed = true;
         _applyDebounce.Flush();
         foreach (CpuPowerSettingViewModel setting in PowerSettings) setting.FlushPendingWrite();
 
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
-        _cpu.EmergencyRestored -= OnEmergencyRestored;
         PawnIo.PropertyChanged -= OnPawnIoChanged;
-        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        DisposeSafety();
     }
 }

@@ -61,14 +61,37 @@ public class GpuApplyComparisonTests
     }
 
     [Fact]
-    public void DriverRefusal_IsRefused_WhateverTheReadBack()
+    public void DriverRefusal_ReadBackDifferent_IsRefused()
     {
         var accepted = new GpuApplyAccepted(Clocks: false, PowerLimit: null, TemperatureLimit: null, Voltage: null);
 
-        GpuApplyReport report = GpuApplyComparison.Compare(new GpuOverclockRequest { CoreOffsetMhz = 150 }, accepted, Oc(150, 0), null);
+        GpuApplyReport report = GpuApplyComparison.Compare(new GpuOverclockRequest { CoreOffsetMhz = 150 }, accepted, Oc(0, 0), null);
 
         Assert.True(report.AnyRefused);
         Assert.Contains("refusé par le pilote", report.Describe());
+    }
+
+    [Fact]
+    public void PartialRefusal_ReadBackWins()
+    {
+        // ADLX : cœur posé, VRAM refusée, et le pilote répond « refusé » pour les deux.
+        var accepted = new GpuApplyAccepted(Clocks: false, PowerLimit: null, TemperatureLimit: null, Voltage: null);
+        var request = new GpuOverclockRequest { CoreOffsetMhz = 150, MemoryOffsetMhz = 500 };
+
+        GpuApplyReport report = GpuApplyComparison.Compare(request, accepted, Oc(150, 0), null);
+
+        Assert.Equal(GpuApplyStatus.Retained, report.Find(GpuSetting.CoreOffset)?.Status);
+        Assert.Equal(GpuApplyStatus.Refused, report.Find(GpuSetting.MemoryOffset)?.Status);
+    }
+
+    [Fact]
+    public void CardUnreadable_VoltageKeepsTheUnitOfTheRequest()
+    {
+        var request = new GpuOverclockRequest { Voltage = 1100, VoltageUnit = GpuVoltageUnit.Millivolts };
+
+        GpuApplyReport report = GpuApplyComparison.Compare(request, AllAccepted, null, null);
+
+        Assert.Contains("tension 1100 mV envoyé, non relu", report.Describe());
     }
 
     [Fact]

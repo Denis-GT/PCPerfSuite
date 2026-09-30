@@ -31,11 +31,14 @@ public sealed class PawnIoModulesRowProvider : ICompatibilityRowProvider
     }
 
     public IReadOnlyList<CompatibilityRow> GetRows()
-        => BuildRows(PawnIoDriver.LoadedModules, Volatile.Read(ref _shipped), PawnIoDriver.IsInstalled, PawnIoDriver.UnavailableReason);
+        => BuildRows(PawnIoDriver.LoadedModules, Volatile.Read(ref _shipped), PawnIoDriver.LoadFailures,
+            PawnIoDriver.IsInstalled, PawnIoDriver.UnavailableReason);
 
-    /// <summary>Les lignes, à partir de ce qui est déjà lu : isolé ici pour être testé sans pilote.</summary>
+    /// <summary>Les lignes, à partir de ce qui est déjà lu : isolé ici pour être testé sans pilote.
+    /// <paramref name="failures"/> : dernier échec de chargement par nom de module.</summary>
     public static IReadOnlyList<CompatibilityRow> BuildRows(
-        IReadOnlyList<PawnIoModuleInfo> loaded, IReadOnlyList<PawnIoModuleInfo> shipped, bool driverReady, string? driverReason)
+        IReadOnlyList<PawnIoModuleInfo> loaded, IReadOnlyList<PawnIoModuleInfo> shipped,
+        IReadOnlyDictionary<string, string> failures, bool driverReady, string? driverReason)
     {
         var rows = new List<CompatibilityRow>();
 
@@ -57,12 +60,23 @@ public sealed class PawnIoModulesRowProvider : ICompatibilityRowProvider
 
         foreach (PawnIoModuleInfo module in shipped.Where(s => loaded.All(l => l.Name != s.Name)))
         {
-            string why = driverReady
-                ? "non chargé : ce processeur n'en a pas besoin"
-                : $"non chargé : {driverReason ?? "pilote PawnIO indisponible"}";
-            rows.Add(new CompatibilityRow($"{RowTitle} · {module.Name}", "Livré, non chargé",
+            // Un échec de chargement est un problème, avec sa raison ; sinon le module n'a pas été demandé (processeur
+            // AMD pour IntelMSR), ou le pilote manque.
+            bool failed = failures.TryGetValue(module.Name, out string? failure);
+            string why = failed
+                ? $"chargement en échec : {failure!.TrimEnd('.')}"
+                : driverReady
+                    ? "non chargé : ce processeur ne l'a pas demandé"
+                    : $"non chargé : {driverReason ?? "pilote PawnIO indisponible"}";
+            rows.Add(new CompatibilityRow($"{RowTitle} · {module.Name}", failed ? "Chargement en échec" : "Livré, non chargé",
                 $"{module.SourceLabel}, {why}. Fonctions : {string.Join(", ", module.Functions)}." +
-                (module.IsOfficialCopy == false ? " Ce fichier ne correspond pas à celui de la release." : ""), true));
+                (module.IsOfficialCopy == false ? " Ce fichier ne correspond pas à celui de la release." : ""), !failed));
+        }
+
+        foreach ((string name, string failure) in failures)
+        {
+            if (loaded.Any(l => l.Name == name) || shipped.Any(s => s.Name == name)) continue;
+            rows.Add(new CompatibilityRow($"{RowTitle} · {name}", "Chargement en échec", $"{failure.TrimEnd('.')}.", false));
         }
 
         if (rows.Count == 0)

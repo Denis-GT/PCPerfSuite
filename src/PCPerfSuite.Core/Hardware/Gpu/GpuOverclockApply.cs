@@ -11,6 +11,10 @@ public sealed record GpuOverclockRequest
     public float? PowerLimitPercent { get; init; }
     public int? TemperatureLimitC { get; init; }
     public int? Voltage { get; init; }
+
+    /// <summary>Unité de <see cref="Voltage"/> au moment de la demande : sert au bilan quand la carte n'a pas pu être
+    /// relue (1100 mV ne doit pas s'afficher « 1100 % »).</summary>
+    public GpuVoltageUnit VoltageUnit { get; init; } = GpuVoltageUnit.Percent;
 }
 
 public enum GpuSetting
@@ -129,10 +133,10 @@ public static class GpuApplyComparison
 
         if (request.Voltage is { } voltage)
         {
-            bool percentUnit = overclock is null or { VoltageUnit: GpuVoltageUnit.Percent };
+            bool percentUnit = (overclock?.VoltageUnit ?? request.VoltageUnit) == GpuVoltageUnit.Percent;
             items.Add(Item(GpuSetting.Voltage, voltage, accepted.Voltage,
                 overclock is { VoltageSupported: true } ? overclock.Voltage : null, VoltageTolerance,
-                percentUnit ? "%" : "mV", !percentUnit && overclock!.VoltageIsOffset));
+                percentUnit ? "%" : "mV", !percentUnit && overclock?.VoltageIsOffset == true));
         }
 
         return new GpuApplyReport(items);
@@ -141,12 +145,15 @@ public static class GpuApplyComparison
     private static GpuApplyItem Item(
         GpuSetting setting, double requested, bool? accepted, double? retained, double tolerance, string unit, bool signed)
     {
-        GpuApplyStatus status = accepted != true
-            ? GpuApplyStatus.Refused
-            : retained is not { } value
-                ? GpuApplyStatus.NotReadBack
-                : Math.Abs(value - requested) <= tolerance
-                    ? GpuApplyStatus.Retained
+        // La relecture prime sur la réponse du pilote : ADLX et IGCL répondent « refusé » dès que l'un des deux
+        // décalages échoue, alors que l'autre a pu être posé.
+        bool matches = retained is { } value && Math.Abs(value - requested) <= tolerance;
+        GpuApplyStatus status = matches
+            ? GpuApplyStatus.Retained
+            : accepted != true
+                ? GpuApplyStatus.Refused
+                : retained is null
+                    ? GpuApplyStatus.NotReadBack
                     : GpuApplyStatus.Trimmed;
 
         return new GpuApplyItem(setting, requested, retained, status, unit, signed);

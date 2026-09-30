@@ -287,6 +287,30 @@ public static class PawnIoDriver
     /// </summary>
     public static PawnIoModule? TryLoadModule(string moduleName, out string? error, string? preferredFunction = null)
     {
+        PawnIoModule? module = TryLoadModuleCore(moduleName, out error, preferredFunction);
+        RememberOutcome(moduleName, module is null ? error ?? "chargement refusé" : null);
+        return module;
+    }
+
+    private static IReadOnlyDictionary<string, string> _loadFailures = new Dictionary<string, string>();
+
+    /// <summary>Dernier échec de chargement par nom de module pendant cette session (effacé par un chargement réussi),
+    /// pour que le diagnostic dise pourquoi un module attendu n'est pas chargé. Instantané immuable.</summary>
+    public static IReadOnlyDictionary<string, string> LoadFailures => Volatile.Read(ref _loadFailures);
+
+    private static void RememberOutcome(string moduleName, string? failure)
+    {
+        lock (LoadLock)
+        {
+            var failures = new Dictionary<string, string>(_loadFailures);
+            if (failure is null) failures.Remove(moduleName);
+            else failures[moduleName] = failure;
+            _loadFailures = failures;
+        }
+    }
+
+    private static PawnIoModule? TryLoadModuleCore(string moduleName, out string? error, string? preferredFunction)
+    {
         EnsureProbed();
 
         if (_library == IntPtr.Zero)

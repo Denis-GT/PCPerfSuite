@@ -41,10 +41,14 @@ public class GpuThermalSafetyTests
         public GpuOverclockSnapshot? AfterRestore { get; set; } = Oc();
         public int Restores { get; private set; }
 
+        /// <summary>Comme GpuControlService : la restauration réarme la sécurité d'après ce qu'elle relit.</summary>
+        public Action? AfterRestoreCallback { get; set; }
+
         public void RestoreOverclockDefaults()
         {
             Restores++;
             Overclock = AfterRestore;
+            AfterRestoreCallback?.Invoke();
         }
 
         public GpuOverclockSnapshot? GetOverclock() => Overclock;
@@ -162,6 +166,86 @@ public class GpuThermalSafetyTests
 
         Assert.Equal(0, card.Restores);
         Assert.Equal(ThermalState.NotMonitorable, safety.State);
+    }
+
+    [Fact]
+    public void FailedRestore_RearmsAndRetriesAfterTheDelay()
+    {
+        // Le pilote refuse le retour d'origine : la cible réarme (le cœur relu est toujours relevé), et la sécurité
+        // réessaie au bout d'un nouveau délai au lieu de rester désarmée sur une carte encore overclockée.
+        var card = new FakeCard { AfterRestore = Oc(core: 150) };
+        var safety = new GpuThermalSafety(card);
+        card.AfterRestoreCallback = () => safety.UpdateArming(GpuOverclockRaise.IsRaised(card.Overclock, card.PowerSnapshot));
+        safety.UpdateArming(true);
+
+        safety.Note(At(0), 95f, null);
+        safety.Note(At(15), 95f, null);
+        Assert.Equal(1, card.Restores);
+        Assert.True(safety.IsArmed);
+
+        safety.Note(At(16), 95f, null);
+        Assert.Equal(1, card.Restores);
+        safety.Note(At(31), 95f, null);
+        Assert.Equal(2, card.Restores);
+    }
+
+    [Fact]
+    public void SuccessfulRestore_StaysDisarmed()
+    {
+        var card = new FakeCard();
+        var safety = new GpuThermalSafety(card);
+        card.AfterRestoreCallback = () => safety.UpdateArming(GpuOverclockRaise.IsRaised(card.Overclock, card.PowerSnapshot));
+        safety.UpdateArming(true);
+
+        safety.Note(At(0), 95f, null);
+        safety.Note(At(15), 95f, null);
+
+        Assert.False(safety.IsArmed);
+    }
+
+    [Fact]
+    public void Restart_SleepTimeCountsNeitherAsHeatNorAsLoss()
+    {
+        var card = new FakeCard();
+        var safety = new GpuThermalSafety(card);
+        safety.UpdateArming(true);
+        safety.Note(At(0), 91f, null);
+
+        // Veille d'une heure, puis réveil.
+        safety.Restart();
+        safety.Note(At(3600), 91f, null);
+        safety.Note(At(3601), null, null);
+
+        Assert.Equal(0, card.Restores);
+        Assert.True(safety.IsArmed);
+    }
+
+    [Fact]
+    public void NoReadingAnyMore_RestoresAfterTheLossDelay()
+    {
+        // Lecture du GPU qui lève ou bloque (TDR) : plus aucun relevé, le chien de garde de l'onglet prend le relais.
+        var card = new FakeCard();
+        var safety = new GpuThermalSafety(card);
+        safety.UpdateArming(true);
+        safety.Note(At(0), 70f, null);
+
+        safety.NoteNoReading(At(10));
+        Assert.Equal(0, card.Restores);
+        safety.NoteNoReading(At(15));
+        Assert.Equal(1, card.Restores);
+        Assert.Contains("n'est plus lue", safety.LastTripMessage);
+    }
+
+    [Fact]
+    public void NoReading_NotArmed_DoesNothing()
+    {
+        var card = new FakeCard();
+        var safety = new GpuThermalSafety(card);
+        safety.Note(At(0), 70f, null);
+
+        safety.NoteNoReading(At(60));
+
+        Assert.Equal(0, card.Restores);
     }
 
     [Fact]

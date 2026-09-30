@@ -156,7 +156,7 @@ public class PawnIoModuleTests
     {
         var readOnly = Candidate(PawnIoModuleSource.LibreHardwareMonitor, "ioctl_read_msr").Info;
 
-        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([readOnly], [], true, null));
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([readOnly], [], NoFailure, true, null));
 
         Assert.Equal("Modules PawnIO · IntelMSR", row.Title);
         Assert.Equal("Lecture seule", row.Status);
@@ -169,17 +169,56 @@ public class PawnIoModuleTests
     {
         var shipped = Candidate(PawnIoModuleSource.PCPerfSuite, "ioctl_read_msr", "ioctl_write_msr").Info;
 
-        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [shipped], false, "Le pilote PawnIO n'est pas installé."));
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [shipped], NoFailure, false, "Le pilote PawnIO n'est pas installé."));
 
         Assert.Equal("Livré, non chargé", row.Status);
         Assert.Contains("ioctl_write_msr", row.Detail);
         Assert.Contains("n'est pas installé", row.Detail);
     }
 
+    private static readonly IReadOnlyDictionary<string, string> NoFailure = new Dictionary<string, string>();
+
+    [Fact]
+    public void Diagnostic_ShippedModuleThatFailedToLoad_GivesTheReason()
+    {
+        // Processeur Intel, pilote prêt, mais les deux IntelMSR refusés : le rapport doit dire pourquoi, pas « pas besoin ».
+        var shipped = Candidate(PawnIoModuleSource.PCPerfSuite, "ioctl_read_msr", "ioctl_write_msr").Info;
+        var failures = new Dictionary<string, string> { ["IntelMSR"] = "Le module IntelMSR a refusé cette machine (code 0xD0000001)." };
+
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [shipped], failures, true, null));
+
+        Assert.Equal("Chargement en échec", row.Status);
+        Assert.False(row.IsSupported);
+        Assert.Contains("a refusé cette machine (code 0xD0000001)", row.Detail);
+        Assert.DoesNotContain("..", row.Detail);
+    }
+
+    [Fact]
+    public void Diagnostic_FailureOfAModuleNotShipped_IsListed()
+    {
+        var failures = new Dictionary<string, string> { ["RyzenSMU"] = "Ouverture du pilote PawnIO refusée." };
+
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [], failures, true, null));
+
+        Assert.Equal("Modules PawnIO · RyzenSMU", row.Title);
+        Assert.False(row.IsSupported);
+    }
+
+    [Fact]
+    public void Diagnostic_ShippedModuleNotRequested_IsNotAProblem()
+    {
+        var shipped = Candidate(PawnIoModuleSource.PCPerfSuite, "ioctl_read_msr", "ioctl_write_msr").Info;
+
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [shipped], NoFailure, true, null));
+
+        Assert.True(row.IsSupported);
+        Assert.Contains("ne l'a pas demandé", row.Detail);
+    }
+
     [Fact]
     public void Diagnostic_NothingAtAll_SaysWhy()
     {
-        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [], false, "PawnIO n'existe que pour les processeurs x64."));
+        CompatibilityRow row = Assert.Single(PawnIoModulesRowProvider.BuildRows([], [], NoFailure, false, "PawnIO n'existe que pour les processeurs x64."));
 
         Assert.Equal("Aucun module chargé", row.Status);
         Assert.Contains("x64", row.Detail);

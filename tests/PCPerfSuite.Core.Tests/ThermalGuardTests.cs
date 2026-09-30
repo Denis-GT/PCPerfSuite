@@ -118,6 +118,32 @@ public class ThermalGuardTests
     }
 
     [Fact]
+    public void CheckLoss_KeepsARunningHeatDelay()
+    {
+        // Le chien de garde ne doit pas effacer une chaleur en cours comme le ferait un relevé vide.
+        var guard = new ThermalGuard([Core], lossDelay: TimeSpan.FromSeconds(15));
+        guard.Note(At(0), [95f]);
+
+        Assert.Equal(ThermalState.Ok, guard.CheckLoss(At(8)).State);
+        Assert.Equal(ThermalState.Tripped, guard.Note(At(15), [95f]).State);
+    }
+
+    [Fact]
+    public void CheckLoss_AfterTheLossDelay_IsLost()
+    {
+        var guard = new ThermalGuard([Core], lossDelay: TimeSpan.FromSeconds(15));
+        guard.Note(At(0), [70f]);
+
+        Assert.Equal(ThermalState.Lost, guard.CheckLoss(At(15)).State);
+        Assert.Equal(ThermalState.NotMonitorable, guard.CheckLoss(At(16)).State);
+    }
+
+    [Fact]
+    public void CheckLoss_NeverRead_IsNotMonitorable()
+        => Assert.Equal(ThermalState.NotMonitorable,
+            new ThermalGuard([Core], lossDelay: TimeSpan.FromSeconds(15)).CheckLoss(At(60)).State);
+
+    [Fact]
     public void NaN_CountsAsNotRead()
     {
         var guard = new ThermalGuard([Core]);
