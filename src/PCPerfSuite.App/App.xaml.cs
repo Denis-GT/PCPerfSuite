@@ -3,6 +3,8 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using PCPerfSuite.App.Utils;
+using PCPerfSuite.Core.Safety;
+using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App;
@@ -78,9 +80,14 @@ public partial class App : System.Windows.Application
         // Lancée par la tâche de démarrage de Windows (voir StartupTask) : l'app démarre dans la zone de notification.
         bool launchedByWindows = e.Args.Contains(StartupTask.LaunchArgument, StringComparer.OrdinalIgnoreCase);
 
+        // Reprise des opérations restées en cours au dernier arrêt (journal de session), avant toute fenêtre et avant
+        // que MainViewModel ne réapplique des réglages. Elle lit AppDataPaths.Current, qui fige le dossier de données :
+        // le choix de la racine portable (#13) et les modes secondaires de l'exe (#10) restent au-dessus.
+        StartupRecoveryReport recovery = RunStartupRecovery();
+
         try
         {
-            var window = new MainWindow();
+            var window = new MainWindow(recovery);
             MainWindow = window;
             if (launchedByWindows) window.StartInTray();
             else window.Show();
@@ -97,6 +104,27 @@ public partial class App : System.Windows.Application
                 $"PCPerfSuite n'a pas pu démarrer :\n\n{ex.Message}\n\nLe détail est enregistré dans :\n{CrashLog.FilePath}",
                 "PCPerfSuite", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
+        }
+    }
+
+    /// <summary>Reprise au lancement (<see cref="StartupRecovery"/>), sans fenêtre : son bilan va au diagnostic. Ne
+    /// bloque jamais le lancement : une erreur est journalisée et l'app démarre quand même.</summary>
+    private static StartupRecoveryReport RunStartupRecovery()
+    {
+        try
+        {
+            var recovery = new StartupRecovery(
+                SessionJournal.Current,
+                StartupRecoveryHandlers.Create(),
+                (since, cancellationToken) => SystemEventReader.ReadSince(since, cancellationToken: cancellationToken),
+                TimeProvider.System,
+                (exception, origin) => CrashLog.Record(exception, origin));
+            return recovery.Run();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Record(ex, "reprise au démarrage");
+            return StartupRecoveryReport.Failed(ex.Message);
         }
     }
 

@@ -6,12 +6,13 @@ using System.Windows.Threading;
 using PCPerfSuite.App.Interop;
 using PCPerfSuite.App.ViewModels;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.Safety;
 
 namespace PCPerfSuite.App;
 
 public partial class MainWindow : Window
 {
-    private readonly MainViewModel _viewModel = new();
+    private readonly MainViewModel _viewModel;
     private readonly TrayIcon _tray;
 
     /// <summary>Vrai dès qu'une vraie sortie est engagée, pour que <see cref="OnClosing"/> laisse
@@ -22,8 +23,10 @@ public partial class MainWindow : Window
     /// fichier de réglages à chaque fermeture de fenêtre.</summary>
     private bool _trayHintHandled;
 
-    public MainWindow()
+    /// <param name="recovery">Bilan de la reprise au lancement, fait avant la fenêtre (App.OnStartup).</param>
+    public MainWindow(StartupRecoveryReport recovery)
     {
+        _viewModel = new MainViewModel(recovery);
         InitializeComponent();
         DataContext = _viewModel;
 
