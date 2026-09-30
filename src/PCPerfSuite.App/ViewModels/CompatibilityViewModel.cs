@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Metrics;
 using PCPerfSuite.App.Utils;
+using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
@@ -20,17 +21,13 @@ using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
-/// <summary>Ligne du diagnostic : une fonction ou une source de données, et ce qu'elle donne sur ce PC.</summary>
-/// <summary>Une ligne du diagnostic. <paramref name="IsPersonal"/> marque une donnée personnelle (nom de
-/// compte Windows) : affichée à l'écran comme les autres, mais son <paramref name="Status"/> est masqué
-/// dans le rapport copié (voir <see cref="CompatibilityViewModel.CopyReport"/>) — un rapport de bug est
-/// souvent collé tel quel dans un espace public (forum, ticket GitHub).</summary>
-public sealed record CompatibilityRow(string Title, string Status, string Detail, bool IsSupported, bool IsPersonal = false);
-
 /// <summary>
 /// "Compatibilité de ce PC" (Paramètres) : ce que PCPerfSuite peut lire et piloter sur cette machine, et pourquoi
 /// le reste manque. Le même contenu se copie en texte, à joindre à un signalement : c'est ainsi qu'on confirme les
 /// prises en charge expérimentales (ventilateurs des portables Lenovo, HP, MSI, Acer) sur du vrai matériel.
+///
+/// Les lignes historiques sont construites ici ; toute nouvelle ligne vient d'un fournisseur
+/// (<see cref="ICompatibilityRowProvider"/>) inscrit dans MainViewModel, affiché après elles.
 /// </summary>
 public sealed partial class CompatibilityViewModel : ObservableObject
 {
@@ -41,6 +38,11 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     private readonly GpuControlViewModel _gpu;
     private readonly CpuControlViewModel _cpu;
     private readonly InstallationsViewModel _installations;
+    private readonly IReadOnlyList<ICompatibilityRowProvider> _rowProviders;
+
+    /// <summary>Fournisseurs dont l'échec a déjà été journalisé : un seul enregistrement par session, pas un à
+    /// chaque reconstruction.</summary>
+    private readonly HashSet<string> _reportedFailures = new();
 
     private MetricSample? _lastSample;
 
@@ -54,9 +56,11 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
     [ObservableProperty] private string? copyStatus;
 
+    /// <param name="rowProviders">Lignes apportées par les fonctions. C'est la dernière dépendance de ce ViewModel :
+    /// une nouvelle ligne est un fournisseur de plus dans cette liste, jamais un paramètre de plus ici.</param>
     public CompatibilityViewModel(HardwareMonitorService hardware, MonitoringViewModel monitoring,
         ProcessesViewModel processes, FanCurvesViewModel fans, GpuControlViewModel gpu, CpuControlViewModel cpu,
-        InstallationsViewModel installations)
+        InstallationsViewModel installations, IReadOnlyList<ICompatibilityRowProvider> rowProviders)
     {
         _hardware = hardware;
         _monitoring = monitoring;
@@ -65,9 +69,10 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         _gpu = gpu;
         _cpu = cpu;
         _installations = installations;
+        _rowProviders = rowProviders;
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
-        Refresh();
+        RebuildRows();
     }
 
     /// <summary>Le diagnostic est reconstruit à chaque fois qu'un groupe de capteurs est lu pour la première fois
@@ -78,11 +83,19 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         if (sample.Hardware.GroupsEverRead.Count <= _groupsReadAtBuild) return;
 
         _groupsReadAtBuild = sample.Hardware.GroupsEverRead.Count;
-        Refresh();
+        RebuildRows();
     }
 
+    /// <summary>« Actualiser » : les lectures lentes des fournisseurs, hors du thread d'interface, puis toutes les
+    /// lignes.</summary>
     [RelayCommand]
-    private void Refresh()
+    private async Task RefreshAsync()
+    {
+        await CompatibilityRows.RefreshAllAsync(_rowProviders, CancellationToken.None);
+        RebuildRows();
+    }
+
+    private void RebuildRows()
     {
         // Relit l'état des logiciels externes : le rapport doit refléter le PC à cet instant, pas celui de la
         // dernière fois qu'on a regardé l'onglet Installations.
@@ -90,6 +103,15 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
         Rows.Clear();
         foreach (CompatibilityRow row in BuildRows()) Rows.Add(row);
+
+        // Les lignes des fonctions viennent après les lignes historiques, dont certaines renvoient « ci-dessous » ou
+        // « ci-dessus » à une autre : leur ordre ne doit pas bouger.
+        CompatibilityRowsResult extra = CompatibilityRows.Collect(_rowProviders);
+        foreach (CompatibilityRow row in extra.Rows) Rows.Add(row);
+        foreach (CompatibilityProviderFailure failure in extra.Failures)
+        {
+            if (_reportedFailures.Add(failure.Title)) CrashLog.Record(failure.Error, $"diagnostic : rubrique « {failure.Title} »");
+        }
 
         UnavailableMetrics.Clear();
         if (_lastSample is { } sample)
@@ -620,7 +642,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
     [RelayCommand]
     private void CopyReport()
     {
-        Refresh();
+        RebuildRows();
 
         var text = new StringBuilder();
         string version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "?";
@@ -631,9 +653,9 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         foreach (CompatibilityRow row in Rows)
         {
             // Un rapport de bug est souvent collé tel quel dans un espace public (forum, ticket GitHub) :
-            // le nom du compte Windows n'y a pas sa place, contrairement à l'affichage à l'écran.
+            // une donnée personnelle (nom de compte, nom du PC) n'y a pas sa place, contrairement à l'écran.
             string status = row.IsPersonal ? "(masqué)" : row.Status;
-            string detail = row.IsPersonal ? "Nom de compte masqué dans ce rapport." : row.Detail;
+            string detail = row.IsPersonal ? "Donnée personnelle masquée dans ce rapport." : row.Detail;
             text.AppendLine($"[{(row.IsSupported ? "OK" : "--")}] {row.Title} : {status}");
             text.AppendLine($"     {detail}");
         }
@@ -682,7 +704,9 @@ public sealed partial class CompatibilityViewModel : ObservableObject
 
         try
         {
-            Clipboard.SetText(text.ToString());
+            // Le nom du compte se glisse aussi dans les chemins du profil (journal des erreurs, témoin ADLX, exe
+            // lancé depuis Téléchargements) : le rapport les écrit avec %LOCALAPPDATA% et %USERPROFILE%.
+            Clipboard.SetText(ReportPrivacy.MaskUserFolders(text.ToString()));
             CopyStatus = "Rapport copié dans le presse-papiers.";
         }
         catch (Exception ex)

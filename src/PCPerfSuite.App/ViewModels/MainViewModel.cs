@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
+using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.SystemInfo;
@@ -32,6 +33,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Logiciels externes (PawnIO, RTSS) : partagé par l'onglet Processeur, Paramètres et le diagnostic.</summary>
     private readonly InstallationsViewModel _installations = new();
+
+    /// <summary>Lignes du diagnostic « Compatibilité de ce PC » apportées par les fonctions, affichées dans cet ordre
+    /// après les lignes historiques. C'est le seul endroit où inscrire un fournisseur (créé avec les services dont il
+    /// a besoin, avant CompatibilityViewModel) : jamais une dépendance de plus pour CompatibilityViewModel.</summary>
+    private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
@@ -88,7 +94,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
         AppSettings = new AppSettingsViewModel(
-            new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations), _installations);
+            new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
+            _installations);
         AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
         _installations.PropertyChanged += (_, _) => UpdateAttention();
         AppSettings.PropertyChanged += (_, e) =>
