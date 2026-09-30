@@ -153,6 +153,30 @@ internal sealed class NvApiGpuBackend : IGpuTuningBackend
         }
     }
 
+    /// <summary>Nom et identifiants PCI de la carte : NVAPI rend le périphérique et son fabricant d'un bloc
+    /// (périphérique dans les 16 bits hauts), et le sous-système dans la disposition du registre PCI.</summary>
+    public GpuIdentity? GetIdentity()
+    {
+        if (_gpu is not { } gpu) return null;
+
+        string? name = null;
+        try { name = gpu.FullName; }
+        catch { /* nom illisible : l'identité garde la marque */ }
+
+        try
+        {
+            PCIIdentifiers ids = gpu.BusInformation.PCIIdentifiers;
+            return new GpuIdentity(GpuVendor.Nvidia, name,
+                PciVendorId: ids.DeviceId & 0xFFFF,
+                PciDeviceId: ids.DeviceId >> 16,
+                PciSubsystemId: ids.SubSystemId == 0 ? null : ids.SubSystemId);
+        }
+        catch
+        {
+            return new GpuIdentity(GpuVendor.Nvidia, name);
+        }
+    }
+
     public GpuOverclockSnapshot? GetOverclock()
     {
         if (_gpu is not { } gpu) return null;
@@ -171,6 +195,8 @@ internal sealed class NvApiGpuBackend : IGpuTuningBackend
             MemoryOffsetMhz = clocks.Mem,
             MemoryOffsetMinMhz = clocks.MemMin,
             MemoryOffsetMaxMhz = clocks.MemMax,
+            CoreOffsetRangeIsFallback = clocks.CoreOk && clocks.CoreFallback,
+            MemoryOffsetRangeIsFallback = clocks.MemOk && clocks.MemFallback,
 
             TemperatureLimitSupported = thermal.Ok,
             TemperatureLimitC = thermal.Current,
@@ -325,7 +351,7 @@ internal sealed class NvApiGpuBackend : IGpuTuningBackend
         TryRestorePowerLimitDefault();
     }
 
-    private static (bool CoreOk, bool MemOk, int Core, int CoreMin, int CoreMax, int Mem, int MemMin, int MemMax)
+    private static (bool CoreOk, bool MemOk, int Core, int CoreMin, int CoreMax, int Mem, int MemMin, int MemMax, bool CoreFallback, bool MemFallback)
         ReadClockOffsets(PhysicalGPU gpu)
     {
         try
@@ -339,10 +365,10 @@ internal sealed class NvApiGpuBackend : IGpuTuningBackend
             IPerformanceStates20ClockEntry? core = clocks.FirstOrDefault(c => c.DomainId == PublicClockDomain.Graphics);
             IPerformanceStates20ClockEntry? memory = clocks.FirstOrDefault(c => c.DomainId == PublicClockDomain.Memory);
 
-            (int coreValue, int coreMin, int coreMax) = ReadDelta(core, FallbackCoreOffsetMinMhz, FallbackCoreOffsetMaxMhz);
-            (int memValue, int memMin, int memMax) = ReadDelta(memory, FallbackMemoryOffsetMinMhz, FallbackMemoryOffsetMaxMhz);
+            (int coreValue, int coreMin, int coreMax, bool coreFallback) = ReadDelta(core, FallbackCoreOffsetMinMhz, FallbackCoreOffsetMaxMhz);
+            (int memValue, int memMin, int memMax, bool memFallback) = ReadDelta(memory, FallbackMemoryOffsetMinMhz, FallbackMemoryOffsetMaxMhz);
 
-            return (core is not null, memory is not null, coreValue, coreMin, coreMax, memValue, memMin, memMax);
+            return (core is not null, memory is not null, coreValue, coreMin, coreMax, memValue, memMin, memMax, coreFallback, memFallback);
         }
         catch
         {
@@ -352,21 +378,22 @@ internal sealed class NvApiGpuBackend : IGpuTuningBackend
 
     /// <summary>Convertit un delta NVAPI (kHz) en MHz, avec repli sur une plage prudente quand le
     /// pilote ne renvoie pas de plage exploitable.</summary>
-    private static (int Value, int Min, int Max) ReadDelta(
+    private static (int Value, int Min, int Max, bool IsFallback) ReadDelta(
         IPerformanceStates20ClockEntry? entry, int fallbackMin, int fallbackMax)
     {
-        if (entry is null) return (0, fallbackMin, fallbackMax);
+        if (entry is null) return (0, fallbackMin, fallbackMax, true);
 
         PerformanceStates20ParameterDelta delta = entry.FrequencyDeltaInkHz;
         int min = delta.DeltaRange.Minimum / 1000;
         int max = delta.DeltaRange.Maximum / 1000;
-        if (max <= min)
+        bool fallback = max <= min;
+        if (fallback)
         {
             min = fallbackMin;
             max = fallbackMax;
         }
 
-        return (delta.DeltaValue / 1000, min, max);
+        return (delta.DeltaValue / 1000, min, max, fallback);
     }
 
     private static (bool Ok, int Current, int Min, int Max, int Default) ReadTemperatureLimit(PhysicalGPU gpu)

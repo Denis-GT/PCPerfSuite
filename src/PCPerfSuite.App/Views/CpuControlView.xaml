@@ -104,7 +104,15 @@
                        Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=N/D : {0}}"/>
             </Border>
 
-            <StackPanel Visibility="{Binding IsPowerLimitAvailable, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Visibility="{Binding ShowPowerLimits, Converter={StaticResource BoolToVisibility}}">
+
+                <!-- Limites lisibles mais pas modifiables (module PawnIO sans écriture, verrou du BIOS) : elles
+                     restent affichées, champs inactifs, avec la raison. -->
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                        Visibility="{Binding IsPowerLimitReadOnly, Converter={StaticResource BoolToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                             Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=Lecture seule : {0}}"/>
+                </Border>
 
                 <!-- Commande SMU AMD non documentée officiellement : pas encore vérifiée sur une machine
                      réelle (règle 6 de CLAUDE.md). -->
@@ -176,7 +184,7 @@
                             </StackPanel>
                         </Border>
 
-                        <StackPanel IsEnabled="{Binding RiskAccepted}">
+                        <StackPanel IsEnabled="{Binding CanEditLimits}">
                             <Grid Margin="0,16,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="170"/>

@@ -13,8 +13,12 @@ namespace PCPerfSuite.Core.Hardware.Cpu;
 /// l'y mettent : elle sert de maximum quand 0x614 n'en donne pas. Ce registre n'est jamais écrit.
 /// Le choix du maximum est fait par <see cref="CpuMaxWattsResolver"/>.
 ///
-/// Les ratios turbo (MSR 0x1AD) ne sont volontairement pas touchés : le module IntelMSR de PawnIO
-/// n'en autorise que la lecture.
+/// Les ratios turbo (MSR 0x1AD) ne sont volontairement pas touchés : la liste blanche d'IntelMSR n'en
+/// autorise que la lecture, y compris dans PawnIO.Modules 0.2.11.
+///
+/// L'écriture demande un module qui expose <see cref="WriteFunction"/> : celui de LibreHardwareMonitorLib
+/// 0.9.6 ne le fait pas, d'où celui que livre PCPerfSuite (<see cref="ShippedPawnIoModules"/>). Sans lui, les
+/// limites restent lisibles, et la raison accuse le module, pas l'app ni le BIOS.
 /// </summary>
 public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 {
@@ -22,9 +26,15 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     private const uint MsrPkgPowerLimit = 0x610;
     private const uint MsrPkgPowerInfo = 0x614;
 
+    private const string ModuleName = "IntelMSR";
+    private const string ReadFunction = "ioctl_read_msr";
+
+    /// <summary>Fonction d'écriture des MSR, absente de l'IntelMSR de LibreHardwareMonitorLib 0.9.6.</summary>
+    public const string WriteFunction = "ioctl_write_msr";
+
     /// <summary>MSR_VR_CURRENT_CONFIG : sur les générations qui l'ont (voir <see cref="CpuMaxWattsResolver.HasPl4Register"/>),
-    /// les bits 12:0 portent PL4, en unités de puissance. Lecture seule : le module PawnIO en autorise l'écriture,
-    /// mais elle règle le courant du régulateur de tension et n'a rien à faire ici.</summary>
+    /// les bits 12:0 portent PL4, en unités de puissance. Lecture seule ici : IntelMSR en autorise l'écriture depuis
+    /// PawnIO.Modules 0.2.4, mais elle règle le courant du régulateur de tension et n'a rien à faire ici.</summary>
     private const uint MsrVrCurrentConfig = 0x601;
 
     /// <summary>Plancher absolu : en dessous, un PC peut devenir inutilisable jusqu'au redémarrage.</summary>
@@ -40,9 +50,16 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     private readonly float _maxWatts;
     private readonly CpuMaxWattsInfo _maxWattsInfo;
 
+    /// <summary>Pourquoi le module chargé ne peut pas écrire les limites, null s'il le peut.</summary>
+    private readonly string? _moduleWriteRefusal;
+
     public string Description { get; }
 
     public CpuCapability PowerLimit { get; }
+
+    /// <summary>Règle 6 de CLAUDE.md : l'écriture de PL1/PL2 par le module IntelMSR n'a pas encore été vérifiée sur
+    /// une vraie machine. Vrai dès qu'elle est possible ; sans rien de modifiable, il n'y a rien d'expérimental.</summary>
+    public bool IsExperimental => PowerLimit.CanWrite;
 
     private IntelPowerLimitBackend(
         PawnIoModule msr, float powerUnitWatts, bool locked,
@@ -56,11 +73,35 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
         _minWatts = minWatts;
         _maxWatts = maxWatts.Watts;
         _maxWattsInfo = maxWatts;
+        _moduleWriteRefusal = DescribeModuleWriteRefusal(msr.Info);
 
-        Description = "Intel — limites de puissance par registre MSR (module IntelMSR de PawnIO).";
-        PowerLimit = locked
-            ? CpuCapability.ReadOnly("Les limites de puissance sont verrouillées par le BIOS/UEFI jusqu'au prochain démarrage.")
-            : CpuCapability.Full;
+        Description = $"Intel — limites de puissance par registre MSR (module IntelMSR, {msr.Info.SourceLabel}).";
+        PowerLimit = (locked, _moduleWriteRefusal) switch
+        {
+            (true, _) => CpuCapability.ReadOnly("Les limites de puissance sont verrouillées par le BIOS/UEFI jusqu'au prochain démarrage."),
+            (false, { } refusal) => CpuCapability.ReadOnly(refusal),
+            _ => CpuCapability.Full,
+        };
+    }
+
+    /// <summary>La raison affichée quand le module chargé ne sait que lire : c'est le module qui manque, ni l'app, ni
+    /// le BIOS. Null si le module écrit les MSR.</summary>
+    public static string? DescribeModuleWriteRefusal(PawnIoModuleInfo module)
+    {
+        if (module.Supports(WriteFunction)) return null;
+
+        string why = module switch
+        {
+            { Note: { } note } => note,
+            { Source: PawnIoModuleSource.LibreHardwareMonitor } =>
+                $"Le module livré avec PCPerfSuite ({ShippedPawnIoModules.RelativePath(ModuleName)}, PawnIO.Modules " +
+                $"{ShippedPawnIoModules.Release}), qui sait les écrire, est absent : réinstaller PCPerfSuite le remet.",
+            _ => $"Le fichier {ShippedPawnIoModules.RelativePath(ModuleName)} a été remplacé par une version sans écriture : " +
+                 "réinstaller PCPerfSuite remet celui d'origine.",
+        };
+
+        return $"Le module IntelMSR chargé ({module.SourceLabel}) ne sait que lire les registres : les limites de puissance " +
+               $"s'affichent mais ne se modifient pas. {why}";
     }
 
     /// <summary>Charge le module IntelMSR et relève les valeurs d'usine. Retourne un backend "indisponible"
@@ -68,7 +109,7 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
     /// la famille et le modèle, qui décident si PL4 est lisible sur ce processeur.</summary>
     public static ICpuTuningBackend Create(CpuPlatform platform)
     {
-        PawnIoModule? msr = PawnIoDriver.TryLoadModule("IntelMSR", out string? error);
+        PawnIoModule? msr = PawnIoDriver.TryLoadModule(ModuleName, out string? error, WriteFunction);
         if (msr is null) return new UnsupportedCpuBackend(error ?? "Module IntelMSR indisponible.");
 
         if (!TryReadMsr(msr, MsrRaplPowerUnit, out ulong units))
@@ -191,6 +232,12 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
             return false;
         }
 
+        if (_moduleWriteRefusal is { } refusal)
+        {
+            message = refusal;
+            return false;
+        }
+
         if (!TryReadMsr(_msr, MsrPkgPowerLimit, out ulong current))
         {
             message = $"Lecture du registre impossible ({_msr.DescribeLastError()}).";
@@ -245,13 +292,13 @@ public sealed class IntelPowerLimitBackend : ICpuTuningBackend
 
     private static bool TryReadMsr(PawnIoModule module, uint msr, out ulong value)
     {
-        bool ok = module.TryExecute("ioctl_read_msr", [msr], 1, out ulong[] output);
+        bool ok = module.TryExecute(ReadFunction, [msr], 1, out ulong[] output);
         value = ok ? output[0] : 0;
         return ok;
     }
 
     private static bool TryWriteMsr(PawnIoModule module, uint msr, ulong value)
-        => module.TryExecute("ioctl_write_msr", [msr, value], 0, out _);
+        => module.TryExecute(WriteFunction, [msr, value], 0, out _);
 
     public void Dispose() => _msr.Dispose();
 }

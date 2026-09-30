@@ -1,3 +1,5 @@
+using PCPerfSuite.Core.Safety;
+
 namespace PCPerfSuite.Core.Hardware.Cpu;
 
 /// <summary>
@@ -20,7 +22,11 @@ public sealed class CpuControlService : IDisposable
     /// aux valeurs d'origine : une pointe d'une seconde au lancement d'un jeu n'est pas un problème.</summary>
     private static readonly TimeSpan EmergencyDelay = TimeSpan.FromSeconds(15);
 
-    private DateTime? _hotSince;
+    /// <summary>La logique du seuil tenu pendant un délai, partagée avec le GPU. Sans délai de perte : une température
+    /// absente remet seulement le délai à zéro, comme avant.</summary>
+    private readonly ThermalGuard _guard = new([new ThermalLimit("package", EmergencyTempC, EmergencyDelay)]);
+
+    private readonly TimeProvider _time;
     private bool _limitsRaised;
     private bool _touched;
 
@@ -34,10 +40,23 @@ public sealed class CpuControlService : IDisposable
     /// <summary>Levé quand la sécurité thermique a rendu le processeur à ses limites d'origine.</summary>
     public event Action<string>? EmergencyRestored;
 
-    public CpuControlService()
+    public CpuControlService() : this(TimeProvider.System)
     {
+    }
+
+    public CpuControlService(TimeProvider time)
+    {
+        _time = time;
         Platform = CpuPlatformDetector.Detect();
         Backend = CreateBackend(Platform);
+    }
+
+    /// <summary>Pour les tests : un backend factice et une horloge réglable, sans détection du processeur.</summary>
+    internal CpuControlService(CpuPlatform platform, ICpuTuningBackend backend, TimeProvider time)
+    {
+        _time = time;
+        Platform = platform;
+        Backend = backend;
     }
 
     private static ICpuTuningBackend CreateBackend(CpuPlatform platform)
@@ -68,17 +87,34 @@ public sealed class CpuControlService : IDisposable
     public bool TrySetPowerLimits(float sustainedWatts, float? burstWatts, out string message)
     {
         bool ok = Backend.TrySetPowerLimits(sustainedWatts, burstWatts, out message);
-        if (!ok) return false;
+
+        // Sans écriture possible (verrou du BIOS, module qui ne sait que lire), rien n'a bougé. Sinon, même un refus
+        // à la relecture (« retenu 110 W au lieu de 125 W ») a pu changer le registre : c'est la relecture qui décide.
+        if (!ok && !Backend.PowerLimit.CanWrite) return false;
 
         _touched = true;
-        _hotSince = null;
+        _guard.Reset();
+        _limitsRaised = IsRaised(Backend.ReadPowerLimits());
 
-        // La surveillance thermique ne sert que si l'utilisateur a *relevé* une limite : l'abaisser ne peut
-        // pas faire chauffer davantage, et déclencher un retour d'office dans ce cas serait absurde.
-        CpuPowerLimitSnapshot? snapshot = Backend.ReadPowerLimits();
-        _limitsRaised = snapshot is not null && snapshot.SustainedWatts > snapshot.DefaultSustainedWatts + 1f;
+        return ok;
+    }
 
-        return true;
+    /// <summary>
+    /// La surveillance thermique ne sert que si une limite a été *relevée*, soutenue ou de pointe (PL2 se règle à
+    /// part) : l'abaisser ne peut pas faire chauffer davantage, et déclencher un retour d'office dans ce cas serait
+    /// absurde.
+    /// </summary>
+    public static bool IsRaised(CpuPowerLimitSnapshot? limits)
+        => limits is not null
+           && (limits.SustainedWatts > limits.DefaultSustainedWatts + 1f
+               || (limits.BurstWatts is { } burst && limits.DefaultBurstWatts is { } defaultBurst && burst > defaultBurst + 1f));
+
+    /// <summary>Au réveil de veille : la veille ne compte pas comme chaleur tenue, et le firmware a pu reposer ses
+    /// limites. L'armement ne tient plus que si les limites relues sont encore relevées.</summary>
+    public void RefreshAfterResume()
+    {
+        _guard.Reset();
+        _limitsRaised = _limitsRaised && IsRaised(Backend.ReadPowerLimits());
     }
 
     public bool TryRestoreDefaults(out string message)
@@ -87,7 +123,7 @@ public sealed class CpuControlService : IDisposable
         if (ok)
         {
             _limitsRaised = false;
-            _hotSince = null;
+            _guard.Reset();
         }
 
         return ok;
@@ -103,22 +139,15 @@ public sealed class CpuControlService : IDisposable
     /// </summary>
     public void NoteTemperature(float? packageTempC)
     {
-        if (!_limitsRaised || packageTempC is not { } temp)
+        if (!_limitsRaised)
         {
-            _hotSince = null;
+            _guard.Reset();
             return;
         }
 
-        if (temp < EmergencyTempC)
-        {
-            _hotSince = null;
-            return;
-        }
+        ThermalVerdict verdict = _guard.Note(_time.GetUtcNow(), [packageTempC]);
+        if (verdict is not { State: ThermalState.Tripped, TemperatureC: { } temp }) return;
 
-        _hotSince ??= DateTime.UtcNow;
-        if (DateTime.UtcNow - _hotSince < EmergencyDelay) return;
-
-        _hotSince = null;
         _limitsRaised = false;
 
         bool restored = Backend.TryRestoreDefaults(out string message);

@@ -21,6 +21,7 @@ Relevé du 30/09/2026 : `dotnet list src/PCPerfSuite.App/PCPerfSuite.App.csproj 
 |---|---|---|---|---|
 | LibreHardwareMonitorLib | 0.9.6 | MPL-2.0 | LibreHardwareMonitor | https://github.com/LibreHardwareMonitor/LibreHardwareMonitor |
 | Modules PawnIO embarqués par LibreHardwareMonitorLib (IntelMSR, RyzenSMU, AMDFamily17…) | ceux de LHM 0.9.6 | LGPL-2.1 | namazso | https://github.com/namazso/PawnIO.Modules |
+| Module PawnIO IntelMSR, livré à part dans `PawnIO\IntelMSR.bin` (avec `COPYING.LGPL-2.1.txt` et `LISEZMOI.txt`), fichier de release_0_2_11.zip tel quel, SHA-256 figé par `PawnIoModuleTests` | PawnIO.Modules 0.2.11 | LGPL-2.1 | namazso | https://github.com/namazso/PawnIO.Modules/tree/0.2.11 |
 | BlackSharp.Core | 1.0.7 | MPL-2.0 | Florian K. | https://github.com/Blacktempel/BlackSharp |
 | DiskInfoToolkit | 1.1.2 | MPL-2.0 | Florian K. | https://github.com/Blacktempel/DiskInfoToolkit |
 | RAMSPDToolkit-NDD | 1.4.2 | MPL-2.0 | Florian K. | https://github.com/Blacktempel/RAMSPDToolkit |

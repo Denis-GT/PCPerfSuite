@@ -3,7 +3,7 @@ using PCPerfSuite.Core.Hardware;
 namespace PCPerfSuite.App.ViewModels;
 
 /// <summary>
-/// Ce qui continue de travailler fenêtre cachée (overlay, courbes de ventilateurs, sécurité thermique du CPU) et
+/// Ce qui continue de travailler fenêtre cachée (overlay, courbes de ventilateurs, sécurités thermiques du GPU et du CPU) et
 /// dit de quels groupes de capteurs il a besoin : en mode éco, <see cref="MonitoringViewModel"/> ne relit que ceux-là.
 /// </summary>
 public interface IBackgroundSensorConsumer

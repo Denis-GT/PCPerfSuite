@@ -42,8 +42,8 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   `%ProgramData%\PCPerfSuite` (outils portables et fichiers de bench, dossier sécurisé de #7).
 - **Réglages** : toute lecture-modification-écriture passe par `AppSettingsStore.Update()`, avec seulement des
   mutations dans le lambda (le verrou est tenu pendant). Pas de `Load()` puis `Save()`. Les nouveaux modèles
-  enregistrent leurs enums en chaînes. Restent en `Load()`/`Save()`, à convertir par leur propriétaire : les onglets
-  Processeur et GPU (#2) et `WindowsPerformanceSettingsService.RememberOriginalValue` (#5, #6).
+  enregistrent leurs enums en chaînes. Reste en `Load()`/`Save()`, à convertir par son propriétaire :
+  `WindowsPerformanceSettingsService.RememberOriginalValue` (#5, #6). Les onglets Processeur et GPU sont convertis (#2).
 - **Diagnostic « Compatibilité de ce PC »** : une nouvelle ligne est un **fournisseur**
   (`ICompatibilityRowProvider`, `src/PCPerfSuite.Core/Compatibility/`) rangé dans le dossier de sa fonction et
   inscrit dans `MainViewModel._compatibilityRows`, jamais une méthode ni une dépendance de plus dans
@@ -73,8 +73,10 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
 | Dossier de données `AppDataPaths` | #1 | `src/PCPerfSuite.Core/Environment/AppDataPaths.cs` (namespace `PCPerfSuite.Core.SystemInfo`) | livrée ; racine portable ajoutée par #13 |
 | Lignes de diagnostic `ICompatibilityRowProvider`, `CompatibilityRow`, `CompatibilityRows`, masquage `ReportPrivacy` | #1 | `src/PCPerfSuite.Core/Compatibility/` | livrée ; lignes historiques déplacées par #12 |
 | Registre des modifications `ISystemChangeOwner`, `SystemChangeRegistry` | #1 | `src/PCPerfSuite.Core/SystemChanges/`, instance `MainViewModel.SystemChanges` | livrée ; aucun propriétaire inscrit |
-| `GpuIdentity` (marque, nom, identifiants PCI si lus, LUID facultatif) | #2 | `src/PCPerfSuite.Core/Hardware/Gpu/` | prévue ; LUID ajouté par #11 |
-| Sécurité thermique GPU, en logique pure | #2 | `src/PCPerfSuite.Core/Safety/` | prévue |
+| `GpuIdentity` (marque en chaîne, nom, `PciVendorId`, `PciDeviceId`, `PciSubsystemId` au format du registre PCI, `Luid` facultatif) : `Matches(saved, current)` (marque égale, chaque champ connu des deux côtés égal, LUID non comparé), `ParsePciId`, `Describe()`. Lue par `GpuControlService.Identity` (NVAPI, ADLX, IGCL), enregistrée dans `GpuControlSettings.OverclockGpu` ; ligne `GpuIdentityRowProvider` (« Carte GPU pilotée ») | #2 | `src/PCPerfSuite.Core/Hardware/Gpu/GpuIdentity.cs` | livrée ; LUID rempli par #11 ; à compléter par #8, #14, #15, #22 |
+| Sécurité thermique, en logique pure : `ThermalGuard` (seuils `ThermalLimit` par capteur, délai, perte de lecture facultative, heure injectée, verdict `ThermalState`), partagée par le CPU (98 °C / 15 s) et le GPU. `GpuThermalSafety` (cœur ≥ 90 °C 15 s, point chaud ≥ 105 °C s'il est lu ; retour d'origine, relecture, évènement `EmergencyRestored` ; `Restart()` au réveil, `NoteNoReading()` pour un chien de garde ; `ReadingWatchdog` distingue une veille d'une panne de relevé, sur une heure monotone), armée par `GpuControlService.RefreshArming` d'après `GpuOverclockRaise.IsRaised` sur les seuls blocs écrits par l'app ; cible `IGpuOverclockTarget` ; ligne `GpuThermalSafetyRowProvider`. Décision au réveil commune CPU/GPU : `TuningResume.Decide` (relire / ne pas réappliquer après un déclenchement / réappliquer) | #2 | `src/PCPerfSuite.Core/Safety/` | livrée ; reprise par #10, #11, #15, #16 avec leurs seuils |
+| Appliquer puis relire l'OC GPU : `GpuControlService.ApplyAndVerify(GpuOverclockRequest)` → `GpuApplyReport` (demandé / retenu / `GpuApplyStatus` par réglage), comparaison pure `GpuApplyComparison.Compare` ; plages de repli NVAPI signalées par `GpuOverclockSnapshot.CoreOffsetRangeIsFallback` / `MemoryOffsetRangeIsFallback` | #2 | `src/PCPerfSuite.Core/Hardware/Gpu/GpuOverclockApply.cs` | livrée ; pour #8, #15 |
+| Fonctions d'un module PawnIO : `PawnIoModuleFunctions.Parse` (chaînes `ioctl_…` du module), `PawnIoModuleInfo` (source, version, fonctions, SHA-256), `PawnIoDriver.LoadedModules` et `PawnIoDriver.LoadFailures` (dernier échec par module) ; modules livrés par l'app `ShippedPawnIoModules` (IntelMSR 0.2.11 dans `PawnIO\`, choisi avant celui de LHM par `PawnIoModuleChoice`) ; ligne `PawnIoModulesRowProvider` | #2 | `src/PCPerfSuite.Core/Hardware/Cpu/PawnIoModules.cs` | livrée ; reprise par #4 |
 | `DisplayTopology`, avec le filtre des fenêtres du shell pour « l'écran du jeu » | #3 | `src/PCPerfSuite.Core/Hardware/Displays/` | prévue |
 | `SessionJournal` et qualification d'incident au lancement | #4 | `src/PCPerfSuite.Core/Safety/` | prévue |
 | Étape `StartupRecovery` d'`App.OnStartup` | #4 | `src/PCPerfSuite.App/App.xaml.cs` | prévue |

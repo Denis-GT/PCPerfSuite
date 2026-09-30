@@ -172,17 +172,40 @@ l'onglet l'explique au lieu d'afficher des curseurs sans effet.
 - **Profils** : les réglages courants s'enregistrent sous un nom et se rappellent en un clic
   (un profil du même nom est remplacé). Une tension enregistrée n'est appliquée qu'à une carte
   qui raisonne dans la même unité, et l'overclock n'est pas réappliqué au démarrage après un
-  changement de marque de carte.
+  changement de carte : l'app reconnaît la carte à sa marque, son nom et ses identifiants PCI
+  quand le pilote les donne (les réglages d'une version précédente n'avaient que la marque).
+  L'onglet le dit, et « Compatibilité de ce PC › Carte GPU pilotée » montre les deux identités.
 - **Ce qui bride la carte** en direct (puissance, température, tension, pas de charge), comme la
   ligne « perf cap » de GPU-Z — fourni par NVIDIA seulement, « N/D » ailleurs.
 - Ce que la carte n'expose pas est listé sous les curseurs avec la raison (« N/D sur cette
   carte, non exposé par le pilote… »), par exemple la limite de puissance des GPU portables,
   fixée par le constructeur du PC.
-- Après chaque application, l'onglet affiche **ce que le pilote a réellement retenu** : il rabote
-  une demande hors plage sans prévenir, ce qui explique un overclock « qui ne monte pas ».
+- Après chaque application, l'onglet **relit la carte** et affiche, réglage par réglage, ce qui a
+  été demandé et ce qu'elle a retenu (« +250 MHz au lieu de +300 MHz demandés ») : les pilotes
+  acceptent l'appel puis rabotent une demande hors plage sans prévenir, ce qui explique un
+  overclock « qui ne monte pas ».
+- Quand le pilote NVIDIA ne donne pas les limites des décalages, l'onglet utilise une **plage
+  prudente par défaut** (-500/+1000 MHz cœur, -1000/+2000 MHz mémoire) et le dit : ce ne sont pas
+  les vraies limites de la carte.
+- **Sécurité thermique** : si la carte reste à 90 °C ou plus au cœur pendant 15 secondes (ou à
+  105 °C au point chaud, quand la carte le publie, ce que les RTX 50 ne font pas) alors que l'app a
+  relevé un réglage (décalage positif, puissance, température ou tension au-dessus de l'origine),
+  l'app lui rend ses réglages d'origine, relit ce qu'elle a retenu et prévient ; « Appliquer au
+  démarrage » est alors décoché, pour que le prochain lancement ne remette pas cet overclock. Elle
+  continue quand la fenêtre est cachée ou dans la zone de notification. Si la température du GPU
+  n'est plus lue pendant 15 secondes alors qu'elle l'était (ou si plus aucun relevé n'arrive, après
+  un plantage du pilote par exemple), l'overclock est retiré aussi. Si le pilote refuse le retour
+  d'origine, elle réessaie 15 secondes plus tard. Un overclock posé par un autre outil
+  (Afterburner…) n'arme rien tant que l'app n'a pas écrit le même bloc de réglages (horloges,
+  température et tension d'un côté, limite de puissance de l'autre) ; une fois armée, un
+  déclenchement rend toute la carte d'origine. La durée d'une veille ne compte pas.
+- **Réveil de veille** : l'onglet relit la carte quelques secondes après le réveil et affiche ses
+  vraies valeurs. Les réglages enregistrés ne sont réappliqués que si « Appliquer au démarrage »
+  est coché, et pas si la sécurité thermique les a retirés pendant la session.
 
 Le ventilateur du GPU n'est pas dans cet onglet : il est dans **Ventilateurs** avec tous les autres
-(avec passage forcé à 100 % au-delà de 88 °C tant que l'app le pilote).
+(avec passage forcé à 100 % au-delà de 88 °C tant que l'app le pilote). Ce passage à 100 % ne retire
+pas l'overclock : c'est la sécurité thermique ci-dessus qui s'en charge.
 
 ## Processeur
 
@@ -211,8 +234,15 @@ pour une perte de performance souvent minime (utile sur un portable), le relever
 tenir ses fréquences plus longtemps quand le refroidissement suit.
 
 - **Intel** : PL1 (limite soutenue) et PL2 (limite de pointe), via le registre `MSR_PKG_POWER_LIMIT`
-  — le même que règle le BIOS. Si le BIOS a posé son verrou (bit 63), l'onglet le dit et n'écrit
-  rien : seul un redémarrage peut le lever, et encore, si le BIOS ne le repose pas.
+  — le même que règle le BIOS. L'écriture passe par le module IntelMSR de PawnIO.Modules 0.2.11,
+  livré avec l'app dans `PawnIO\` (celui de LibreHardwareMonitorLib 0.9.6 ne sait que lire les MSR).
+  Elle est marquée **expérimentale** tant qu'elle n'a pas été vérifiée sur une vraie machine : pour
+  essayer, baisse une limite plutôt que de la relever (sur les Core de 13e et 14e génération,
+  tensions et températures élevées aggravent l'instabilité « Vmin shift »).
+- **Lecture seule** : si le BIOS a posé son verrou (bit 63), ou si le module chargé ne sait pas écrire
+  (fichier `PawnIO\IntelMSR.bin` absent ou refusé par PawnIO), l'onglet affiche les limites en place,
+  champs inactifs, avec la raison exacte, et n'écrit rien. Le verrou du BIOS ne se lève qu'au
+  redémarrage, et encore, si le BIOS ne le repose pas.
 - **AMD** : PPT sur les processeurs de bureau (Ryzen 3000 à 9000), et STAPM + limites lente/rapide
   sur les portables (Ryzen 4000 à 8040), via la SMU — le même chemin que Ryzen Master.
 - **Snapdragon** : impossible. La fréquence, la tension et les limites de puissance sont verrouillées
@@ -227,7 +257,11 @@ Garde-fous :
   un succès en l'air.
 - Un avertissement est à accepter une fois avant le premier réglage.
 - **Sécurité thermique** : si le processeur reste à 98 °C pendant 15 secondes avec une limite
-  relevée, l'app rétablit d'elle-même les limites d'origine.
+  relevée (soutenue ou de pointe), l'app rétablit d'elle-même les limites d'origine et décoche
+  « Appliquer au démarrage ».
+- **Au réveil de veille**, les limites sont toujours relues (le firmware a pu reposer les siennes) ;
+  elles ne sont réappliquées que si « Appliquer au démarrage » est coché, et pas si la sécurité
+  thermique les a retirées pendant la session.
 - Rien n'est appliqué au lancement et tout repart d'origine en quittant, sauf si tu coches
   « Appliquer au démarrage ». De toute façon, **les limites ne survivent pas à un redémarrage** :
   le firmware les repose à chaque démarrage, ce qui fait du bouton d'arrêt le filet de sécurité
@@ -378,6 +412,14 @@ cartes) : l'onglet l'affiche dans un bandeau. Le monitoring GPU couvre les trois
   comme tel par l'app. Prends simplement la dernière version, avec le bouton de Paramètres ›
   Installations ou depuis son site (testé avec la 2.2.0). L'onglet Processeur affiche la version installée, et entre parenthèses la version de
   l'interface de programmation, qui est celle que renvoie le pilote lui-même.
+- **Modules PawnIO** : chaque version d'un module a sa propre liste de registres autorisés, et PawnIO
+  ne charge que des modules signés par leur auteur (l'app ne peut pas écrire les siens). Les modules
+  viennent de LibreHardwareMonitorLib, sauf IntelMSR : l'app livre celui de
+  [PawnIO.Modules 0.2.11](https://github.com/namazso/PawnIO.Modules/tree/0.2.11) (LGPL-2.1, signé par
+  namazso) dans `PawnIO\IntelMSR.bin`, à côté de l'exe, parce que celui de LHM 0.9.6 ne sait pas écrire
+  PL1/PL2. C'est un fichier à part, remplaçable par une autre version signée ; sans lui, l'app reprend
+  celui de LHM et affiche les limites en lecture seule. « Paramètres › Compatibilité de ce PC ›
+  Modules PawnIO » liste, pour chaque module chargé, sa provenance, sa version et ses fonctions.
 - **Isolation du noyau / Intégrité de la mémoire (HVCI ou "Memory Integrity")** : cette option
   n'empêche pas PawnIO de fonctionner (contrairement à WinRing0), mais l'app affiche quand même
   l'état du réglage dans l'onglet Optimisation Windows, avec un lien direct vers le réglage Windows.

@@ -61,6 +61,12 @@ public sealed class GpuOverclockSnapshot
     public int MemoryOffsetMinMhz { get; init; }
     public int MemoryOffsetMaxMhz { get; init; }
 
+    /// <summary>Vrai quand la plage du décalage n'est pas celle de la carte mais une plage prudente par défaut : le
+    /// pilote NVIDIA n'a pas donné de limites exploitables (min = max). Ce ne sont pas les vraies limites.</summary>
+    public bool CoreOffsetRangeIsFallback { get; init; }
+
+    public bool MemoryOffsetRangeIsFallback { get; init; }
+
     /// <summary>Unité affichée pour le décalage mémoire : "MHz" en général, "MT/s" ou "Mbps" chez Intel,
     /// dont le pilote exprime la vitesse mémoire en débit plutôt qu'en fréquence.</summary>
     public string MemoryOffsetUnit { get; init; } = "MHz";

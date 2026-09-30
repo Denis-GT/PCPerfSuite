@@ -1,5 +1,6 @@
 using System.Globalization;
 using PCPerfSuite.Core.Hardware.Gpu;
+using PCPerfSuite.Core.Safety;
 
 namespace PCPerfSuite.Core.Hardware;
 
@@ -16,7 +17,7 @@ namespace PCPerfSuite.Core.Hardware;
 /// Toutes les méthodes sont "best-effort" : elles retournent false/null plutôt que de lever si le
 /// pilote refuse ou si la fonction n'existe pas sur cette carte.
 /// </summary>
-public sealed class GpuControlService : IFanController, IDisposable
+public sealed class GpuControlService : IFanController, IGpuOverclockTarget, IDisposable
 {
     private IGpuTuningBackend? _backend;
     private bool _initialized;
@@ -41,8 +42,34 @@ public sealed class GpuControlService : IFanController, IDisposable
     /// une app fermée.</summary>
     public bool KeepOverclockOnExit { get; set; }
 
+    /// <summary>API constructeur essayées dans l'ordre par <see cref="TryInitialize"/>.</summary>
+    private readonly Func<IGpuTuningBackend>[] _backendFactories;
+
+    /// <summary>Profondeur d'une application groupée (<see cref="ApplyAndVerify"/>) : l'armement attend la relecture
+    /// finale au lieu de relire la carte après chaque réglage.</summary>
+    private int _batchDepth;
+
+    public GpuControlService()
+        : this(() => new NvApiGpuBackend(), () => new AdlxGpuBackend(), () => new IgclGpuBackend())
+    {
+    }
+
+    /// <summary>Pour les tests : des backends factices à la place des pilotes.</summary>
+    internal GpuControlService(params Func<IGpuTuningBackend>[] backendFactories)
+    {
+        _backendFactories = backendFactories;
+        ThermalSafety = new GpuThermalSafety(this);
+    }
+
+    /// <summary>Retour d'origine d'office si la carte reste trop chaude alors que l'app a relevé un réglage. Armée par
+    /// <see cref="RefreshArming"/> ; c'est à l'appelant de lui donner les températures à chaque relevé.</summary>
+    public GpuThermalSafety ThermalSafety { get; }
+
     /// <summary>Marque de la carte pilotée, null tant qu'aucune n'a été trouvée.</summary>
     public GpuVendor? Vendor => _backend?.Vendor;
+
+    /// <summary>Identité de la carte pilotée (marque, nom, identifiants PCI lus), relevée à l'initialisation.</summary>
+    public GpuIdentity? Identity { get; private set; }
 
     /// <summary>Vrai quand le constructeur exige que l'utilisateur accepte une renonciation de garantie
     /// avant tout overclock (Intel).</summary>
@@ -55,12 +82,7 @@ public sealed class GpuControlService : IFanController, IDisposable
         if (_initialized) return _backend is not null;
         _initialized = true;
 
-        foreach (Func<IGpuTuningBackend> create in new Func<IGpuTuningBackend>[]
-                 {
-                     () => new NvApiGpuBackend(),
-                     () => new AdlxGpuBackend(),
-                     () => new IgclGpuBackend(),
-                 })
+        foreach (Func<IGpuTuningBackend> create in _backendFactories)
         {
             IGpuTuningBackend backend = create();
             bool ok;
@@ -77,6 +99,8 @@ public sealed class GpuControlService : IFanController, IDisposable
             if (ok)
             {
                 _backend = backend;
+                try { Identity = backend.GetIdentity(); }
+                catch { Identity = new GpuIdentity(backend.Vendor); }
                 return true;
             }
 
@@ -94,15 +118,77 @@ public sealed class GpuControlService : IFanController, IDisposable
     public bool TrySetPowerLimitPercent(float percent)
     {
         bool applied = _backend?.TrySetPowerLimitPercent(percent) ?? false;
-        if (applied) _powerLimitTouched = true;
-        return applied;
+        if (!applied) return false;
+
+        _powerLimitTouched = true;
+        RefreshArming();
+        return true;
     }
 
     public bool TryRestorePowerLimitDefault()
     {
         bool restored = _backend?.TryRestorePowerLimitDefault() ?? false;
         if (restored) _powerLimitTouched = false;
+        RefreshArming();
         return restored;
+    }
+
+    /// <summary>
+    /// Arme la sécurité thermique si un bloc de réglages que l'app a écrit est relu au-dessus de son origine, la
+    /// désarme sinon. Deux blocs, comme pour la fermeture : l'overclock (horloges, température, tension) et la limite
+    /// de puissance. Un réglage d'un autre outil (Afterburner) dans un bloc que l'app n'a pas écrit n'arme rien : on ne
+    /// le retirerait pas. À appeler après chaque écriture (fait ici) et au réveil de veille, où le pilote a pu tout
+    /// remettre d'origine.
+    /// </summary>
+    public void RefreshArming()
+    {
+        if (_batchDepth > 0) return;
+        RefreshArming(_overclockTouched ? GetOverclock() : null, _powerLimitTouched ? GetSnapshot() : null);
+    }
+
+    /// <summary>Même décision, sur une relecture déjà faite.</summary>
+    private void RefreshArming(GpuOverclockSnapshot? overclock, GpuControlSnapshot? power)
+        => ThermalSafety.UpdateArming(GpuOverclockRaise.IsRaised(
+            _overclockTouched ? overclock : null, _powerLimitTouched ? power : null));
+
+    /// <summary>
+    /// Pose les réglages demandés puis relit la carte, et rend, réglage par réglage, ce qui a été demandé et ce que la
+    /// carte a retenu. Les Try* des pilotes renvoient vrai sans vérifier : c'est la seule façon de savoir. Un décalage
+    /// demandé seul (cœur sans mémoire) garde l'autre à sa valeur relue, les deux s'écrivant ensemble. Les accords
+    /// (avertissement, renonciation Intel) restent à vérifier par l'appelant, comme pour les Try*.
+    /// </summary>
+    public GpuApplyReport ApplyAndVerify(GpuOverclockRequest request)
+    {
+        if (_backend is null) return GpuApplyReport.Empty;
+
+        bool? clocks, power, temperature, voltage;
+        _batchDepth++;
+        try
+        {
+            clocks = null;
+            if (request.CoreOffsetMhz is not null || request.MemoryOffsetMhz is not null)
+            {
+                GpuOverclockSnapshot? before = request.CoreOffsetMhz is null || request.MemoryOffsetMhz is null ? GetOverclock() : null;
+                clocks = TrySetClockOffsets(
+                    request.CoreOffsetMhz ?? before?.CoreOffsetMhz ?? 0,
+                    request.MemoryOffsetMhz ?? before?.MemoryOffsetMhz ?? 0);
+            }
+
+            power = request.PowerLimitPercent is { } percent ? TrySetPowerLimitPercent(percent) : null;
+            temperature = request.TemperatureLimitC is { } celsius ? TrySetTemperatureLimit(celsius) : null;
+            voltage = request.Voltage is { } value ? TrySetVoltage(value) : null;
+        }
+        finally
+        {
+            _batchDepth--;
+        }
+
+        // Une seule relecture, pour le bilan et pour l'armement.
+        GpuOverclockSnapshot? overclock = GetOverclock();
+        GpuControlSnapshot? snapshot = GetSnapshot();
+        RefreshArming(overclock, snapshot);
+
+        return GpuApplyComparison.Compare(request, new GpuApplyAccepted(clocks, power, temperature, voltage), overclock, snapshot);
     }
 
     // ------------------------------------------------------------------
@@ -119,7 +205,22 @@ public sealed class GpuControlService : IFanController, IDisposable
 
     /// <summary>Applique les décalages d'horloge cœur et mémoire (en MHz, ou dans l'unité mémoire
     /// annoncée par <see cref="GpuOverclockSnapshot.MemoryOffsetUnit"/>).</summary>
-    public bool TrySetClockOffsets(int coreMhz, int memoryMhz) => Touch(_backend?.TrySetClockOffsets(coreMhz, memoryMhz));
+    public bool TrySetClockOffsets(int coreMhz, int memoryMhz)
+    {
+        bool? applied = _backend?.TrySetClockOffsets(coreMhz, memoryMhz);
+
+        // Refus partiel : ADLX et IGCL répondent « refusé » dès que l'un des deux décalages échoue, alors que l'autre a
+        // pu être posé. La carte est alors bien touchée : la sécurité doit s'armer, et la fermeture la rendre d'origine.
+        if (applied == false && GetOverclock() is { } after
+            && ((after.CoreOffsetSupported && coreMhz != 0 && after.CoreOffsetMhz == coreMhz)
+                || (after.MemoryOffsetSupported && memoryMhz != 0 && after.MemoryOffsetMhz == memoryMhz)))
+        {
+            Touch(true);
+            return false;
+        }
+
+        return Touch(applied);
+    }
 
     /// <summary>Applique la limite de température (°C).</summary>
     public bool TrySetTemperatureLimit(int celsius) => Touch(_backend?.TrySetTemperatureLimit(celsius));
@@ -131,12 +232,17 @@ public sealed class GpuControlService : IFanController, IDisposable
     {
         if (applied != true) return false;
         _overclockTouched = true;
+        RefreshArming();
         return true;
     }
 
     /// <summary>Rend la carte à ses réglages d'origine : horloges, tension, limites de température et
-    /// de puissance.</summary>
-    public void RestoreOverclockDefaults() => _backend?.RestoreOverclockDefaults();
+    /// de puissance. La sécurité thermique se réarme d'après ce que la carte relit ensuite.</summary>
+    public void RestoreOverclockDefaults()
+    {
+        _backend?.RestoreOverclockDefaults();
+        RefreshArming();
+    }
 
     /// <summary>Préfixe des identifiants de ventilateur GPU côté onglet Ventilateurs : distingue un
     /// ventilateur de carte graphique d'un capteur de contrôle de carte mère dans le même fichier de
@@ -181,10 +287,11 @@ public sealed class GpuControlService : IFanController, IDisposable
     {
         if (_backend is not { } backend) return;
 
+        // Directement par le backend : relire la carte pour réarmer la sécurité n'a plus de sens à la fermeture.
         if (!KeepOverclockOnExit)
         {
-            if (_overclockTouched) RestoreOverclockDefaults();
-            else if (_powerLimitTouched) TryRestorePowerLimitDefault();
+            if (_overclockTouched) backend.RestoreOverclockDefaults();
+            else if (_powerLimitTouched) backend.TryRestorePowerLimitDefault();
         }
 
         if (_fanTouched) TryRestoreFanAuto();
