@@ -89,6 +89,20 @@ public class DisplaysRowProviderTests
     }
 
     [Fact]
+    public void IdenticalScreens_UnreadableMachineKey_SaysSo()
+    {
+        DisplayMonitor twin = Monitor(2, new PixelRect(2560, 0, 5120, 1440), targets: Target("DELL U2720Q", @"\\?\DISPLAY#DEL4123#z#{y}"));
+
+        CompatibilityRow row = Assert.Single(
+            DisplaysRowProvider.BuildRows(Snapshot(Primary, twin), new Dictionary<string, string>(), hasMachineKey: false),
+            r => r.Title == "Écrans identiques");
+
+        Assert.Equal("Non départagés", row.Status);
+        Assert.Contains("MachineGuid", row.Detail);
+        Assert.DoesNotContain("WMI muet", row.Detail);
+    }
+
+    [Fact]
     public void IdenticalScreens_AllSerialsRead_AreSupported()
     {
         DisplayMonitor twin = Monitor(2, new PixelRect(2560, 0, 5120, 1440), targets: Target("DELL U2720Q", @"\\?\DISPLAY#DEL4123#z#{y}"));

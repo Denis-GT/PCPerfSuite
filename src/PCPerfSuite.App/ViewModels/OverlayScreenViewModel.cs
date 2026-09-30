@@ -111,12 +111,16 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
 
     /// <summary>Relit les écrans (rapide) : après un changement de configuration ou d'échelle. Les HMONITOR ne
     /// survivent pas à un branchement, l'instantané précédent ne vaut plus.</summary>
-    public void RefreshTopology()
+    /// <param name="afterDisplayChange">Branchement ou débranchement : les mêmes chemins peuvent désigner d'autres
+    /// écrans (câbles échangés), les empreintes lues ne valent plus et sont relues.</param>
+    public void RefreshTopology(bool afterDisplayChange = false)
     {
+        if (afterDisplayChange) _serialHashes = NoSerials;
+
         _snapshot = DisplayTopology.Read();
         RebuildDisplays();
         UpdateStatus();
-        if (DisplayIdentityResolver.HasIdenticalScreens(_snapshot)) ReadSerialsInBackground();
+        if (DisplayIdentityResolver.HasIdenticalScreens(_snapshot)) ReadSerialsInBackground(afterDisplayChange);
     }
 
     /// <summary>Mode « écran du jeu » : note la fenêtre passée au premier plan (IntPtr.Zero pour seulement revérifier
@@ -227,17 +231,17 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
         => _dispatcher.BeginInvoke(() =>
         {
-            RefreshTopology();
+            RefreshTopology(afterDisplayChange: true);
             // Les HMONITOR sont recréés : on relit l'écran de la fenêtre du jeu.
             _gameMonitor = IntPtr.Zero;
             NoteForeground(IntPtr.Zero);
             _onTargetMoved();
         });
 
-    /// <summary>Numéros de série par WMI, hors du thread d'interface, seulement quand les écrans branchés ont changé.
+    /// <summary>Numéros de série par WMI, hors du thread d'interface, quand <see cref="MonitorSerials.ShouldRead"/> le demande.
     /// Au retour, l'écran enregistré garde l'empreinte du sien (pour le retrouver entre deux écrans identiques), et
     /// l'overlay change d'écran si la résolution change.</summary>
-    private async void ReadSerialsInBackground()
+    private async void ReadSerialsInBackground(bool afterDisplayChange)
     {
         List<string> paths = (_snapshot?.Monitors ?? Array.Empty<DisplayMonitor>())
             .SelectMany(m => m.Targets)
@@ -247,7 +251,7 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         if (paths.Count == 0) return;
 
         var requested = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
-        if (_serialPaths is not null && _serialPaths.SetEquals(requested)) return;
+        if (!MonitorSerials.ShouldRead(_serialPaths, requested, afterDisplayChange)) return;
         _serialPaths = requested;
 
         _serialRead?.Cancel();
@@ -259,6 +263,9 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
             IReadOnlyDictionary<string, string> hashes = await Task.Run(() => MonitorSerials.ReadHashes(paths, cancellation.Token));
             if (cancellation.IsCancellationRequested) return;
 
+            // WMI muet ou pas encore prêt (lancement avec Windows) : la prochaine relecture des écrans réessaiera.
+            if (hashes.Count == 0) _serialPaths = null;
+
             _serialHashes = hashes;
             DisplayMonitor? before = _lastTarget;
             SyncSelection();
@@ -269,8 +276,7 @@ public sealed partial class OverlayScreenViewModel : ObservableObject, IPageLife
         }
         catch
         {
-            // WMI muet : deux écrans identiques ne seront pas départagés, le message le dira. Une prochaine
-            // relecture des écrans pourra réessayer.
+            // Annulé par une lecture plus récente, ou rappel qui a levé : la prochaine relecture des écrans réessaiera.
             _serialPaths = null;
         }
     }

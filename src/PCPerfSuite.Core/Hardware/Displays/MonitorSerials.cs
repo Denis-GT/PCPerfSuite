@@ -90,6 +90,18 @@ public static class MonitorSerials
         return Convert.ToHexString(hash, 0, 8);
     }
 
+    /// <summary>Faux si la clé du PC est illisible : aucune empreinte n'est alors calculée (le diagnostic le dit).</summary>
+    public static bool HasMachineKey => MachineKey.Value is not null;
+
+    /// <summary>
+    /// Faut-il relire les numéros de série ? Oui après tout changement de configuration : un échange de câbles entre
+    /// deux écrans identiques, ou un autre exemplaire du même modèle sur le même port, redonnent exactement les mêmes
+    /// chemins pour d'autres écrans. Sinon, seulement si les chemins branchés ont changé depuis la dernière lecture
+    /// réussie (<paramref name="lastRead"/> null : jamais lue, ou lecture vide à refaire).
+    /// </summary>
+    public static bool ShouldRead(IReadOnlySet<string>? lastRead, IEnumerable<string> paths, bool afterDisplayChange)
+        => afterDisplayChange || lastRead is null || !lastRead.SetEquals(paths);
+
     /// <summary>Clé propre au PC : MachineGuid de Windows (HKLM\SOFTWARE\Microsoft\Cryptography, lisible sans
     /// administrateur), lue une fois. Null si illisible.</summary>
     private static readonly Lazy<byte[]?> MachineKey = new(() =>

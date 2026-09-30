@@ -137,7 +137,8 @@ l'overlay affichera.
   « Écran 2 (1920×1080) » s'il ne donne pas de nom). Le bouton **Identifier** affiche
   quelques secondes un grand numéro sur chaque écran. L'écran est retrouvé même s'il change
   de connecteur ; deux écrans du même modèle sont départagés par leur numéro de série (seule
-  une empreinte propre à ce PC en est gardée dans `settings.json`) ;
+  une empreinte propre à ce PC en est gardée dans `settings.json` : réglages recopiés sur un
+  autre PC ou Windows réinstallé, deux écrans identiques sont à choisir de nouveau) ;
 - **Écran du jeu** : l'écran de la fenêtre au premier plan. La barre des tâches, le bureau,
   le menu Démarrer et PCPerfSuite ne comptent pas : cliquer sur la barre des tâches d'un
   autre écran ne fait pas sauter l'overlay.

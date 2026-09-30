@@ -39,6 +39,26 @@ public class MonitorSerialsTests
     public void Hash_DependsOnThePc()
         => Assert.NotEqual(MonitorSerials.HashSerial("CN0ABC123", "PC 1"u8.ToArray()), MonitorSerials.HashSerial("CN0ABC123", "PC 2"u8.ToArray()));
 
+    private static readonly string[] BothPaths = [@"\\?\DISPLAY#DEL4123#a#{g}", @"\\?\DISPLAY#DEL4123#b#{g}"];
+
+    [Fact]
+    public void ShouldRead_FirstTime()
+        => Assert.True(MonitorSerials.ShouldRead(null, BothPaths, afterDisplayChange: false));
+
+    [Fact]
+    public void ShouldRead_NotAgainForTheSameScreens()
+        => Assert.False(MonitorSerials.ShouldRead(new HashSet<string>(BothPaths), BothPaths, afterDisplayChange: false));
+
+    [Fact]
+    public void ShouldRead_WhenScreensChange()
+        => Assert.True(MonitorSerials.ShouldRead(new HashSet<string>(BothPaths), [BothPaths[0]], afterDisplayChange: false));
+
+    /// <summary>Câbles échangés à chaud entre deux écrans identiques : mêmes chemins, autres écrans derrière. Le
+    /// branchement suffit à redemander les numéros.</summary>
+    [Fact]
+    public void ShouldRead_AfterADisplayChange_EvenWithTheSamePaths()
+        => Assert.True(MonitorSerials.ShouldRead(new HashSet<string>(BothPaths), BothPaths, afterDisplayChange: true));
+
     [Fact]
     public void WmiString_StopsAtTheFirstZero()
         => Assert.Equal("CN0", MonitorSerials.DecodeWmiString(new ushort[] { 'C', 'N', '0', 0, 0, 'X' }));

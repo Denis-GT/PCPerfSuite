@@ -15,7 +15,7 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
     private const string Experimental = "Expérimental : ce cas n'a pas encore été vérifié sur une vraie machine.";
 
     /// <summary>Écrans et empreintes des numéros de série, publiés ensemble par <see cref="RefreshAsync"/>.</summary>
-    private sealed record Reading(DisplayTopologySnapshot Snapshot, IReadOnlyDictionary<string, string>? SerialHashes);
+    private sealed record Reading(DisplayTopologySnapshot Snapshot, IReadOnlyDictionary<string, string>? SerialHashes, bool HasMachineKey);
 
     private Reading? _reading;
 
@@ -29,19 +29,21 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
         IReadOnlyDictionary<string, string>? hashes = DisplayIdentityResolver.HasIdenticalScreens(snapshot)
             ? MonitorSerials.ReadHashes(snapshot.Monitors.SelectMany(m => m.Targets).Select(t => t.DevicePath).OfType<string>(), cancellationToken)
             : null;
-        Volatile.Write(ref _reading, new Reading(snapshot, hashes));
+        Volatile.Write(ref _reading, new Reading(snapshot, hashes, MonitorSerials.HasMachineKey));
         return Task.CompletedTask;
     }
 
     public IReadOnlyList<CompatibilityRow> GetRows()
     {
         Reading? reading = Volatile.Read(ref _reading);
-        return BuildRows(reading?.Snapshot, reading?.SerialHashes);
+        return BuildRows(reading?.Snapshot, reading?.SerialHashes, reading?.HasMachineKey ?? true);
     }
 
     /// <summary>Les lignes, isolées ici pour être testées sans écran. <paramref name="serialHashes"/> : empreintes lues
-    /// (null si non demandées) ; seul leur nombre est affiché.</summary>
-    public static IReadOnlyList<CompatibilityRow> BuildRows(DisplayTopologySnapshot? snapshot, IReadOnlyDictionary<string, string>? serialHashes = null)
+    /// (null si non demandées) ; seul leur nombre est affiché. <paramref name="hasMachineKey"/> : faux si la clé du PC,
+    /// sans laquelle aucune empreinte n'est calculée, est illisible.</summary>
+    public static IReadOnlyList<CompatibilityRow> BuildRows(DisplayTopologySnapshot? snapshot, IReadOnlyDictionary<string, string>? serialHashes = null,
+        bool hasMachineKey = true)
     {
         if (snapshot is null) return [new CompatibilityRow(RowTitle, "Pas encore lu", "Lecture des écrans en cours.", true)];
 
@@ -64,13 +66,14 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
         rows.Add(new CompatibilityRow(RowTitle, summary, summaryDetail, snapshot.Problem is null));
 
         for (int i = 0; i < count; i++) rows.Add(BuildMonitorRow(snapshot.Monitors[i], i + 1));
-        if (BuildIdenticalScreensRow(snapshot, serialHashes) is { } identical) rows.Add(identical);
+        if (BuildIdenticalScreensRow(snapshot, serialHashes, hasMachineKey) is { } identical) rows.Add(identical);
         return rows;
     }
 
     /// <summary>Deux écrans du même modèle ou plus : l'overlay les départage par leur numéro de série. On dit pour
     /// combien il a été lu, sans jamais le montrer (ni son empreinte).</summary>
-    private static CompatibilityRow? BuildIdenticalScreensRow(DisplayTopologySnapshot snapshot, IReadOnlyDictionary<string, string>? serialHashes)
+    private static CompatibilityRow? BuildIdenticalScreensRow(DisplayTopologySnapshot snapshot, IReadOnlyDictionary<string, string>? serialHashes,
+        bool hasMachineKey)
     {
         List<DisplayTarget> twins = snapshot.Monitors
             .SelectMany(m => m.Targets)
@@ -90,7 +93,10 @@ public sealed class DisplaysRowProvider : ICompatibilityRowProvider
         string detail = $"{twins.Count} écrans du même modèle : numéro de série lu pour {read} d'entre eux (WmiMonitorID). "
                         + (read == twins.Count
                             ? "L'overlay retrouve l'écran choisi même après un échange de câbles."
-                            : "Sans numéro (WMI muet, ou écran qui n'en donne pas), l'écran choisi est retrouvé par son connecteur seulement ; "
+                            : (hasMachineKey
+                                ? "Sans numéro (WMI muet, ou écran qui n'en donne pas), "
+                                : "La clé de ce PC (MachineGuid du registre) est illisible : aucun numéro n'est exploité. ")
+                              + "l'écran choisi est retrouvé par son connecteur seulement ; "
                               + "s'il change de connecteur, l'overlay passe sur l'écran principal et le dit.")
                         + $" {Experimental}";
         return new CompatibilityRow(title, status, detail, read == twins.Count);

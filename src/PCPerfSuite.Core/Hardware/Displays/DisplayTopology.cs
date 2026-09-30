@@ -68,8 +68,15 @@ public static class DisplayTopology
     public static IntPtr MonitorFromWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return IntPtr.Zero;
-        try { return DisplayConfigNative.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST); }
-        catch { return IntPtr.Zero; }
+        try
+        {
+            // Une fenêtre fermée ne doit pas donner « l'écran le plus proche ».
+            return IsWindow(hwnd) ? DisplayConfigNative.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) : IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
     }
 
     /// <summary>Échelle actuelle d'un écran (1,5 = 150 %), relue à la demande : l'utilisateur peut la changer sans que
