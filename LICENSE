@@ -1,0 +1,21 @@
+PCPerfSuite
+Copyright (c) 2026 Denis GATEV. Tous droits réservés.
+
+PCPerfSuite est un logiciel propriétaire. Son code source peut être consulté, mais aucune licence libre n'est
+accordée sur ce code.
+
+1. Utilisation. Vous pouvez télécharger, installer et utiliser gratuitement les versions publiées de PCPerfSuite.
+   Certaines fonctions, ou certains usages professionnels, pourront à l'avenir demander une licence professionnelle ;
+   les conditions en seront alors publiées.
+
+2. Restrictions. Sans accord écrit préalable de l'auteur, il est interdit de redistribuer PCPerfSuite ou son code
+   source, modifié ou non, de le vendre, de le louer, ou de l'inclure dans un produit ou un service payant.
+
+3. Absence de garantie. PCPerfSuite agit sur le matériel (ventilateurs, limites de puissance, overclocking) et sur
+   des réglages de Windows. Il est fourni « tel quel », sans garantie d'aucune sorte, expresse ou implicite, notamment
+   de bon fonctionnement, d'adéquation à un usage particulier ou d'absence de dommage au matériel ou aux données.
+   Vous l'utilisez à vos risques. Dans les limites permises par la loi, l'auteur ne peut être tenu responsable d'aucun
+   dommage résultant de son utilisation.
+
+4. Composants tiers. Les composants livrés avec PCPerfSuite restent sous leur propre licence :
+   voir THIRD-PARTY-NOTICES.md.
