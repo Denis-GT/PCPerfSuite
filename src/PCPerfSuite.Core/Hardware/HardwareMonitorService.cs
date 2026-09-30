@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using LibreHardwareMonitor.Hardware;
+using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.LaptopFans;
 using PCPerfSuite.Core.Hardware.Memory;
@@ -52,6 +54,11 @@ public sealed partial class HardwareMonitorService : IFanController, IDisposable
     private float? _lastCpuLoad;
     private RtssFrameStats? _lastGame;
     private BatterySnapshot? _lastBattery;
+    private CpuThrottleReading? _lastCpuThrottle;
+
+    /// <summary>Bridage CPU (groupe Cpu), créé à la première lecture, sur le thread du relevé : il charge des modules
+    /// PawnIO, ce qui n'a rien à faire sur le thread de l'interface au démarrage.</summary>
+    private CpuThrottleSampler? _cpuThrottle;
 
     /// <summary>Dernier relevé complet, rendu tel quel si le suivant échoue.</summary>
     private HardwareSnapshot? _lastSnapshot;
@@ -192,6 +199,13 @@ public sealed partial class HardwareMonitorService : IFanController, IDisposable
             long batteryStart = Stopwatch.GetTimestamp();
             _lastBattery = _battery.Read();
             RecordRead(SensorGroup.Battery, "battery", "Batterie (pilote Windows)", batteryStart, timings, groupDurations, groupRead);
+        }
+
+        if (due[(int)SensorGroup.Cpu])
+        {
+            long throttleStart = Stopwatch.GetTimestamp();
+            _lastCpuThrottle = ReadCpuThrottle() ?? _lastCpuThrottle;
+            RecordRead(SensorGroup.Cpu, "throttle", "Bridage CPU (MSR, PM table, compteurs Windows)", throttleStart, timings, groupDurations, groupRead);
         }
 
         if (due[(int)SensorGroup.Motherboard] && LaptopFans.Support == LaptopFanSupport.Active)
@@ -344,8 +358,28 @@ public sealed partial class HardwareMonitorService : IFanController, IDisposable
             GroupsRead = Enum.GetValues<SensorGroup>().Where(group => groupRead[(int)group]).ToArray(),
             GroupsEverRead = Enum.GetValues<SensorGroup>().Where(group => _everRead[(int)group]).ToArray(),
             Game = _lastGame,
+            CpuThrottle = _lastCpuThrottle,
         };
     }
+
+    /// <summary>Bridage CPU, en fichiers dédiés (Cpu/Throttle) : balayage des cœurs seulement sous bail de cadence.
+    /// Une erreur imprévue ne fait pas échouer le relevé : la dernière valeur reste.</summary>
+    private CpuThrottleReading? ReadCpuThrottle()
+    {
+        try
+        {
+            _cpuThrottle ??= new CpuThrottleSampler(CpuPlatformDetector.Detect());
+            return _cpuThrottle.Read(measuring: IsCadenceLeased(SensorGroup.Cpu));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Bridage CPU : {ex}");
+            return null;
+        }
+    }
+
+    /// <summary>Dernier relevé complet, pour le diagnostic (lu depuis n'importe quel thread) ; null avant le premier.</summary>
+    public HardwareSnapshot? LastSnapshot => Volatile.Read(ref _lastSnapshot);
 
     /// <summary>Compte une lecture faite hors LibreHardwareMonitor (charge CPU, FPS) dans les durées du relevé.</summary>
     private static void RecordRead(SensorGroup group, string identifier, string name, long readStart,
@@ -1190,6 +1224,7 @@ public sealed partial class HardwareMonitorService : IFanController, IDisposable
             if (_disposed) return;
             _disposed = true;
             _cpuLoad.Dispose();
+            _cpuThrottle?.Dispose();
             _battery.Dispose();
             LaptopFans.Dispose();
         }

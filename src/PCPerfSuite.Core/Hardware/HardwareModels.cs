@@ -1,3 +1,4 @@
+using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Overlay;
 
@@ -337,4 +338,8 @@ public sealed class HardwareSnapshot
 
     /// <summary>Statistiques RTSS de l'application au premier plan — null hors jeu ou sans RTSS.</summary>
     public RtssFrameStats? Game { get; init; }
+
+    /// <summary>Ce qui bride le processeur, lu avec le groupe Cpu (MSR Intel, PM table AMD, compteurs Windows) ; null
+    /// tant que le CPU n'a pas été lu.</summary>
+    public CpuThrottleReading? CpuThrottle { get; init; }
 }

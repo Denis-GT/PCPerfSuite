@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Safety;
@@ -112,6 +113,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
         _compatibilityRows.Add(new DisplaysRowProvider());
+        _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
 
