@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:PCPerfSuite.App.Views"
         xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
+        xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels"
         Title="PCPerfSuite" Height="820" Width="1280" MinHeight="600" MinWidth="920"
         WindowStartupLocation="CenterScreen" Icon="PCPerfSuite.ico">
 
@@ -14,6 +15,14 @@
             <Separator/>
             <MenuItem Header="Quitter" Click="OnTrayQuit"/>
         </ContextMenu>
+
+        <!-- Entrées de la barre latérale rangées sous leur section. Les groupes suivent l'ordre de NavigationMenu.Pages ;
+             une section sans page n'a pas de groupe, donc pas d'en-tête. -->
+        <CollectionViewSource x:Key="NavSections" Source="{Binding NavItems}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="SectionTitle"/>
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
     </Window.Resources>
 
     <Grid>
@@ -42,8 +51,10 @@
                      pastille dégradée : c'est la même image que la barre de titre, la barre des tâches et
                      la zone de notification, donc on reconnaît l'app partout pareil.
                      DecodePixelWidth pousse le décodeur ICO vers une trame bien plus grande que 36 px, pour
-                     que le logo reste net à 150 % et 200 % d'échelle d'affichage. -->
-                <Grid DockPanel.Dock="Top" Margin="20,24,16,22">
+                     que le logo reste net à 150 % et 200 % d'échelle d'affichage.
+                     Marges serrées, comme celles du pied : à 820 px de haut, toutes les pages du menu tiennent sans
+                     défiler (calcul dans docs/navigation.md). -->
+                <Grid DockPanel.Dock="Top" Margin="20,16,16,14">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -61,7 +72,7 @@
                 </Grid>
 
                 <!-- Pied : Paramètres de l'app, puis état des droits. -->
-                <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,16">
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,12">
                     <!-- Hors de la liste : Tag porte son état actif (voir NavButton). Il clignote tant qu'un logiciel
                          externe manque (PawnIO, RTSS), et son info-bulle dit lequel et pourquoi. -->
                     <Button Style="{StaticResource NavButton}" Command="{Binding ShowAppSettingsCommand}"
@@ -94,37 +105,53 @@
                     </StackPanel>
                 </StackPanel>
 
-                <ListBox ItemsSource="{Binding NavItems}" SelectedItem="{Binding SelectedNavItem}"
-                         ItemContainerStyle="{StaticResource NavListItem}"
+                <!-- IsSynchronizedWithCurrentItem à False : la sélection suit SelectedNavItem seul (null quand les
+                     Paramètres sont affichés), pas l'élément courant de la vue groupée. CanContentScroll à False : avec
+                     des groupes, le défilement élément par élément sauterait des sections entières ; au pixel, il reste
+                     fluide quand la fenêtre est trop basse pour tout montrer. -->
+                <ListBox ItemsSource="{Binding Source={StaticResource NavSections}}" SelectedItem="{Binding SelectedNavItem}"
+                         IsSynchronizedWithCurrentItem="False"
+                         ItemContainerStyle="{StaticResource NavPageItem}"
                          Background="Transparent" BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.CanContentScroll="False">
+                    <ListBox.GroupStyle>
+                        <GroupStyle HeaderTemplate="{StaticResource NavSectionHeader}"/>
+                    </ListBox.GroupStyle>
+                </ListBox>
             </DockPanel>
         </Border>
 
         <!-- Contenu : chaque vue est instanciée une seule fois pour la durée de vie de l'app (au lieu
              d'un ContentControl qui détruirait/recréerait la vue — et donc les Sparkline du Monitoring
-             avec leur historique — à chaque changement d'onglet) ; seule sa Visibility change. -->
+             avec leur historique — à chaque changement d'onglet) ; seule sa Visibility change. Chaque vue se montre
+             d'après la CLÉ de la page courante (PageKeys), jamais d'après son titre : renommer une page ne la casse plus. -->
         <Grid Grid.Column="1">
             <views:MonitoringView DataContext="{Binding Monitoring}"
-                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Monitoring}"/>
+                                  Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Monitoring}}"/>
             <views:ProcessesView DataContext="{Binding Processes}"
-                                 Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processus}"/>
-            <views:CleanupView DataContext="{Binding Cleanup}"
-                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Nettoyage}"/>
-            <views:StorageView DataContext="{Binding Storage}"
-                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Stockage}"/>
-            <views:OptimizationView DataContext="{Binding Optimization}"
-                                    Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Optimisation Windows'}"/>
-            <views:AppSettingsView DataContext="{Binding AppSettings}"
-                                   Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter='Paramètres'}"/>
-            <views:FanCurvesView DataContext="{Binding Fans}"
-                                 Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Ventilateurs}"/>
-            <views:GpuControlView DataContext="{Binding Gpu}"
-                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=GPU}"/>
-            <views:CpuControlView DataContext="{Binding Cpu}"
-                                  Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Processeur}"/>
+                                 Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Processes}}"/>
             <views:OverlayView DataContext="{Binding Overlay}"
-                               Visibility="{Binding DataContext.CurrentPage.Title, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=Overlay}"/>
+                               Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Overlay}}"/>
+            <views:CpuControlView DataContext="{Binding Cpu}"
+                                  Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Cpu}}"/>
+            <views:GpuControlView DataContext="{Binding Gpu}"
+                                  Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Gpu}}"/>
+            <views:FanCurvesView DataContext="{Binding Fans}"
+                                 Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Fans}}"/>
+            <views:OptimizationView DataContext="{Binding Optimization}"
+                                    Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Optimization}}"/>
+            <views:CleanupView DataContext="{Binding Cleanup}"
+                               Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Cleanup}}"/>
+            <views:StorageView DataContext="{Binding Storage}"
+                               Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Storage}}"/>
+            <views:AppSettingsView DataContext="{Binding AppSettings}"
+                                   Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Settings}}"/>
+
+            <!-- Toutes les pages pas encore livrées partagent cette vue : elle n'a pas d'état à garder, son contenu suit
+                 la page choisie, et elle disparaît (DataContext null) sur une vraie page. -->
+            <views:ComingSoonView DataContext="{Binding CurrentPage.ComingSoon}"
+                                  Visibility="{Binding DataContext.CurrentPage.ComingSoon, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource NullToVisibility}, FallbackValue=Collapsed}"/>
         </Grid>
         </Grid>
     </Grid>

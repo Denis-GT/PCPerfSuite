@@ -678,7 +678,7 @@ public sealed class ProcessRowCollection : ObservableCollection<ProcessRowViewMo
 /// les lignes n'entrent et ne sortent pas de la liste tant que le pointeur est dessus (voir
 /// <c>UpdateFilterMembership</c> et <c>RemoveVanishedRows</c>).
 /// </summary>
-public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
+public sealed partial class ProcessesViewModel : ObservableObject, IPageLifecycle, IDisposable
 {
     private const string DialogTitle = "PCPerfSuite";
 
@@ -884,6 +884,10 @@ public sealed partial class ProcessesViewModel : ObservableObject, IDisposable
             }
         }
     }
+
+    /// <summary>Page affichée et fenêtre visible (MainViewModel) : c'est exactement quand le relevé doit tourner. Le
+    /// gel (« Figer ») lit <see cref="IsActive"/> pour savoir s'il doit reprendre.</summary>
+    bool IPageLifecycle.IsPageShown { set => IsActive = value; }
 
     public ProcessesViewModel(MonitoringViewModel monitoring)
     {

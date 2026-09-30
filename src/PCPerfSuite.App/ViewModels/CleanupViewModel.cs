@@ -109,7 +109,7 @@ public sealed partial class RecycleBinItemViewModel : ObservableObject
     }
 }
 
-public sealed partial class CleanupViewModel : ObservableObject
+public sealed partial class CleanupViewModel : ObservableObject, IPageLifecycle
 {
     private readonly CacheCleanerService _service = new();
 
@@ -142,7 +142,21 @@ public sealed partial class CleanupViewModel : ObservableObject
 
         IncludeRecycleBinInCleanAll = AppSettingsStore.Load().Cleanup.IncludeRecycleBinInCleanAll;
         _initialized = true;
+    }
 
+    /// <summary>Posé par MainViewModel (voir <see cref="IPageLifecycle"/>).</summary>
+    [ObservableProperty] private bool isPageShown;
+
+    private bool _scanRequested;
+
+    /// <summary>Les caches s'analysent à la première ouverture de l'onglet, plus au démarrage : parcourir tous les
+    /// dossiers de cache pour une page peut-être jamais ouverte ralentissait le lancement, y compris dans la zone de
+    /// notification.</summary>
+    partial void OnIsPageShownChanged(bool value)
+    {
+        if (!value || _scanRequested) return;
+
+        _scanRequested = true;
         _ = ScanAllAsync();
     }
 
@@ -158,6 +172,12 @@ public sealed partial class CleanupViewModel : ObservableObject
     private async Task ScanAllAsync()
     {
         IsScanning = true;
+
+        // Les catégories s'analysent une par une : celles qui attendent leur tour affichent « Analyse… », pas un
+        // « 0 o » ou un « N/D » qui n'ont pas été mesurés.
+        RecycleBin.IsBusy = true;
+        foreach (CacheItemViewModel item in Items) item.IsBusy = true;
+
         try
         {
             await ScanRecycleBinAsync();
@@ -173,6 +193,8 @@ public sealed partial class CleanupViewModel : ObservableObject
         }
         finally
         {
+            // Une analyse interrompue ne laisse pas des catégories bloquées en « Analyse… ».
+            foreach (CacheItemViewModel item in Items) item.IsBusy = false;
             IsScanning = false;
         }
     }

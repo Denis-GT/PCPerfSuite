@@ -29,7 +29,7 @@ namespace PCPerfSuite.App.ViewModels;
 /// Les lignes historiques sont construites ici ; toute nouvelle ligne vient d'un fournisseur
 /// (<see cref="ICompatibilityRowProvider"/>) inscrit dans MainViewModel, affiché après elles.
 /// </summary>
-public sealed partial class CompatibilityViewModel : ObservableObject
+public sealed partial class CompatibilityViewModel : ObservableObject, IPageLifecycle
 {
     private readonly HardwareMonitorService _hardware;
     private readonly MonitoringViewModel _monitoring;
@@ -72,26 +72,50 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         _rowProviders = rowProviders;
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
-        RebuildRows();
     }
 
-    /// <summary>Le diagnostic est reconstruit à chaque fois qu'un groupe de capteurs est lu pour la première fois
-    /// (avant, ses valeurs ne sont pas absentes, juste pas encore arrivées), puis seulement à la demande.</summary>
+    /// <summary>Vrai quand l'onglet « Compatibilité de ce PC » est sous les yeux de l'utilisateur : posé par
+    /// AppSettingsViewModel (voir <see cref="IPageLifecycle"/>).</summary>
+    [ObservableProperty] private bool isPageShown;
+
+    /// <summary>Lectures lentes des fournisseurs en cours, annulées quand l'onglet est quitté.</summary>
+    private CancellationTokenSource? _refreshCts;
+
+    /// <summary>Le diagnostic se construit à l'ouverture de l'onglet, plus au démarrage : il lit le Planificateur de
+    /// tâches et le registre sur le thread d'interface, pour un onglet peut-être jamais ouvert.</summary>
+    partial void OnIsPageShownChanged(bool value)
+    {
+        _refreshCts?.Cancel();
+        _refreshCts = null;
+        if (value) _ = RefreshAsync();
+    }
+
+    /// <summary>Onglet affiché : le diagnostic est reconstruit à chaque fois qu'un groupe de capteurs est lu pour la
+    /// première fois (avant, ses valeurs ne sont pas absentes, juste pas encore arrivées), puis seulement à la
+    /// demande. Masqué, il garde seulement le dernier relevé pour sa prochaine ouverture.</summary>
     private void OnMetricsUpdated(MetricSample sample)
     {
         _lastSample = sample;
-        if (sample.Hardware.GroupsEverRead.Count <= _groupsReadAtBuild) return;
+        if (!IsPageShown || sample.Hardware.GroupsEverRead.Count <= _groupsReadAtBuild) return;
 
         _groupsReadAtBuild = sample.Hardware.GroupsEverRead.Count;
         RebuildRows();
     }
 
-    /// <summary>« Actualiser » : les lectures lentes des fournisseurs, hors du thread d'interface, puis toutes les
-    /// lignes.</summary>
+    /// <summary>Ouverture de l'onglet et « Actualiser » : les lectures lentes des fournisseurs, hors du thread
+    /// d'interface, puis toutes les lignes.</summary>
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        await CompatibilityRows.RefreshAllAsync(_rowProviders, CancellationToken.None);
+        _refreshCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _refreshCts = cts;
+
+        await CompatibilityRows.RefreshAllAsync(_rowProviders, cts.Token);
+
+        // Onglet quitté ou actualisé entre-temps : cette lecture-là n'a plus rien à afficher.
+        if (cts.IsCancellationRequested) return;
+        if (_lastSample is { } sample) _groupsReadAtBuild = sample.Hardware.GroupsEverRead.Count;
         RebuildRows();
     }
 

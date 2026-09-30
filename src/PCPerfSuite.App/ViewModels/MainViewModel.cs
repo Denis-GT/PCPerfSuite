@@ -10,9 +10,6 @@ using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
 
-/// <summary>Entrée de la navigation latérale. <paramref name="Icon"/> est un glyphe de Segoe Fluent Icons.</summary>
-public sealed record NavEntry(string Title, string Icon, object ViewModel);
-
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly HardwareMonitorService _hardware = new();
@@ -62,6 +59,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public CpuControlViewModel Cpu => _cpu;
     public OverlayViewModel Overlay => _overlay;
 
+    /// <summary>Entrées de la barre latérale, dans l'ordre de <see cref="NavigationMenu.Pages"/> : MainWindow les
+    /// range sous leurs en-têtes de section.</summary>
     public ObservableCollection<NavEntry> NavItems { get; }
 
     /// <summary>Bouton "Paramètres" en bas de la barre latérale, hors de <see cref="NavItems"/>.</summary>
@@ -71,10 +70,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private NavEntry? selectedNavItem;
 
     /// <summary>Page affichée : un élément de la liste, ou les Paramètres (qui n'en font pas partie). Les vues de
-    /// MainWindow s'affichent d'après son titre.</summary>
+    /// MainWindow s'affichent d'après sa clé (<see cref="PageKeys"/>), jamais d'après son titre.</summary>
     [ObservableProperty] private NavEntry? currentPage;
 
-    public bool IsAppSettingsSelected => ReferenceEquals(CurrentPage, AppSettingsNav);
+    public bool IsAppSettingsSelected => CurrentPage?.Key == PageKeys.Settings;
 
     /// <summary>Vrai tant que la fenêtre est affichée et non réduite : posé par <see cref="MainWindow"/>. Un
     /// clignotement dans une fenêtre cachée ne sert à personne, et coûterait des images pour rien.</summary>
@@ -101,24 +100,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
             _installations);
-        AppSettingsNav = new NavEntry("Paramètres", Glyph(0xE713), AppSettings);
+        AppSettingsNav = new NavEntry(NavigationMenu.Settings, AppSettings);
+
+        // Les pages livrées. Celles du menu qui manquent ici s'affichent « bientôt disponible » (ComingSoonPages) ;
+        // livrer une page, c'est l'ajouter ici avec sa vue dans MainWindow (docs/navigation.md).
+        var pages = new Dictionary<string, object>
+        {
+            [PageKeys.Monitoring] = _monitoring,
+            [PageKeys.Processes] = _processes,
+            [PageKeys.Overlay] = _overlay,
+            [PageKeys.Cpu] = _cpu,
+            [PageKeys.Gpu] = _gpu,
+            [PageKeys.Fans] = _fans,
+            [PageKeys.Optimization] = Optimization,
+            [PageKeys.Cleanup] = Cleanup,
+            [PageKeys.Storage] = Storage,
+        };
+        NavItems = new ObservableCollection<NavEntry>(
+            NavigationMenu.Build(pages, isLaptop: MachineInfo.Current.Chassis == ChassisKind.Laptop));
+
+        // Abonnés une fois la liste construite : UpdateAttention la parcourt.
         _installations.PropertyChanged += (_, _) => UpdateAttention();
         AppSettings.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(AppSettingsViewModel.EcoModeWhenHidden)) UpdateEcoMode();
-        };
-
-        NavItems = new ObservableCollection<NavEntry>
-        {
-            new("Monitoring", Glyph(0xE9D9), _monitoring),
-            new("Processus", Glyph(0xE9F5), _processes),
-            new("Nettoyage", Glyph(0xE74D), Cleanup),
-            new("Stockage", Glyph(0xEDA2), Storage),
-            new("Optimisation Windows", Glyph(0xEC4A), Optimization),
-            new("Ventilateurs", Glyph(0xE9CA), _fans),
-            new("GPU", Glyph(0xE950), _gpu),
-            new("Processeur", Glyph(0xE964), _cpu),
-            new("Overlay", Glyph(0xE7FC), _overlay),
         };
 
         SelectedNavItem = NavItems[0];
@@ -134,23 +139,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (value is not null) CurrentPage = value;
     }
 
-    /// <summary>La liste des processus ne se relève que quand son onglet est affiché : contrairement au
-    /// Monitoring, dont l'overlay a besoin en permanence, une liste cachée ne sert à personne et son relevé
-    /// coûte bien plus cher qu'une lecture de capteurs. On compare le ViewModel plutôt que le titre, pour ne
-    /// pas dépendre d'une chaîne.</summary>
     partial void OnCurrentPageChanged(NavEntry? value)
     {
-        _isProcessesPageSelected = ReferenceEquals(value?.ViewModel, _processes);
         OnPropertyChanged(nameof(IsAppSettingsSelected));
         UpdateAttention();
-
-        // L'utilisateur a pu installer quelque chose, ou supprimer la tâche de démarrage dans le Planificateur de
-        // tâches, depuis la dernière fois : on relit à l'ouverture des Paramètres.
-        if (IsAppSettingsSelected)
-        {
-            _ = _installations.RefreshAsync();
-            _ = AppSettings.RefreshLaunchAtStartupAsync();
-        }
     }
 
     partial void OnIsWindowShownChanged(bool value)
@@ -165,23 +157,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
             new IBackgroundSensorConsumer[] { _overlay, _fans, _cpu });
 
-    /// <summary>Vrai quand l'onglet Processus est celui sélectionné, indépendamment de la visibilité de la
-    /// fenêtre (voir <see cref="UpdateAttention"/>, qui combine les deux pour <see cref="ProcessesViewModel.IsActive"/>).</summary>
-    private bool _isProcessesPageSelected;
-
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
-    /// de la fenêtre : le clignotement du bouton Paramètres, son info-bulle, celui de l'onglet Installations, et le
-    /// relevé de l'onglet Processus.</summary>
+    /// de la fenêtre : le clignotement du bouton Paramètres et son info-bulle, puis, pour chaque page, si elle est sous
+    /// les yeux de l'utilisateur (<see cref="IPageLifecycle"/>).</summary>
     private void UpdateAttention()
     {
         OnPropertyChanged(nameof(IsAppSettingsBlinking));
         OnPropertyChanged(nameof(AppSettingsToolTip));
-        AppSettings.IsPageShown = IsAppSettingsSelected && IsWindowShown;
 
-        // Fenêtre rangée dans la zone de notification ou réduite : l'énumération complète des processus
-        // (bien plus coûteuse qu'un relevé de capteurs) ne sert à personne, même si l'onglet Processus
-        // était le dernier affiché.
-        _processes.IsActive = _isProcessesPageSelected && IsWindowShown;
+        // Fenêtre rangée dans la zone de notification ou réduite : aucune page n'est affichée, même la dernière
+        // ouverte. Processus arrête alors son relevé (bien plus coûteux qu'une lecture de capteurs), et une page qui
+        // charge à la première ouverture ne charge pas pour rien.
+        PageLifecycle.Update(NavItems.Append(AppSettingsNav), CurrentPage?.Key, IsWindowShown);
     }
 
     /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
@@ -195,8 +182,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         SelectedNavItem = null;
         CurrentPage = AppSettingsNav;
     }
-
-    private static string Glyph(int codePoint) => char.ConvertFromUtf32(codePoint);
 
     /// <summary>Ordre important : le relevé s'arrête avant que les ventilateurs repassent en automatique,
     /// et ceux-ci y repassent avant que le service NVAPI ne rende la carte au pilote et ne décharge NVAPI.</summary>
