@@ -30,7 +30,7 @@ Relevé du 30/09/2026 : `dotnet list src/PCPerfSuite.App/PCPerfSuite.App.csproj 
 | Microsoft.Diagnostics.Tracing.TraceEvent | 3.2.6 | MIT | Microsoft | https://github.com/Microsoft/perfview |
 | Microsoft.Diagnostics.NETCore.Client | 0.2.510501 | MIT | Microsoft | https://github.com/dotnet/diagnostics |
 | CommunityToolkit.Mvvm | 8.2.2 | MIT | .NET Foundation | https://github.com/CommunityToolkit/dotnet |
-| System.Management, System.IO.Ports, System.CodeDom, System.Text.Json et autres paquets System.* / Microsoft.Extensions.* | voir le relevé | MIT | Microsoft | https://github.com/dotnet/runtime |
+| System.Management, System.IO.Ports, System.CodeDom, System.Text.Json, System.Diagnostics.EventLog (8.0.1, journal Système, ajouté par #4) et autres paquets System.* / Microsoft.Extensions.* | voir le relevé | MIT | Microsoft | https://github.com/dotnet/runtime |
 | Mono.Posix.NETStandard | 1.0.0 | MIT | Microsoft | https://github.com/mono/mono |
 
 Le pilote **PawnIO** lui-même n'est pas redistribué : l'utilisateur l'installe depuis la source officielle de son

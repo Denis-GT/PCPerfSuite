@@ -14,6 +14,9 @@
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.6" />
     <PackageReference Include="NvAPIWrapper.Net" Version="0.8.1.101" />
+    <!-- Journal Système de Windows (EventLogReader) : arrêts brutaux, écrans bleus, TDR, WHEA. Déjà dans le runtime
+         WindowsDesktop de l'app, qui l'emporte sur ce paquet ; il sert au Core et aux tests. -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
     <!-- WMI (Storage Management) pour l'état de santé des disques, indépendant du fabricant -->
     <PackageReference Include="System.Management" Version="10.0.2" />
   </ItemGroup>

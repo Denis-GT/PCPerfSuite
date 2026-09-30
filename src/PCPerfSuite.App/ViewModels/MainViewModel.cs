@@ -8,6 +8,7 @@ using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Safety;
+using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -105,6 +106,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
         _compatibilityRows.Add(new DisplaysRowProvider());
+        _compatibilityRows.Add(new WindowsEventsRowProvider());
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
