@@ -1,7 +1,7 @@
 namespace PCPerfSuite.Core.SystemInfo;
 
 /// <summary>
-/// Dossier de données de PCPerfSuite : réglages, journaux, témoins, et demain bench, rapports et journal de session.
+/// Dossier de données de PCPerfSuite : réglages, journaux, témoins, journal de session, et demain bench et rapports.
 ///
 /// Un seul endroit décide où vivent ces fichiers, pour que le mode portable (racine sur une clé USB) les déplace tous
 /// d'un coup. La racine se choisit une fois, en tête du démarrage (<see cref="TryUseRoot"/>) ; sans choix, c'est
@@ -48,6 +48,9 @@ public sealed class AppDataPaths
 
     /// <summary>Témoin du sondage ADLX (AdlxProbeGuard).</summary>
     public string AdlxSentinelFile => InRoot("adlx-plantage.temoin");
+
+    /// <summary>Journal de session : opérations risquées en cours, reprises au lancement (SessionJournal, StartupRecovery).</summary>
+    public string SessionJournalFile => InRoot("journal-session.jsonl");
 
     private string InRoot(string name) => Path.Combine(Root, name);
 }
