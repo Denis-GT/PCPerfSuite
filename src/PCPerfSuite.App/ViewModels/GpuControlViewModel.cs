@@ -98,10 +98,15 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
             MachineInfo machine = MachineInfo.Current;
 
+            // Cartes dédiées vues par Windows : ce sont elles qui devraient être pilotables, donc leur pilote qu'il
+            // faut soupçonner quand l'API ne répond pas. Les GPU intégrés, même nommés « Arc » ou « Radeon RX Vega »,
+            // n'en font pas partie (voir DedicatedGpuName).
+            IReadOnlyList<GpuVendor> dedicated = DedicatedGpuName.VendorsOf(machine.VideoControllers);
+
             // Le refus vient de PCPerfSuite, pas de la carte : sans cette branche, l'utilisateur lisait que
             // son pilote ne répond pas, le réinstallait, et voyait le même message — le témoin, lui, ne
             // bouge pas. C'est ici que la règle 3 veut la raison exacte, pas seulement dans le diagnostic.
-            if (AdlxProbeGuard.PreviousAttemptCrashed && DedicatedGpu(machine) == "AMD Radeon")
+            if (AdlxProbeGuard.PreviousAttemptCrashed && dedicated.Contains(GpuVendor.Amd))
             {
                 return "PCPerfSuite ne s'est pas relancée deux fois de suite après avoir interrogé le pilote AMD (ADLX) : " +
                        "le contrôle GPU n'est donc plus tenté, pour que l'app démarre. Après une mise à jour du pilote " +
@@ -109,35 +114,25 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
                        "(voir Paramètres › Compatibilité de ce PC).";
             }
 
-            if (DedicatedGpu(machine) is { } vendor)
-                return $"Un GPU {vendor} est présent, mais son pilote ne répond pas (pilote absent, trop ancien, ou GPU désactivé). " +
-                       "Installe le dernier pilote du constructeur de la carte.";
+            if (dedicated.Count > 0)
+                return $"Un GPU {DedicatedRangeName(dedicated[0])} est présent, mais son pilote ne répond pas (pilote absent, trop ancien, " +
+                       "ou GPU désactivé). Installe le dernier pilote du constructeur de la carte.";
 
             string gpus = machine.VideoControllers.Count > 0 ? string.Join(", ", machine.VideoControllers) : "aucun GPU identifié";
             return $"Aucun GPU pilotable détecté. GPU de ce PC : {gpus}. L'overclocking demande une carte NVIDIA (NVAPI), " +
-                   "une AMD Radeon RX 5000 ou plus récente (ADLX), ou une Intel Arc (IGCL). Les GPU intégrés (Intel UHD/Iris, " +
-                   "Radeon des processeurs AMD) n'exposent pas ces réglages. Leur monitoring (charge, températures, fréquences) " +
-                   "fonctionne dans l'onglet Monitoring.";
+                   "une AMD Radeon RX 5000 ou plus récente (ADLX), ou une Intel Arc dédiée (IGCL). Les GPU intégrés (Intel UHD, " +
+                   "Iris ou Arc des processeurs Core Ultra, Radeon des processeurs AMD) n'exposent pas ces réglages. Leur " +
+                   "monitoring (charge, températures, fréquences) fonctionne dans l'onglet Monitoring.";
         }
     }
 
-    /// <summary>Marque de la carte dédiée vue par Windows, quand il y en a une : c'est elle qui devrait être
-    /// pilotable, donc son pilote qu'il faut soupçonner quand l'API ne répond pas.</summary>
-    private static string? DedicatedGpu(MachineInfo machine)
+    /// <summary>Gamme de cartes dédiées de la marque, telle que la connaît l'utilisateur.</summary>
+    private static string DedicatedRangeName(GpuVendor vendor) => vendor switch
     {
-        foreach (string name in machine.VideoControllers)
-        {
-            if (name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || name.Contains("GeForce", StringComparison.OrdinalIgnoreCase))
-                return "NVIDIA";
-            // "Radeon Graphics" tout court est l'iGPU des processeurs AMD : seules les gammes RX et Pro sont dédiées.
-            if (name.Contains("Radeon RX", StringComparison.OrdinalIgnoreCase) || name.Contains("Radeon Pro", StringComparison.OrdinalIgnoreCase))
-                return "AMD Radeon";
-            if (name.Contains("Arc", StringComparison.OrdinalIgnoreCase))
-                return "Intel Arc";
-        }
-
-        return null;
-    }
+        GpuVendor.Amd => "AMD Radeon",
+        GpuVendor.Intel => "Intel Arc",
+        _ => "NVIDIA",
+    };
 
     [ObservableProperty] private string gpuName = "…";
 
