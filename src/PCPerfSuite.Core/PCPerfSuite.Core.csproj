@@ -19,6 +19,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Module IntelMSR de PawnIO.Modules 0.2.11 (LGPL-2.1, signé par namazso), livré à part dans PawnIO\ à côté de
+         l'exe pour rester remplaçable (décision D1) : celui de LibreHardwareMonitorLib 0.9.6 n'écrit pas les MSR. -->
+    <Content Include="Hardware\Cpu\PawnIoModules\IntelMSR.bin;Hardware\Cpu\PawnIoModules\COPYING.LGPL-2.1.txt;Hardware\Cpu\PawnIoModules\LISEZMOI.txt">
+      <Link>PawnIO\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Échéancier des capteurs (SensorReadSchedule), interne mais testé -->
     <InternalsVisibleTo Include="PCPerfSuite.Core.Tests" />
   </ItemGroup>

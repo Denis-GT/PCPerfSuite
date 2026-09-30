@@ -66,6 +66,10 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
 
     public CpuCapability PowerLimit { get; }
 
+    /// <summary>La boîte aux lettres SMU est pilotée sans documentation officielle d'AMD : expérimental tant que ce
+    /// n'est pas vérifié sur un grand nombre de machines.</summary>
+    public bool IsExperimental => true;
+
     private AmdSmuBackend(
         PawnIoModule smu, AmdCodeName codeName, bool isApu, Mailbox mp1,
         float defaultSustained, float defaultBurst, float minWatts, CpuMaxWattsInfo maxWatts)

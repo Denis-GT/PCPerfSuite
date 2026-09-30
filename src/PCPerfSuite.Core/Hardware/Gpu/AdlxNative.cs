@@ -53,10 +53,15 @@ internal static unsafe class AdlxNative
         public const int AtGpu = 11;
     }
 
+    /// <summary>IADLXGPU (ISystem.h) : VendorId, Name, DeviceId et SubSystemId rendent tous un const char**.</summary>
     public static class Gpu
     {
+        public const int VendorId = 3;
         public const int Type = 5;
         public const int Name = 7;
+        public const int DeviceId = 14;
+        public const int SubSystemId = 16;
+        public const int SubSystemVendorId = 17;
     }
 
     public static class TuningServices

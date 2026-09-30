@@ -18,6 +18,9 @@ internal interface IGpuTuningBackend : IDisposable
 
     GpuControlSnapshot? GetSnapshot();
 
+    /// <summary>Marque, nom et identifiants PCI lus sur le pilote (ceux qu'il donne). Null sans carte.</summary>
+    GpuIdentity? GetIdentity();
+
     GpuOverclockSnapshot? GetOverclock();
 
     GpuPerformanceLimit? GetActiveLimit();

@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.SystemChanges;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -97,6 +98,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
+
+        _compatibilityRows.Add(new PawnIoModulesRowProvider());
+        _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
+
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
             _installations);
@@ -154,10 +159,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, et réglage activé. Seuls
-    /// l'overlay, les courbes de ventilateurs et la sécurité thermique du CPU continuent d'être nourris.</summary>
+    /// l'overlay, les courbes de ventilateurs et les sécurités thermiques du GPU et du CPU continuent d'être nourris.</summary>
     private void UpdateEcoMode()
         => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
-            new IBackgroundSensorConsumer[] { _overlay, _fans, _cpu });
+            new IBackgroundSensorConsumer[] { _overlay, _fans, _gpu, _cpu });
 
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
     /// de la fenêtre : le clignotement du bouton Paramètres et son info-bulle, puis, pour chaque page, si elle est sous

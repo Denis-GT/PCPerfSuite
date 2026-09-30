@@ -1,3 +1,5 @@
+using PCPerfSuite.Core.Safety;
+
 namespace PCPerfSuite.Core.Hardware.Cpu;
 
 /// <summary>
@@ -20,7 +22,11 @@ public sealed class CpuControlService : IDisposable
     /// aux valeurs d'origine : une pointe d'une seconde au lancement d'un jeu n'est pas un problème.</summary>
     private static readonly TimeSpan EmergencyDelay = TimeSpan.FromSeconds(15);
 
-    private DateTime? _hotSince;
+    /// <summary>La logique du seuil tenu pendant un délai, partagée avec le GPU. Sans délai de perte : une température
+    /// absente remet seulement le délai à zéro, comme avant.</summary>
+    private readonly ThermalGuard _guard = new([new ThermalLimit("package", EmergencyTempC, EmergencyDelay)]);
+
+    private readonly TimeProvider _time;
     private bool _limitsRaised;
     private bool _touched;
 
@@ -34,8 +40,13 @@ public sealed class CpuControlService : IDisposable
     /// <summary>Levé quand la sécurité thermique a rendu le processeur à ses limites d'origine.</summary>
     public event Action<string>? EmergencyRestored;
 
-    public CpuControlService()
+    public CpuControlService() : this(TimeProvider.System)
     {
+    }
+
+    public CpuControlService(TimeProvider time)
+    {
+        _time = time;
         Platform = CpuPlatformDetector.Detect();
         Backend = CreateBackend(Platform);
     }
@@ -71,7 +82,7 @@ public sealed class CpuControlService : IDisposable
         if (!ok) return false;
 
         _touched = true;
-        _hotSince = null;
+        _guard.Reset();
 
         // La surveillance thermique ne sert que si l'utilisateur a *relevé* une limite : l'abaisser ne peut
         // pas faire chauffer davantage, et déclencher un retour d'office dans ce cas serait absurde.
@@ -87,7 +98,7 @@ public sealed class CpuControlService : IDisposable
         if (ok)
         {
             _limitsRaised = false;
-            _hotSince = null;
+            _guard.Reset();
         }
 
         return ok;
@@ -103,22 +114,15 @@ public sealed class CpuControlService : IDisposable
     /// </summary>
     public void NoteTemperature(float? packageTempC)
     {
-        if (!_limitsRaised || packageTempC is not { } temp)
+        if (!_limitsRaised)
         {
-            _hotSince = null;
+            _guard.Reset();
             return;
         }
 
-        if (temp < EmergencyTempC)
-        {
-            _hotSince = null;
-            return;
-        }
+        ThermalVerdict verdict = _guard.Note(_time.GetUtcNow(), [packageTempC]);
+        if (verdict is not { State: ThermalState.Tripped, TemperatureC: { } temp }) return;
 
-        _hotSince ??= DateTime.UtcNow;
-        if (DateTime.UtcNow - _hotSince < EmergencyDelay) return;
-
-        _hotSince = null;
         _limitsRaised = false;
 
         bool restored = Backend.TryRestoreDefaults(out string message);

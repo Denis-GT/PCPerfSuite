@@ -239,6 +239,13 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     private const string PowerLimitKey = "limites de puissance";
 
+    private readonly System.Windows.Threading.Dispatcher _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+    private bool _disposed;
+
+    /// <summary>Vrai dès que la sécurité thermique a rendu les limites d'origine pendant cette session : le réveil ne
+    /// réapplique plus les limites enregistrées.</summary>
+    private bool _emergencyThisSession;
+
     private float _defaultSustainedWatts;
     private float _defaultBurstWatts;
 
@@ -246,21 +253,34 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     [ObservableProperty] private string platformText = "";
     [ObservableProperty] private string driverText = "";
 
-    /// <summary>La boîte aux lettres SMU d'AMD est pilotée à la main, sans documentation officielle
-    /// (voir AmdSmuBackend), contrairement au MSR Intel qui est un registre documenté par le fabricant.
-    /// Marqué expérimental (règle 6 de CLAUDE.md) tant qu'elle n'a pas été vérifiée sur davantage de
-    /// machines réelles.</summary>
-    public bool IsExperimentalBackend => _cpu.Platform.Vendor == CpuVendor.Amd;
+    /// <summary>Règle 6 de CLAUDE.md, décidée par le backend : la boîte aux lettres SMU d'AMD est pilotée sans
+    /// documentation officielle, et l'écriture de PL1/PL2 Intel par le module IntelMSR livré avec l'app n'a pas encore
+    /// été vérifiée sur une vraie machine.</summary>
+    public bool IsExperimentalBackend => _cpu.Backend.IsExperimental;
 
-    public string? ExperimentalNotice => IsExperimentalBackend
-        ? "Réglage des limites AMD par commande SMU non documentée officiellement : pas encore vérifié sur un grand nombre de machines. À utiliser avec prudence."
-        : null;
+    public string? ExperimentalNotice => !IsExperimentalBackend
+        ? null
+        : _cpu.Platform.Vendor == CpuVendor.Amd
+            ? "Réglage des limites AMD par commande SMU non documentée officiellement : pas encore vérifié sur un grand nombre de machines. À utiliser avec prudence."
+            : "Écriture des limites Intel par le module IntelMSR livré avec PCPerfSuite : pas encore vérifiée sur une machine réelle. " +
+              "Pour essayer, baisse une limite plutôt que de la relever : sur les Core de 13e et 14e génération, tensions et " +
+              "températures élevées aggravent l'instabilité « Vmin shift ».";
 
     /// <summary>Vrai quand le pilote PawnIO manque ou est inutilisable : l'interface propose alors de l'installer.</summary>
     [ObservableProperty] private bool isDriverMissing;
 
+    /// <summary>Limites modifiables sur ce PC.</summary>
     [ObservableProperty] private bool isPowerLimitAvailable;
-    public bool IsPowerLimitUnavailable => !IsPowerLimitAvailable;
+
+    /// <summary>Limites lues mais pas modifiables (module PawnIO sans écriture, verrou du BIOS) : elles s'affichent,
+    /// champs inactifs, avec <see cref="UnavailableReason"/>.</summary>
+    [ObservableProperty] private bool isPowerLimitReadOnly;
+
+    public bool ShowPowerLimits => IsPowerLimitAvailable || IsPowerLimitReadOnly;
+
+    public bool IsPowerLimitUnavailable => !ShowPowerLimits;
+
+    public bool CanEditLimits => IsPowerLimitAvailable && RiskAccepted;
 
     /// <summary>Pourquoi la limite de puissance n'est pas réglable ici — affiché tel quel.</summary>
     [ObservableProperty] private string unavailableReason = "";
@@ -332,6 +352,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         UnavailableReason = capability.Reason ?? "";
 
         LoadLimits(settings);
+        IsPowerLimitReadOnly = !IsPowerLimitAvailable && capability.CanRead && MaxWattsInfo is not null;
         LoadPowerSettings();
 
         // Après LoadPowerSettings : le résumé d'un profil se lit dans les libellés et les unités des
@@ -349,10 +370,44 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
 
+    /// <summary>Levé sur le fil de SystemEvents : la relecture touche l'interface, elle passe par son fil.</summary>
     private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
-        if (!ApplyAtStartup || !IsPowerLimitAvailable) return;
+
+        try { _dispatcher.InvokeAsync(OnResumed); }
+        catch { /* interface déjà fermée */ }
+    }
+
+    /// <summary>
+    /// Au réveil, les limites sont toujours relues : le firmware a pu reposer les siennes, et l'onglet ne doit pas
+    /// afficher une valeur qui ne tient plus. Elles ne sont réappliquées que si « Appliquer au démarrage » est coché,
+    /// qu'elles sont modifiables, que l'avertissement a été accepté, et que la sécurité thermique ne les a pas
+    /// retirées pendant la session.
+    /// </summary>
+    private void OnResumed()
+    {
+        if (_disposed) return;
+
+        _applyDebounce.Cancel(PowerLimitKey);
+        if (_cpu.ReadPowerLimits() is { } snapshot)
+        {
+            _suppressApply = true;
+            SustainedWatts = snapshot.SustainedWatts;
+            BurstWatts = snapshot.BurstWatts ?? snapshot.SustainedWatts;
+            _suppressApply = false;
+
+            Status = $"Réveil de veille : limites relues, {snapshot.SustainedWatts:0} W en soutenu"
+                     + (snapshot.BurstWatts is { } burst ? $", {burst:0} W en pointe." : ".");
+        }
+
+        if (!ApplyAtStartup || !IsPowerLimitAvailable || !RiskAccepted) return;
+
+        if (_emergencyThisSession)
+        {
+            Status += " Les limites enregistrées ne sont pas réappliquées : la sécurité thermique les a retirées pendant cette session.";
+            return;
+        }
 
         AppSettings settings = AppSettingsStore.Load();
         if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
@@ -362,7 +417,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
         _suppressApply = false;
 
-        Apply();
+        ApplyNow();
     }
 
     /// <summary>Lit les limites en place, puis — uniquement si l'utilisateur l'a demandé — réapplique
@@ -429,11 +484,23 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     partial void OnIsPowerLimitAvailableChanged(bool value)
     {
+        OnPropertyChanged(nameof(ShowPowerLimits));
         OnPropertyChanged(nameof(IsPowerLimitUnavailable));
         OnPropertyChanged(nameof(NeedsRiskAcceptance));
+        OnPropertyChanged(nameof(CanEditLimits));
     }
 
-    partial void OnRiskAcceptedChanged(bool value) => OnPropertyChanged(nameof(NeedsRiskAcceptance));
+    partial void OnIsPowerLimitReadOnlyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowPowerLimits));
+        OnPropertyChanged(nameof(IsPowerLimitUnavailable));
+    }
+
+    partial void OnRiskAcceptedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(NeedsRiskAcceptance));
+        OnPropertyChanged(nameof(CanEditLimits));
+    }
 
     /// <summary>Explique une valeur affichée hors de la plage saisissable (4095 W pour une plage qui s'arrête à
     /// 400 W, ou un PL2 du BIOS au-dessus du maximum du processeur) au lieu de la laisser passer pour une
@@ -526,10 +593,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         BurstWatts = snapshot?.BurstWatts ?? _defaultBurstWatts;
         _suppressApply = false;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Cpu.SustainedWatts = null;
-        settings.Cpu.BurstWatts = null;
-        AppSettingsStore.Save(settings);
+        AppSettingsStore.Update(settings =>
+        {
+            settings.Cpu.SustainedWatts = null;
+            settings.Cpu.BurstWatts = null;
+        });
     }
 
     /// <summary>Enregistre tout l'onglet sous un nom : les réglages d'alimentation Windows, et les
@@ -668,9 +736,8 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     private void PersistProfiles()
     {
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Cpu.Profiles = Profiles.Select(p => p.Model).ToList();
-        AppSettingsStore.Save(settings);
+        List<CpuProfile> profiles = Profiles.Select(p => p.Model).ToList();
+        AppSettingsStore.Update(settings => settings.Cpu.Profiles = profiles);
     }
 
     private static string Plural(int count, string singular, string plural)
@@ -698,6 +765,8 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     private void OnEmergencyRestored(string message)
     {
+        _emergencyThisSession = true;
+        _applyDebounce.Cancel(PowerLimitKey);
         Status = message;
 
         CpuPowerLimitSnapshot? snapshot = _cpu.ReadPowerLimits();
@@ -738,18 +807,26 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     {
         if (_suppressApply) return;
 
-        AppSettings settings = AppSettingsStore.Load();
-        settings.Cpu.SustainedWatts = IsPowerLimitAvailable && RiskAccepted ? (float)SustainedWatts : null;
-        settings.Cpu.BurstWatts = IsPowerLimitAvailable && RiskAccepted && HasBurstLimit ? (float)BurstWatts : null;
-        settings.Cpu.ApplyAtStartup = ApplyAtStartup;
-        settings.Cpu.RiskAccepted = RiskAccepted;
-        AppSettingsStore.Save(settings);
+        // Tout est lu avant le verrou : le lambda ne fait que des affectations.
+        float? sustained = IsPowerLimitAvailable && RiskAccepted ? (float)SustainedWatts : null;
+        float? burst = IsPowerLimitAvailable && RiskAccepted && HasBurstLimit ? (float)BurstWatts : null;
+        bool applyAtStartup = ApplyAtStartup;
+        bool riskAccepted = RiskAccepted;
+
+        AppSettingsStore.Update(settings =>
+        {
+            settings.Cpu.SustainedWatts = sustained;
+            settings.Cpu.BurstWatts = burst;
+            settings.Cpu.ApplyAtStartup = applyAtStartup;
+            settings.Cpu.RiskAccepted = riskAccepted;
+        });
     }
 
     /// <summary>Les réglages encore en attente sont appliqués avant de partir : un utilisateur qui ferme
     /// l'app juste après avoir lâché un curseur doit retrouver son réglage au prochain lancement.</summary>
     public void Dispose()
     {
+        _disposed = true;
         _applyDebounce.Flush();
         foreach (CpuPowerSettingViewModel setting in PowerSettings) setting.FlushPendingWrite();
 

@@ -70,6 +70,7 @@ internal sealed class IgclGpuBackend : IGpuTuningBackend
     private IntPtr _api;
     private IntPtr _device;
     private string _name = "Intel Arc";
+    private GpuIdentity? _identity;
 
     private Control? _core;
     private Control? _memory;
@@ -87,6 +88,8 @@ internal sealed class IgclGpuBackend : IGpuTuningBackend
     private bool _waiverSet;
 
     public GpuVendor Vendor => GpuVendor.Intel;
+
+    public GpuIdentity? GetIdentity() => _device == IntPtr.Zero ? null : _identity ?? new GpuIdentity(GpuVendor.Intel, _name);
 
     public bool RequiresOverclockWaiver => true;
 
@@ -173,6 +176,10 @@ internal sealed class IgclGpuBackend : IGpuTuningBackend
                 _device = device;
                 bestIsDiscrete = discrete;
                 _name = ReadName(properties.Name, 100) ?? _name;
+                _identity = new GpuIdentity(GpuVendor.Intel, _name,
+                    PciVendorId: properties.PciVendorId,
+                    PciDeviceId: properties.PciDeviceId,
+                    PciSubsystemId: ((uint)properties.PciSubsysId << 16) | properties.PciSubsysVendorId);
             }
         }
         finally

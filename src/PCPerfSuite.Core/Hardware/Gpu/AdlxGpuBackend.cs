@@ -31,6 +31,7 @@ internal sealed class AdlxGpuBackend : IGpuTuningBackend
     private IntPtr _fan;
 
     private string _name = "GPU AMD";
+    private GpuIdentity? _identity;
 
     private int _coreDefault;
     private int _memoryDefault;
@@ -51,6 +52,8 @@ internal sealed class AdlxGpuBackend : IGpuTuningBackend
 
     public bool TryAcceptOverclockWaiver() => true;
 
+    public GpuIdentity? GetIdentity() => _gpu == IntPtr.Zero ? null : _identity ?? new GpuIdentity(GpuVendor.Amd, _name);
+
     /// <summary>Toute la tentative passe sous témoin : le chargement d'ADLX et les premiers appels par
     /// emplacement sont le seul endroit de l'app capable de tuer le processus sans laisser de trace, et
     /// un try/catch n'y peut rien (voir <see cref="AdlxProbeGuard"/>).</summary>
@@ -67,6 +70,14 @@ internal sealed class AdlxGpuBackend : IGpuTuningBackend
             if (_tuning == IntPtr.Zero || !SelectGpu()) return false;
 
             _name = N.GetString(_gpu, N.Gpu.Name) ?? _name;
+
+            // Lue ici, sous le témoin d'AdlxProbeGuard, comme les autres premiers appels par emplacement.
+            uint? subsystem = GpuIdentity.ParsePciId(N.GetString(_gpu, N.Gpu.SubSystemId));
+            uint? subsystemVendor = GpuIdentity.ParsePciId(N.GetString(_gpu, N.Gpu.SubSystemVendorId));
+            _identity = new GpuIdentity(GpuVendor.Amd, _name,
+                PciVendorId: GpuIdentity.ParsePciId(N.GetString(_gpu, N.Gpu.VendorId)),
+                PciDeviceId: GpuIdentity.ParsePciId(N.GetString(_gpu, N.Gpu.DeviceId)),
+                PciSubsystemId: subsystem is { } id && subsystemVendor is { } vendor ? (id << 16) | vendor : null);
 
             if (N.IsSupportedForGpu(_tuning, N.TuningServices.IsSupportedManualGfxTuning, _gpu))
             {

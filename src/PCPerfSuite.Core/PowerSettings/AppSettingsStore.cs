@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
+using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -176,6 +177,10 @@ public sealed class GpuControlSettings
     /// gérée avant). Après un changement de carte, on ne réapplique pas au démarrage un overclock pensé
     /// pour une autre.</summary>
     public GpuVendor? OverclockVendor { get; set; }
+
+    /// <summary>Carte sur laquelle ces réglages ont été faits : marque, nom et identifiants PCI. Null dans un fichier
+    /// d'avant, où seule <see cref="OverclockVendor"/> existait (toujours écrite, pour la migration).</summary>
+    public GpuIdentity? OverclockGpu { get; set; }
 
     /// <summary>Intel exige que l'utilisateur accepte explicitement la renonciation de garantie avant
     /// tout overclock ; l'accord est mémorisé ici, comme le prévoit la documentation IGCL.</summary>

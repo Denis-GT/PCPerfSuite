@@ -1,0 +1,16 @@
+Modules PawnIO livrés avec PCPerfSuite
+======================================
+
+IntelMSR.bin
+  Provenance : PawnIO.Modules 0.2.11 (30/08/2026), fichier extrait tel quel de release_0_2_11.zip
+               https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11
+  Sources    : https://github.com/namazso/PawnIO.Modules/tree/0.2.11 (IntelMSR.p)
+  Auteur     : namazso, module signé
+  Licence    : GNU LGPL 2.1 (voir COPYING.LGPL-2.1.txt)
+  SHA-256    : d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f
+
+Pourquoi : le module IntelMSR embarqué par LibreHardwareMonitorLib 0.9.6 ne sait que lire les MSR. Celui-ci écrit
+aussi MSR_PKG_POWER_LIMIT (0x610), ce qui permet de régler PL1/PL2.
+
+Ce fichier peut être remplacé par une autre version signée du même module : PawnIO refuse tout module non signé. Sans
+lui, PCPerfSuite utilise celui de LibreHardwareMonitorLib et affiche les limites en lecture seule.

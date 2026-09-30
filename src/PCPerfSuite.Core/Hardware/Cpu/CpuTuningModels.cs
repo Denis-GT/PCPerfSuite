@@ -56,6 +56,10 @@ public interface ICpuTuningBackend : IDisposable
     /// <summary>Disponibilité de la limite de puissance en watts.</summary>
     CpuCapability PowerLimit { get; }
 
+    /// <summary>Vrai tant que l'écriture par ce backend n'a pas été vérifiée sur une vraie machine (règle 6 de
+    /// CLAUDE.md) : l'onglet l'annonce.</summary>
+    bool IsExperimental { get; }
+
     /// <summary>Relit les limites de puissance. Null si elles ne sont pas lisibles sur ce PC.</summary>
     CpuPowerLimitSnapshot? ReadPowerLimits();
 
@@ -85,6 +89,8 @@ public sealed class UnsupportedCpuBackend : ICpuTuningBackend
     public string Description => _reason;
 
     public CpuCapability PowerLimit => CpuCapability.No(_reason);
+
+    public bool IsExperimental => false;
 
     public CpuPowerLimitSnapshot? ReadPowerLimits() => null;
 

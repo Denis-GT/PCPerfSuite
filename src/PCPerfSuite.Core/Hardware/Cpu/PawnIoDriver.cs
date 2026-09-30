@@ -17,13 +17,17 @@ public readonly record struct PawnIoInstallation(string? Version, string? Librar
 /// Accès au pilote PawnIO, le pilote signé qui remplace WinRing0 depuis LibreHardwareMonitor 0.9.5.
 ///
 /// PawnIO n'expose pas un accès brut au matériel : il exécute des "modules" signés (des petits
-/// programmes compilés) qui décident eux-mêmes de ce qu'ils autorisent. Le module IntelMSR, par
-/// exemple, n'accepte l'écriture que d'une liste fermée de registres. Une écriture refusée revient
-/// donc en STATUS_ACCESS_DENIED et n'est pas un bug de l'app : c'est le module qui dit non, et
-/// l'interface doit l'expliquer plutôt que d'afficher une erreur brute.
+/// programmes compilés) qui décident eux-mêmes de ce qu'ils autorisent. Chaque version d'un module a
+/// sa propre liste blanche : l'IntelMSR de LibreHardwareMonitorLib 0.9.6 ne fait que lire les MSR,
+/// celui de PawnIO.Modules 0.2.4 et suivantes écrit aussi 0x610 (PL1/PL2). Une écriture refusée revient
+/// en STATUS_ACCESS_DENIED et n'est pas un bug de l'app : c'est le module qui dit non, et l'interface
+/// doit l'expliquer plutôt que d'afficher une erreur brute.
 ///
-/// Les modules eux-mêmes sont pris dans les ressources de LibreHardwareMonitorLib, qui les embarque
-/// déjà : rien de plus à livrer avec PCPerfSuite, et ils restent signés par leur auteur.
+/// Les modules viennent des ressources de LibreHardwareMonitorLib, sauf ceux que PCPerfSuite livre à
+/// côté de l'exe (<see cref="ShippedPawnIoModules"/> : IntelMSR seulement), essayés en premier. PawnIO ne
+/// charge que des modules signés par leur auteur : l'app ne peut pas écrire les siens, toute capacité
+/// matérielle dépend des modules officiels. Les fonctions de chaque module chargé sont relevées
+/// (<see cref="LoadedModules"/>) pour le diagnostic.
 /// </summary>
 public static class PawnIoDriver
 {
@@ -267,12 +271,21 @@ public static class PawnIoDriver
         return Marshal.GetDelegateForFunctionPointer<TDelegate>(address);
     }
 
+    private static IReadOnlyList<PawnIoModuleInfo> _loadedModules = Array.Empty<PawnIoModuleInfo>();
+
+    /// <summary>Modules chargés par l'app pendant cette session, un par nom (le dernier chargé). Instantané immuable,
+    /// remplacé d'un bloc : lisible depuis n'importe quel thread, par le diagnostic notamment.</summary>
+    public static IReadOnlyList<PawnIoModuleInfo> LoadedModules => Volatile.Read(ref _loadedModules);
+
     /// <summary>
-    /// Charge un module PawnIO depuis les ressources de LibreHardwareMonitorLib. Retourne null — avec une
-    /// raison affichable — si le pilote est absent, si la ressource n'existe pas dans cette version de la
-    /// librairie, ou si le module refuse la machine (un module Intel sur un AMD, par exemple).
+    /// Charge un module PawnIO : celui que livre PCPerfSuite s'il existe (voir <see cref="ShippedPawnIoModules"/>),
+    /// puis celui de LibreHardwareMonitorLib. Avec <paramref name="preferredFunction"/>, un module qui expose cette
+    /// fonction passe avant les autres. Un module refusé par PawnIO (signature, machine) laisse sa place au suivant, et
+    /// la raison est gardée dans <see cref="PawnIoModuleInfo.Note"/>. Retourne null — avec une raison affichable — si
+    /// le pilote est absent, si aucun module de ce nom n'existe, ou si tous refusent la machine (un module Intel sur un
+    /// AMD, par exemple).
     /// </summary>
-    public static PawnIoModule? TryLoadModule(string moduleName, out string? error)
+    public static PawnIoModule? TryLoadModule(string moduleName, out string? error, string? preferredFunction = null)
     {
         EnsureProbed();
 
@@ -282,34 +295,82 @@ public static class PawnIoDriver
             return null;
         }
 
-        byte[]? blob = ReadModuleBlob(moduleName);
-        if (blob is null)
+        IReadOnlyList<PawnIoModuleCandidate> candidates = PawnIoModuleChoice.Order(ReadCandidates(moduleName), preferredFunction);
+        if (candidates.Count == 0)
         {
             error = $"Le module {moduleName} est absent de cette version de LibreHardwareMonitorLib.";
             return null;
         }
 
-        int hr = _open!(out IntPtr handle);
-        if (hr != 0 || handle == IntPtr.Zero)
-        {
-            error = "Ouverture du pilote PawnIO refusée (app lancée sans les droits administrateur ?).";
-            return null;
-        }
-
-        hr = _load!(handle, blob, (nuint)blob.Length);
-        if (hr != 0)
-        {
-            _close!(handle);
-            error = $"Le module {moduleName} a refusé cette machine ({PawnIoModule.DescribeError(hr)}).";
-            return null;
-        }
-
+        string? note = null;
         error = null;
-        return new PawnIoModule(handle, moduleName);
+        foreach (PawnIoModuleCandidate candidate in candidates)
+        {
+            int hr = _open!(out IntPtr handle);
+            if (hr != 0 || handle == IntPtr.Zero)
+            {
+                error = "Ouverture du pilote PawnIO refusée (app lancée sans les droits administrateur ?).";
+                return null;
+            }
+
+            hr = _load!(handle, candidate.Blob, (nuint)candidate.Blob.Length);
+            if (hr == 0)
+            {
+                PawnIoModuleInfo info = note is null ? candidate.Info : candidate.Info with { Note = note };
+                Remember(info);
+                error = null;
+                return new PawnIoModule(handle, info);
+            }
+
+            _close!(handle);
+            string refusal = PawnIoModule.DescribeError(hr);
+            error = $"Le module {moduleName} a refusé cette machine ({refusal}).";
+            if (note is null && candidate.Info.Source == PawnIoModuleSource.PCPerfSuite)
+            {
+                note = $"Le module {moduleName} livré avec PCPerfSuite ({ShippedPawnIoModules.RelativePath(moduleName)}) " +
+                       $"a été refusé par PawnIO ({refusal}).";
+            }
+        }
+
+        return null;
+    }
+
+    private static void Remember(PawnIoModuleInfo info)
+    {
+        lock (LoadLock)
+        {
+            _loadedModules = _loadedModules.Where(m => m.Name != info.Name).Append(info).ToArray();
+        }
+    }
+
+    /// <summary>Les modules de ce nom disponibles sur ce PC, le livré puis celui de LHM. Ne lève jamais.</summary>
+    internal static IReadOnlyList<PawnIoModuleCandidate> ReadCandidates(string moduleName)
+    {
+        var candidates = new List<PawnIoModuleCandidate>(2);
+        if (ShippedPawnIoModules.TryRead(moduleName) is { } shipped) candidates.Add(shipped);
+        if (ReadLibreHardwareMonitorModule(moduleName) is { } lhm) candidates.Add(lhm);
+        return candidates;
+    }
+
+    /// <summary>Version de LibreHardwareMonitorLib, en trois composants (« 0.9.6 »). Null si illisible.</summary>
+    public static string? LibreHardwareMonitorVersion
+    {
+        get
+        {
+            try
+            {
+                System.Version? version = typeof(LibreHardwareMonitor.Hardware.Computer).Assembly.GetName().Version;
+                return version is null ? null : $"{version.Major}.{version.Minor}.{Math.Max(version.Build, 0)}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 
     /// <summary>Les modules sont embarqués dans LibreHardwareMonitorLib sous "Resources.PawnIo.&lt;nom&gt;.bin".</summary>
-    private static byte[]? ReadModuleBlob(string moduleName)
+    internal static PawnIoModuleCandidate? ReadLibreHardwareMonitorModule(string moduleName)
     {
         try
         {
@@ -320,7 +381,11 @@ public static class PawnIoDriver
 
             using var buffer = new MemoryStream();
             stream.CopyTo(buffer);
-            return buffer.ToArray();
+            byte[] blob = buffer.ToArray();
+
+            var info = new PawnIoModuleInfo(moduleName, PawnIoModuleSource.LibreHardwareMonitor, LibreHardwareMonitorVersion,
+                PawnIoModuleFunctions.Parse(blob), PawnIoModuleFunctions.Sha256(blob), IsOfficialCopy: null);
+            return new PawnIoModuleCandidate(info, blob);
         }
         catch
         {
@@ -350,15 +415,21 @@ public sealed class PawnIoModule : IDisposable
     private readonly object _lock = new();
     private IntPtr _handle;
 
-    public string Name { get; }
+    public string Name => Info.Name;
+
+    /// <summary>Provenance, version et fonctions du module chargé.</summary>
+    public PawnIoModuleInfo Info { get; }
+
+    /// <summary>Vrai si le module expose cette fonction (« ioctl_write_msr »…).</summary>
+    public bool Supports(string function) => Info.Supports(function);
 
     /// <summary>Code de retour du dernier appel, pour expliquer un refus à l'utilisateur.</summary>
     public int LastError { get; private set; }
 
-    internal PawnIoModule(IntPtr handle, string name)
+    internal PawnIoModule(IntPtr handle, PawnIoModuleInfo info)
     {
         _handle = handle;
-        Name = name;
+        Info = info;
     }
 
     private static readonly ulong[] NoValues = [];
