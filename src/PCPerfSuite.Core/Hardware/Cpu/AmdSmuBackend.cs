@@ -1,5 +1,4 @@
 using System.Runtime.Intrinsics.X86;
-using System.Threading;
 
 namespace PCPerfSuite.Core.Hardware.Cpu;
 
@@ -39,9 +38,9 @@ public enum AmdCodeName
 /// </summary>
 public sealed class AmdSmuBackend : ICpuTuningBackend
 {
-    /// <summary>Mutex système partagé par tous les outils qui parlent au SMU (HWiNFO, Ryzen Master,
-    /// LibreHardwareMonitor…). Sans lui, deux lecteurs s'écrasent mutuellement leurs adresses.</summary>
-    private const string PciMutexName = @"Global\Access_PCI";
+    /// <summary>Attente du mutex partagé du SMU (<see cref="PciBusGuard"/>) avant un échange : au-delà, l'échange
+    /// se fait quand même, comme le fait LibreHardwareMonitor.</summary>
+    private static readonly TimeSpan WriteGuardTimeout = TimeSpan.FromMilliseconds(500);
 
     private const float MinAllowedWatts = 5f;
 
@@ -226,7 +225,7 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
         input[0] = command;
         input[1] = (ulong)Math.Round(watts * 1000f); // le SMU compte en milliwatts
 
-        using var guard = new PciGuard();
+        using var guard = new PciBusGuard(WriteGuardTimeout);
         return _smu.TryExecute("ioctl_send_smu_command", input, 6, out _);
     }
 
@@ -239,7 +238,7 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
         uint sustained = (uint)Math.Round(sustainedWatts * 1000f);
         uint burst = (uint)Math.Round(burstWatts * 1000f);
 
-        using var guard = new PciGuard();
+        using var guard = new PciBusGuard(WriteGuardTimeout);
 
         return SendMp1(0x14, sustained)   // STAPM
                && SendMp1(0x16, sustained) // limite lente (PPT slow)
@@ -314,16 +313,16 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     /// </summary>
     private (float Sustained, float Burst)? ReadLimitsFromPmTable()
     {
-        using var guard = new PciGuard();
+        using var guard = new PciBusGuard(WriteGuardTimeout);
 
         if (!_smu.TryExecute("ioctl_resolve_pm_table", [], 2, out _)) return null;
         if (!_smu.TryExecute("ioctl_update_pm_table", [], 0, out _)) return null;
 
         // 16 qwords = les 32 premiers flottants : largement assez pour les limites, qui sont en tête.
-        if (!_smu.TryExecute("ioctl_read_pm_table", [], 16, out ulong[] table)) return null;
+        if (!_smu.TryExecute("ioctl_read_pm_table", [], 16, out ulong[] table, out int returned)) return null;
 
-        float[] values = new float[table.Length * 2];
-        for (int i = 0; i < table.Length; i++)
+        float[] values = new float[returned * 2];
+        for (int i = 0; i < returned; i++)
         {
             values[i * 2] = BitConverter.UInt32BitsToSingle((uint)table[i]);
             values[i * 2 + 1] = BitConverter.UInt32BitsToSingle((uint)(table[i] >> 32));
@@ -402,48 +401,4 @@ public sealed class AmdSmuBackend : ICpuTuningBackend
     }
 
     public void Dispose() => _smu.Dispose();
-
-    /// <summary>Prend le mutex système du SMU le temps d'un échange, pour ne pas croiser le fer avec
-    /// LibreHardwareMonitor ou un autre outil de monitoring qui lirait la même boîte aux lettres.</summary>
-    private sealed class PciGuard : IDisposable
-    {
-        private readonly Mutex? _mutex;
-        private readonly bool _held;
-
-        public PciGuard()
-        {
-            try
-            {
-                _mutex = new Mutex(false, PciMutexName);
-                _held = _mutex.WaitOne(TimeSpan.FromMilliseconds(500), false);
-            }
-            catch (AbandonedMutexException)
-            {
-                // Un autre outil a planté en le détenant. .NET signale l'abandon par une exception, mais
-                // l'attente a bien réussi : le mutex est à nous, et c'est à nous de le relâcher. Le compter
-                // comme un échec le laisserait abandonné à son tour, et l'outil suivant recevrait la même
-                // exception, en chaîne.
-                _held = true;
-            }
-            catch
-            {
-                // Mutex inaccessible (droits) : on continue sans, comme le fait LibreHardwareMonitor —
-                // le risque est une lecture incohérente, pas une écriture ratée.
-                _held = false;
-            }
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                if (_held) _mutex?.ReleaseMutex();
-                _mutex?.Dispose();
-            }
-            catch
-            {
-                // best-effort
-            }
-        }
-    }
 }

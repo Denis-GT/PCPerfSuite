@@ -100,7 +100,8 @@ public sealed record CpuThrottleReading
     /// <summary>Intel : bridé à cause d'un autre domaine (GPU intégré, anneau).</summary>
     public bool? CrossDomain { get; init; }
 
-    /// <summary>Température maximale de jonction (Intel, 0x1A2) et décalage TCC réglé par le BIOS.</summary>
+    /// <summary>Température maximale de jonction (Intel : 0x1A2 ; AMD : limite THM de la PM table) et décalage TCC
+    /// réglé par le BIOS (Intel).</summary>
     public int? TjMaxC { get; init; }
     public int? TccOffsetC { get; init; }
 
