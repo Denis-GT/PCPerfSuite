@@ -59,9 +59,15 @@ public sealed class DisplayIdentifyWindow : Window
             },
         };
 
+        // Sans Left/Top, la fenêtre est créée « à la position par défaut » et Windows la range en cascade à son premier
+        // affichage, par-dessus tout placement fait avant : on la crée déjà sur son écran (en DIP, approximatif sur un
+        // écran d'une autre échelle), puis on la centre en pixels une fois affichée.
+        Left = monitor.Bounds.Left / monitor.Scale;
+        Top = monitor.Bounds.Top / monitor.Scale;
+
         ClickThroughWindow.Apply(this);
         SourceInitialized += (_, _) => _hwnd = new WindowInteropHelper(this).Handle;
-        Loaded += (_, _) => Center();
+        ContentRendered += (_, _) => Center();
         DpiChanged += (_, _) =>
         {
             if (++_dpiReplacements <= MaxDpiReplacements) Dispatcher.BeginInvoke(Center, DispatcherPriority.Loaded);

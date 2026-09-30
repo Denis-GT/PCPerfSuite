@@ -30,10 +30,17 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         ClickThroughWindow.Apply(this);
 
+        // Sans Left/Top, la fenêtre est créée « à la position par défaut » et Windows la range en cascade à son premier
+        // affichage, par-dessus le placement fait à Loaded : position explicite d'abord, puis placement en pixels une
+        // fois la fenêtre affichée (ContentRendered).
+        Left = 0;
+        Top = 0;
+
         SourceInitialized += OnSourceInitialized;
         SizeChanged += (_, _) => Place();
         DpiChanged += OnDpiChanged;
         Loaded += OnLoaded;
+        ContentRendered += (_, _) => Reposition();
         Closed += OnClosed;
     }
 
