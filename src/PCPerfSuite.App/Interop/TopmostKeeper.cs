@@ -79,11 +79,24 @@ internal sealed class TopmostKeeper : IDisposable
         }
     }
 
+    /// <summary>Nouvelle fenêtre au premier plan (sur le thread de l'interface) : l'overlay « écran du jeu » la suit.
+    /// Aucun filtre ici : c'est DisplayTopology.IsIgnoredForegroundWindow qui écarte le shell et PCPerfSuite.</summary>
+    public event Action<IntPtr>? ForegroundChanged;
+
     private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         BringToTop();
         _secondPass.Stop();
         _secondPass.Start();
+
+        try
+        {
+            ForegroundChanged?.Invoke(hwnd);
+        }
+        catch
+        {
+            // Rappel de Windows : une exception ici ne doit pas remonter dans la boucle de messages.
+        }
     }
 
     public void Dispose()

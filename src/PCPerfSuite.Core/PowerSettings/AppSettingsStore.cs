@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Overlay;
@@ -323,10 +324,18 @@ public sealed class OverlayAppearanceSettings
 
     public OverlayAnchor Anchor { get; set; } = OverlayAnchor.TopLeft;
 
-    /// <summary>Marge depuis le bord de l'écran, en pixels (overlay fenêtre).</summary>
+    /// <summary>Marge depuis le bord de l'écran, en DIP (overlay fenêtre) : multipliée par l'échelle de l'écran visé.</summary>
     public int MarginX { get; set; } = 24;
 
     public int MarginY { get; set; } = 24;
+
+    /// <summary>Écran de l'overlay fenêtre : "fixed" (écran choisi), "game" (écran de la fenêtre au premier plan) ;
+    /// null pour l'écran principal, le défaut et le comportement des fichiers d'avant (voir
+    /// <see cref="OverlayScreenChoice.ParseMode"/>). L'ancrage et les marges valent pour tous les écrans.</summary>
+    public string? ScreenMode { get; set; }
+
+    /// <summary>Écran choisi en mode "fixed", gardé même quand on change de mode pour le retrouver ensuite.</summary>
+    public DisplayIdentity? Screen { get; set; }
 
     /// <summary>Opacité du fond noir derrière le texte de l'overlay fenêtre (0 = aucun fond).</summary>
     public double BackgroundOpacity { get; set; } = 0.45;

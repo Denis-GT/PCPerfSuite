@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.SystemChanges;
@@ -103,6 +104,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
+        _compatibilityRows.Add(new DisplaysRowProvider());
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),

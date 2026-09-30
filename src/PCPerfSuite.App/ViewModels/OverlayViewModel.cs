@@ -48,7 +48,7 @@ public sealed class OverlayLineOrderItemViewModel
 /// La cadence d'affichage est indépendante de celle du monitoring (elle ne peut pas être plus rapide,
 /// puisque les valeurs viennent de là, mais elle peut être plus lente pour un texte plus lisible).
 /// </summary>
-public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IBackgroundSensorConsumer
+public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IBackgroundSensorConsumer, IPageLifecycle
 {
     /// <summary>Nombre de rendus sur lesquels est mesurée la cadence réelle.</summary>
     private const int CadenceWindow = 30;
@@ -119,6 +119,12 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
     public MetricSelectionViewModel Metrics { get; }
     public OverlayAppearanceViewModel Appearance { get; }
 
+    /// <summary>Écran de l'overlay fenêtre (principal, choisi, ou celui du jeu).</summary>
+    public OverlayScreenViewModel Screen { get; }
+
+    /// <summary>La liste des écrans est relue à l'ouverture de l'onglet.</summary>
+    public bool IsPageShown { set => Screen.IsPageShown = value; }
+
     /// <summary>Lignes prêtes à afficher, partagées par l'aperçu de l'onglet et la fenêtre d'overlay.
     /// Reconstruites seulement quand un réglage change ; les relevés ne font que mettre à jour leurs valeurs.</summary>
     public ObservableCollection<OverlayLine> Lines { get; } = new();
@@ -126,7 +132,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
     /// <summary>Les mêmes lignes, une entrée par ligne affichée, avec leurs boutons monter / descendre.</summary>
     public ObservableCollection<OverlayLineOrderItemViewModel> LineOrderItems { get; } = new();
 
-    /// <summary>Signalé quand la géométrie de l'overlay change (ancrage, marges, police) : la fenêtre
+    /// <summary>Signalé quand la géométrie de l'overlay change (ancrage, marges, police, écran) : la fenêtre
     /// se replace.</summary>
     public event Action? LayoutChanged;
 
@@ -151,6 +157,15 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
             settings.Appearance ?? new OverlayAppearanceSettings(),
             OnDisplayOptionsChanged,
             OnAppearanceLayoutChanged);
+
+        Screen = new OverlayScreenViewModel(
+            settings.Appearance ?? new OverlayAppearanceSettings(),
+            () =>
+            {
+                Persist();
+                LayoutChanged?.Invoke();
+            },
+            () => LayoutChanged?.Invoke());
 
         _monitoring.MetricsUpdated += OnMetricsUpdated;
     }
@@ -413,6 +428,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
 
             OverlayAppearanceSettings appearance = settings.Overlay.Appearance ?? new OverlayAppearanceSettings();
             Appearance.WriteTo(appearance);
+            Screen.WriteTo(appearance);
             settings.Overlay.Appearance = appearance;
 
             settings.Overlay.ShowCpu = null;
@@ -432,6 +448,7 @@ public sealed partial class OverlayViewModel : ObservableObject, IDisposable, IB
     {
         _monitoring.MetricsUpdated -= OnMetricsUpdated;
         CloseWindow();
+        Screen.Dispose();
         _rtss.Dispose();
     }
 }
