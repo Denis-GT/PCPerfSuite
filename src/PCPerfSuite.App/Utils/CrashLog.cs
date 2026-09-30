@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.Utils;
 
@@ -19,9 +20,8 @@ public static class CrashLog
     /// jamais peser sur le disque.</summary>
     private const long MaxBytes = 512 * 1024;
 
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PCPerfSuite", "erreurs.log");
+    /// <summary>Relu à chaque écriture : la racine du dossier de données se choisit au démarrage (mode portable).</summary>
+    public static string FilePath => AppDataPaths.Current.CrashLogFile;
 
     /// <summary>Résumé de la dernière erreur journalisée dans cette session, repris par le diagnostic.
     /// Null tant que rien n'est arrivé.</summary>
@@ -56,22 +56,23 @@ public static class CrashLog
     {
         lock (Gate)
         {
-            if (surfaceAsLastError) LastError = $"{summary}. Détail dans {FilePath}.";
+            string path = FilePath;
+            if (surfaceAsLastError) LastError = $"{summary}. Détail dans {path}.";
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
                 // Rotation la plus simple qui tienne : au-delà du plafond, on repart d'un fichier vide.
                 // Garder une archive doublerait la place occupée pour un intérêt quasi nul.
-                if (File.Exists(FilePath) && new FileInfo(FilePath).Length > MaxBytes) File.Delete(FilePath);
+                if (File.Exists(path) && new FileInfo(path).Length > MaxBytes) File.Delete(path);
 
                 var text = new StringBuilder();
                 text.AppendLine($"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} — {origin} =====");
                 text.AppendLine(detail);
                 text.AppendLine();
 
-                File.AppendAllText(FilePath, text.ToString(), Encoding.UTF8);
+                File.AppendAllText(path, text.ToString(), Encoding.UTF8);
             }
             catch
             {

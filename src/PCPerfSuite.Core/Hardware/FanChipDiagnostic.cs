@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text;
 using LibreHardwareMonitor.Hardware;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Hardware;
 
@@ -18,9 +19,8 @@ internal static class FanChipDiagnostic
 
     private static readonly object FileGate = new();
 
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PCPerfSuite", "diagnostic-ventilateurs.log");
+    /// <summary>Relu à chaque écriture : la racine du dossier de données se choisit au démarrage (mode portable).</summary>
+    public static string FilePath => AppDataPaths.Current.FanChipDiagnosticFile;
 
     public static void Record(IComputer computer, string moment)
     {
@@ -40,11 +40,12 @@ internal static class FanChipDiagnostic
 
             lock (FileGate)
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-                var info = new FileInfo(FilePath);
+                string path = FilePath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var info = new FileInfo(path);
                 if (info.Exists && info.Length > MaxFileBytes) info.Delete();
 
-                File.AppendAllText(FilePath,
+                File.AppendAllText(path,
                     $"===== {DateTime.Now:yyyy-MM-dd HH:mm:ss} — {moment} ====={Environment.NewLine}{text}{Environment.NewLine}");
             }
         }

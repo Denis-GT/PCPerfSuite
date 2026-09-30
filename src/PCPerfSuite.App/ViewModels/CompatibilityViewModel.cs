@@ -148,7 +148,7 @@ public sealed partial class CompatibilityViewModel : ObservableObject
         yield return AppSettingsStore.LastError is { } settingsError
             ? new CompatibilityRow("Enregistrement des réglages", "En échec", settingsError, false)
             : new CompatibilityRow("Enregistrement des réglages", "OK",
-                "Les réglages de PCPerfSuite s'enregistrent normalement dans %LOCALAPPDATA%\\PCPerfSuite.", true);
+                $"Les réglages de PCPerfSuite s'enregistrent normalement dans {AppDataPaths.Current.Root}.", true);
 
         yield return CrashLog.LastError is { } crash
             ? new CompatibilityRow("Dernière erreur interne", "Signalée", crash, false)
