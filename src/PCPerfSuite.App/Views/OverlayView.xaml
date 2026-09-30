@@ -1,7 +1,8 @@
 <UserControl x:Class="PCPerfSuite.App.Views.OverlayView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
+             xmlns:local="clr-namespace:PCPerfSuite.App.Views">
 
     <UserControl.Resources>
         <!-- Case de la grille de position de l'overlay : contenu centré, coins arrondis comme le reste. -->
@@ -361,6 +362,8 @@
                         <StackPanel>
                             <TextBlock Text="Canal fenêtre" Style="{StaticResource Body}" FontWeight="SemiBold"/>
 
+                            <local:OverlayScreenPicker DataContext="{Binding Screen}" Margin="0,10,0,0"/>
+
                             <!-- Ancrage à gauche, curseurs à droite : la grille ne fait que 150 px et laissait
                                  tout le reste de la ligne vide, pendant que le curseur « Fond » juste en dessous
                                  s'étirait sur plus de mille pixels pour une plage de 0 à 1. -->
@@ -371,7 +374,7 @@
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Position sur l'écran principal" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                    <TextBlock Text="Position sur l'écran" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
                                     <UniformGrid Rows="3" Columns="3" Width="150" HorizontalAlignment="Left">
                                         <RadioButton Content="↖" Style="{StaticResource AnchorButton}" GroupName="overlay-anchor"
                                                      IsChecked="{Binding Appearance.Anchor, Converter={StaticResource EnumEquals}, ConverterParameter=TopLeft}"/>
