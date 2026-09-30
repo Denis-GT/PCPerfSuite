@@ -115,8 +115,16 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
             }
 
             if (dedicated.Count > 0)
-                return $"Un GPU {DedicatedRangeName(dedicated[0])} est présent, mais son pilote ne répond pas (pilote absent, trop ancien, " +
-                       "ou GPU désactivé). Installe le dernier pilote du constructeur de la carte.";
+            {
+                // ADLX ne règle que les Radeon RDNA : sur une Vega ou une GCN, c'est la carte qui ne s'y prête pas, et
+                // réinstaller le pilote n'y changerait rien.
+                string olderRadeon = dedicated.Contains(GpuVendor.Amd)
+                    ? " Une Radeon antérieure aux RX 5000 (GCN, Vega) n'expose pas ces réglages, même avec un pilote à jour."
+                    : "";
+                return $"GPU dédié détecté ({string.Join(", ", dedicated.Select(DedicatedRangeName))}), mais aucun pilote ne " +
+                       "répond (pilote absent, trop ancien, ou GPU désactivé). Installe le dernier pilote du constructeur de la carte." +
+                       olderRadeon;
+            }
 
             string gpus = machine.VideoControllers.Count > 0 ? string.Join(", ", machine.VideoControllers) : "aucun GPU identifié";
             return $"Aucun GPU pilotable détecté. GPU de ce PC : {gpus}. L'overclocking demande une carte NVIDIA (NVAPI), " +
@@ -129,9 +137,10 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     /// <summary>Gamme de cartes dédiées de la marque, telle que la connaît l'utilisateur.</summary>
     private static string DedicatedRangeName(GpuVendor vendor) => vendor switch
     {
+        GpuVendor.Nvidia => "NVIDIA",
         GpuVendor.Amd => "AMD Radeon",
         GpuVendor.Intel => "Intel Arc",
-        _ => "NVIDIA",
+        _ => vendor.ToString(),
     };
 
     [ObservableProperty] private string gpuName = "…";
