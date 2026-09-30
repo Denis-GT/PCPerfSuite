@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.SystemChanges;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -38,6 +39,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// après les lignes historiques. C'est le seul endroit où inscrire un fournisseur (créé avec les services dont il
     /// a besoin, avant CompatibilityViewModel) : jamais une dépendance de plus pour CompatibilityViewModel.</summary>
     private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
+
+    /// <summary>Fonctions qui modifient Windows durablement : chacune s'y inscrit à sa création, pour que « Tout
+    /// rétablir » (mode technicien) sache qui interroger. Aucune ne s'y inscrit encore.</summary>
+    public SystemChangeRegistry SystemChanges { get; } = new();
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
