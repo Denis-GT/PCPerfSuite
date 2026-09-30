@@ -36,6 +36,9 @@ public sealed class SensorGroupReadStatus
 
     /// <summary>Durée moyenne d'une lecture du groupe, null tant qu'aucune n'a été mesurée.</summary>
     public TimeSpan? AverageReadDuration { get; init; }
+
+    /// <summary>Cadence demandée par un bail (bench, test), null sans bail : elle l'emporte si elle est plus rapide.</summary>
+    public TimeSpan? LeaseInterval { get; init; }
 }
 
 /// <summary>
@@ -102,11 +105,42 @@ internal sealed class SensorReadSchedule
         set { lock (_sync) _baseInterval = value; }
     }
 
-    /// <summary>Intervalle voulu hors coût : l'imposé, sinon la cadence de base. Le tick du relevé est le plus
-    /// court de ces intervalles, l'automatique ne pouvant que les allonger.</summary>
+    private TimeSpan? _leaseInterval;
+
+    /// <summary>Cadence d'un bail en cours (<see cref="CadenceLeases"/>), null sans bail. Plus rapide, elle l'emporte
+    /// sur l'imposée, l'automatique et le plafond du GPU, sans les modifier : à la fin du bail, tout revient.</summary>
+    public TimeSpan? LeaseInterval
+    {
+        get { lock (_sync) return _leaseInterval; }
+        set
+        {
+            lock (_sync)
+            {
+                // Un bail qui arrive sur un groupe en pause le fait relire tout de suite, comme une reprise.
+                if (_isSuspended && _leaseInterval is null && value is not null) _lastReadEpoch = -1;
+                _leaseInterval = value;
+            }
+        }
+    }
+
+    /// <summary>Intervalle voulu hors coût : l'imposé, sinon la cadence de base, ou le bail s'il est plus rapide. Le
+    /// tick du relevé est le plus court de ces intervalles, l'automatique ne pouvant que les allonger.</summary>
     public TimeSpan RequestedInterval
     {
-        get { lock (_sync) return _manualInterval ?? _baseInterval; }
+        get
+        {
+            lock (_sync)
+            {
+                TimeSpan wanted = _manualInterval ?? _baseInterval;
+                return _leaseInterval is { } lease && lease < wanted ? lease : wanted;
+            }
+        }
+    }
+
+    /// <summary>En pause et sans bail : un bail garde le groupe relu même fenêtre cachée (une mesure en cours).</summary>
+    public bool IsEffectivelySuspended
+    {
+        get { lock (_sync) return _isSuspended && _leaseInterval is null; }
     }
 
     private bool _isSuspended;
@@ -136,7 +170,7 @@ internal sealed class SensorReadSchedule
             // Même en pause, un groupe est lu une première fois : LibreHardwareMonitor ne déclare les ventilateurs
             // d'une puce qu'à sa première lecture. Sans elle, une app démarrée cachée (session Windows) ne verrait
             // jamais les ventilateurs dont les courbes ont besoin, et ne saurait donc pas qu'il faut les relire.
-            if (_isSuspended && _readCount > 0) return false;
+            if (_isSuspended && _leaseInterval is null && _readCount > 0) return false;
 
             return _readCount == 0
                 || epoch != _lastReadEpoch
@@ -171,8 +205,9 @@ internal sealed class SensorReadSchedule
                 Group = Group,
                 ManualInterval = _manualInterval,
                 Interval = tickInterval * ticks,
-                IsSpacedOut = _manualInterval is null && ticks > RoundTicks(_baseInterval, tickInterval),
+                IsSpacedOut = _manualInterval is null && _leaseInterval is null && ticks > RoundTicks(_baseInterval, tickInterval),
                 AverageReadDuration = _averageReadMs is { } average ? TimeSpan.FromMilliseconds(average) : null,
+                LeaseInterval = _leaseInterval,
             };
         }
     }
@@ -180,8 +215,10 @@ internal sealed class SensorReadSchedule
     /// <summary>À appeler sous le verrou.</summary>
     private int PeriodTicks(TimeSpan tickInterval)
     {
-        if (_manualInterval is { } manual) return RoundTicks(manual, tickInterval);
-        return Math.Max(RoundTicks(_baseInterval, tickInterval), _autoTicks);
+        int ticks = _manualInterval is { } manual
+            ? RoundTicks(manual, tickInterval)
+            : Math.Max(RoundTicks(_baseInterval, tickInterval), _autoTicks);
+        return _leaseInterval is { } lease ? Math.Min(ticks, RoundTicks(lease, tickInterval)) : ticks;
     }
 
     private static int RoundTicks(TimeSpan interval, TimeSpan tickInterval)

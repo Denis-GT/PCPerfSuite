@@ -1,3 +1,5 @@
+using PCPerfSuite.Core.Hardware;
+
 namespace PCPerfSuite.App.ViewModels;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace PCPerfSuite.App.ViewModels;
 /// </summary>
 public static class RefreshRates
 {
-    public const int MinMs = 100;
+    public const int MinMs = HardwareMonitorService.MinTickMilliseconds;
     public const int MaxMs = 60_000;
 
     public const string Hint = "de 100 à 60000 ms";
