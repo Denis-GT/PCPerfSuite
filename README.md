@@ -130,6 +130,26 @@ chaque catégorie** (sinon elles suivent une couleur commune), position sur l'é
 (grille 3×3 + marges) et opacité du fond. L'aperçu de l'onglet rend exactement ce que
 l'overlay affichera.
 
+**Écran de la fenêtre PCPerfSuite**, au choix :
+
+- **Écran principal** (par défaut, comme avant) ;
+- **Cet écran** : un écran de la liste, nommé comme dans Windows (« DELL U2720Q », ou
+  « Écran 2 (1920×1080) » s'il ne donne pas de nom). Le bouton **Identifier** affiche
+  quelques secondes un grand numéro sur chaque écran. L'écran est retrouvé même s'il change
+  de connecteur ; deux écrans du même modèle sont départagés par leur numéro de série (seule
+  une empreinte en est gardée dans `settings.json`) ;
+- **Écran du jeu** : l'écran de la fenêtre au premier plan. La barre des tâches, le bureau,
+  le menu Démarrer et PCPerfSuite ne comptent pas : cliquer sur la barre des tâches d'un
+  autre écran ne fait pas sauter l'overlay.
+
+L'ancrage et les marges valent pour tous les écrans, à l'échelle de chacun (24 px à 150 %
+font 36 pixels réels). L'overlay se replace tout seul quand un écran est branché ou
+débranché, ou que son échelle change. Si l'écran choisi est débranché, l'overlay passe sur
+l'écran principal et l'onglet le dit ; il y retourne dès que l'écran revient. Le canal RTSS
+n'est pas concerné : il dessine dans le jeu, donc sur l'écran du jeu. Un jeu en plein écran
+exclusif masque toujours la fenêtre PCPerfSuite sur son écran (limite de Windows) ; posée sur
+un autre écran, elle reste visible.
+
 Côté jeu, en plus du FPS instantané et du temps de frame, le catalogue propose le **FPS moyen**,
 le **1% low** et le **0.1% low**, calculés à partir de l'historique des 1024 derniers temps de frame
 que RTSS tient à jour — la même matière première que les outils de benchmark. Un centile n'est

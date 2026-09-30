@@ -55,7 +55,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Gestionnaire de processus | Surveiller | Processus (`processes`) | — | existant | livrée |
 | Limites CPU / RAM / disque / réseau par processus | Surveiller | Processus (`processes`) | « Limiter… » dans le menu contextuel et le détail ; sous-onglet **Limites** pour la liste des règles | #21 | prévue |
 | Overlay en jeu | Surveiller | Overlay (`overlay`) | — | existant | livrée |
-| Choix de l'écran de l'overlay | Surveiller | Overlay (`overlay`) | réglage dans la page | #3 | prévue |
+| Choix de l'écran de l'overlay | Surveiller | Overlay (`overlay`) | bloc « Canal fenêtre » (`OverlayScreenPicker`) | #3 | livrée |
 | Limites du processeur | Régler | Processeur (`cpu`) | — | existant | livrée |
 | Core parking et usage par cœur | Régler | Processeur (`cpu`) | sous-onglet **Cœurs** | #5 | prévue |
 | Fiabilisation du tuning (garde-fous, veille, relecture) | Régler | Processeur, GPU, Ventilateurs | dans les pages existantes | #2 | prévue |
