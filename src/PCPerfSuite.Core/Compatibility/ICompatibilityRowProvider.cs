@@ -15,11 +15,14 @@ public interface ICompatibilityRowProvider
     string Title { get; }
 
     /// <summary>Lignes à afficher, dans l'ordre. Appelée sur le thread d'interface à chaque reconstruction du
-    /// diagnostic : rapide, à partir de ce qui est déjà lu — ni WMI, ni réseau, ni fichier lent ici.</summary>
+    /// diagnostic : rapide, à partir de ce qui est déjà lu — ni WMI, ni réseau, ni fichier lent ici. Elle peut tourner
+    /// PENDANT <see cref="RefreshAsync"/> (ouverture de l'onglet, nouveau groupe de capteurs lu, « Copier le
+    /// rapport ») : ne lire qu'un instantané immuable, que RefreshAsync publie en une seule affectation, et dire
+    /// « pas encore lu » tant qu'il n'y en a pas.</summary>
     IReadOnlyList<CompatibilityRow> GetRows();
 
     /// <summary>Lectures lentes (WMI, pilotes, fichiers), faites hors du thread d'interface à l'ouverture du diagnostic
-    /// et par « Actualiser », avant <see cref="GetRows"/>. Rien à faire par défaut. Doit s'arrêter tôt quand
+    /// et par « Actualiser » ; le diagnostic se reconstruit ensuite. Rien à faire par défaut. Doit s'arrêter tôt quand
     /// <paramref name="cancellationToken"/> est annulé (onglet quitté).</summary>
     Task RefreshAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

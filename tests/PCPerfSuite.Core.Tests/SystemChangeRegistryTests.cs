@@ -82,6 +82,7 @@ public class SystemChangeRegistryTests
         Assert.Equal(2, reports.Count);
         Assert.Equal(SystemRestoreStatus.Failed, reports[0].Result.Status);
         Assert.Contains("accès refusé", reports[0].Result.Message);
+        Assert.Equal("pilotes modifié", Assert.Single(reports[0].Result.NotRestored).Title);
         Assert.Equal(SystemRestoreStatus.Restored, reports[1].Result.Status);
         Assert.Equal(1, first.RestoreCalls);
     }

@@ -90,6 +90,7 @@ public sealed partial class DriveOption : ObservableObject
 public sealed partial class StorageViewModel : ObservableObject, IPageLifecycle
 {
     private const string DialogTitle = "PCPerfSuite";
+    private const string LoadingDrivesMessage = "Lecture des lecteurs…";
     private const string StaleNodeMessage = "Cet élément ne fait plus partie de la carte affichée. Relance l'analyse pour la remettre à jour.";
 
     private readonly DiskSpaceScanner _scanner = new();
@@ -127,6 +128,9 @@ public sealed partial class StorageViewModel : ObservableObject, IPageLifecycle
 
     private async Task LoadDrivesAsync()
     {
+        // Un lecteur réseau hors ligne fait attendre plusieurs secondes : la liste vide ne doit pas passer pour un PC
+        // sans disque.
+        StatusText = LoadingDrivesMessage;
         string? systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
 
         List<DriveOption> options = await Task.Run(() =>
@@ -141,6 +145,12 @@ public sealed partial class StorageViewModel : ObservableObject, IPageLifecycle
 
         Drives.ReplaceAll(options);
         if (Drives.Count > 0) Drives[0].IsSelected = true;
+
+        // Une analyse lancée entre-temps a déjà son propre message.
+        if (StatusText == LoadingDrivesMessage)
+        {
+            StatusText = Drives.Count == 0 ? "Aucun lecteur lisible n'a été trouvé sur ce PC." : null;
+        }
     }
 
     /// <summary>L'énumération elle-même peut lever sur une configuration inhabituelle (volume monté sans

@@ -102,8 +102,9 @@ public sealed partial class CompatibilityViewModel : ObservableObject, IPageLife
         RebuildRows();
     }
 
-    /// <summary>Ouverture de l'onglet et « Actualiser » : les lectures lentes des fournisseurs, hors du thread
-    /// d'interface, puis toutes les lignes.</summary>
+    /// <summary>Ouverture de l'onglet et « Actualiser » : toutes les lignes tout de suite, puis les lectures lentes
+    /// des fournisseurs hors du thread d'interface, et leurs lignes à jour. Lancée sans être attendue (ouverture de
+    /// l'onglet) : une erreur y est journalisée et dite, jamais perdue dans une tâche que personne n'observe.</summary>
     [RelayCommand]
     private async Task RefreshAsync()
     {
@@ -111,12 +112,28 @@ public sealed partial class CompatibilityViewModel : ObservableObject, IPageLife
         var cts = new CancellationTokenSource();
         _refreshCts = cts;
 
+        if (_lastSample is { } sample) _groupsReadAtBuild = sample.Hardware.GroupsEverRead.Count;
+        TryRebuildRows();
+        if (_rowProviders.Count == 0) return;
+
         await CompatibilityRows.RefreshAllAsync(_rowProviders, cts.Token);
 
         // Onglet quitté ou actualisé entre-temps : cette lecture-là n'a plus rien à afficher.
         if (cts.IsCancellationRequested) return;
-        if (_lastSample is { } sample) _groupsReadAtBuild = sample.Hardware.GroupsEverRead.Count;
-        RebuildRows();
+        TryRebuildRows();
+    }
+
+    private void TryRebuildRows()
+    {
+        try
+        {
+            RebuildRows();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Record(ex, "diagnostic");
+            CopyStatus = $"Diagnostic incomplet : {ex.Message}";
+        }
     }
 
     private void RebuildRows()
@@ -134,7 +151,13 @@ public sealed partial class CompatibilityViewModel : ObservableObject, IPageLife
         foreach (CompatibilityRow row in extra.Rows) Rows.Add(row);
         foreach (CompatibilityProviderFailure failure in extra.Failures)
         {
-            if (_reportedFailures.Add(failure.Title)) CrashLog.Record(failure.Error, $"diagnostic : rubrique « {failure.Title} »");
+            // Journalisé sans devenir la « dernière erreur » : l'échec a déjà sa ligne « Lecture impossible », et il
+            // ne doit pas chasser le message d'un vrai plantage, celui qu'on demande de coller dans le signalement.
+            if (_reportedFailures.Add(failure.Title))
+            {
+                CrashLog.RecordMessage(failure.Error.ToString(), $"diagnostic : rubrique « {failure.Title} »",
+                    surfaceAsLastError: false);
+            }
         }
 
         UnavailableMetrics.Clear();

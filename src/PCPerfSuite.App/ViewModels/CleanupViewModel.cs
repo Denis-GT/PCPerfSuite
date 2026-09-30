@@ -78,7 +78,7 @@ public sealed partial class RecycleBinItemViewModel : ObservableObject
     public string Name => "Corbeille";
 
     public string Description => !IsKnown
-        ? "Windows n'a pas communiqué le contenu de la corbeille."
+        ? (IsBusy ? "Analyse…" : "Windows n'a pas communiqué le contenu de la corbeille.")
         : ItemCount switch
         {
             0 => "La corbeille est vide.",
@@ -157,7 +157,10 @@ public sealed partial class CleanupViewModel : ObservableObject, IPageLifecycle
         if (!value || _scanRequested) return;
 
         _scanRequested = true;
-        _ = ScanAllAsync();
+
+        // Par la commande : « Ré-analyser » reste grisé pendant cette première analyse, au lieu d'en lancer une seconde
+        // en parallèle.
+        _ = ScanAllCommand.ExecuteAsync(null);
     }
 
     partial void OnIncludeRecycleBinInCleanAllChanged(bool value)
@@ -240,7 +243,13 @@ public sealed partial class CleanupViewModel : ObservableObject, IPageLifecycle
         }
     }
 
-    [RelayCommand]
+    /// <summary>Pas pendant l'analyse : la confirmation récapitulerait des tailles pas encore mesurées, et la corbeille
+    /// pourrait être vidée avant que le moindre cache soit compté.</summary>
+    private bool CanCleanAll() => !IsScanning;
+
+    partial void OnIsScanningChanged(bool value) => CleanAllCommand.NotifyCanExecuteChanged();
+
+    [RelayCommand(CanExecute = nameof(CanCleanAll))]
     private async Task CleanAllAsync()
     {
         // Action irréversible sur potentiellement plusieurs catégories d'un coup (U2 du rapport de revue) :

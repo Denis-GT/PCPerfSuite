@@ -13,20 +13,23 @@ sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles
 | Section | Pages |
 |---|---|
 | **Surveiller** | Monitoring, Processus, Overlay |
-| **Régler** | Processeur, GPU, Ventilateurs, Profils *(bientôt disponible)*, OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, portables seulement)* |
+| **Régler** | Processeur, GPU, Ventilateurs, Profils *(bientôt disponible)*, OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
 | **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
 | **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils *(bientôt disponible)*, Mémoire *(bientôt disponible)* |
 
 **Paramètres** est en bas de la barre. Une page qui grossit reçoit des sous-onglets en pastilles
 (comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes) plutôt qu'une entrée de
-plus. Une page ne lit ses données qu'à sa première ouverture, et un relevé en direct (Processus)
-ne tourne que tant que sa page est affichée : l'app démarre vite, même lancée dans la zone de
-notification.
+plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, et le diagnostic de
+Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
+tourne que tant que sa page est affichée : l'app démarre plus vite, même lancée dans la zone de
+notification. Le relevé des capteurs (Monitoring, overlay, ventilateurs, limites) tourne, lui, dès
+le lancement.
 
-Tous les fichiers de l'app sont dans un seul dossier, `%LOCALAPPDATA%\PCPerfSuite` :
-`settings.json` (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log`
-(état de la puce des ventilateurs au démarrage et à la fermeture), et le témoin du contrôle GPU
-AMD (`adlx-plantage.temoin`).
+Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings.json`
+(réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
+des ventilateurs au démarrage et à la fermeture), et le témoin du contrôle GPU AMD
+(`adlx-plantage.temoin`). Seuls les installeurs téléchargés passent par un dossier temporaire
+(`%TEMP%\PCPerfSuite`).
 
 Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
 page sont dans `docs/navigation.md` ; les décisions transverses et les briques partagées dans
@@ -383,9 +386,10 @@ cartes) : l'onglet l'affiche dans un bandeau. Le monitoring GPU couvre les trois
   « Quitter » depuis l'icône qui les repasse en automatique et rend la carte au pilote.
 - Les réglages sont stockés dans
   `%LOCALAPPDATA%\PCPerfSuite\settings.json` (lisible et modifiable à la main).
-- **Rapport de compatibilité** : « Copier le rapport » masque les données personnelles (nom du
-  compte Windows, y compris dans les chemins du profil, remplacés par `%LOCALAPPDATA%` et
-  `%USERPROFILE%`) ; il peut être collé tel quel dans un signalement public.
+- **Rapport de compatibilité** : « Copier le rapport » masque le nom du compte Windows, y compris
+  dans les chemins des profils (remplacés par `%LOCALAPPDATA%`, `%USERPROFILE%` ou
+  `C:\Users\(compte)`). Relis-le quand même avant de le coller dans un signalement public : un
+  nom de PC ou de dossier personnel peut apparaître ailleurs.
 
 ## Compiler et lancer
 

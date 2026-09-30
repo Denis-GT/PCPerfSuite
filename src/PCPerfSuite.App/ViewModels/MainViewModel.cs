@@ -116,8 +116,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             [PageKeys.Cleanup] = Cleanup,
             [PageKeys.Storage] = Storage,
         };
+        // Seul un PC de bureau avéré perd les pages des portables : sur un châssis indéterminé, la page reste et dira
+        // elle-même ce qu'elle trouve.
         NavItems = new ObservableCollection<NavEntry>(
-            NavigationMenu.Build(pages, isLaptop: MachineInfo.Current.Chassis == ChassisKind.Laptop));
+            NavigationMenu.Build(pages, isDesktop: MachineInfo.Current.Chassis == ChassisKind.Desktop));
 
         // Abonnés une fois la liste construite : UpdateAttention la parcourt.
         _installations.PropertyChanged += (_, _) => UpdateAttention();

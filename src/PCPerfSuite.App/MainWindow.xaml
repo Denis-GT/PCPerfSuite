@@ -52,8 +52,8 @@
                      la zone de notification, donc on reconnaît l'app partout pareil.
                      DecodePixelWidth pousse le décodeur ICO vers une trame bien plus grande que 36 px, pour
                      que le logo reste net à 150 % et 200 % d'échelle d'affichage.
-                     Marges serrées, comme celles du pied : à 820 px de haut, toutes les pages du menu tiennent sans
-                     défiler (calcul dans docs/navigation.md). -->
+                     Marges serrées, comme celles du pied : à 820 px de haut, en administrateur, tout le menu d'un PC
+                     de bureau tient sans défiler (calcul dans docs/navigation.md). -->
                 <Grid DockPanel.Dock="Top" Margin="20,16,16,14">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>

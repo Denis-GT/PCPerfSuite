@@ -69,7 +69,10 @@ public sealed class SystemChangeRegistry
             }
             catch (Exception ex)
             {
-                result = Failed($"Rétablissement impossible ({ex.GetType().Name} : {ex.Message}).");
+                // Ce qui reste modifié, tel que le propriétaire le décrit encore : le rapport ne doit pas annoncer
+                // « rien à rendre » pour un propriétaire qui a échoué.
+                result = new SystemRestoreResult(SystemRestoreStatus.Failed, SafeDescribe(owner),
+                    $"Rétablissement impossible ({ex.GetType().Name} : {ex.Message}).");
             }
 
             reports.Add(new SystemRestoreReport(SafeId(owner), SafeTitle(owner), result));
@@ -80,6 +83,12 @@ public sealed class SystemChangeRegistry
 
     private static SystemRestoreResult Failed(string message)
         => new(SystemRestoreStatus.Failed, Array.Empty<SystemChange>(), message);
+
+    private static IReadOnlyList<SystemChange> SafeDescribe(ISystemChangeOwner owner)
+    {
+        try { return owner.Describe() ?? Array.Empty<SystemChange>(); }
+        catch { return Array.Empty<SystemChange>(); }
+    }
 
     private static string SafeId(ISystemChangeOwner owner)
     {

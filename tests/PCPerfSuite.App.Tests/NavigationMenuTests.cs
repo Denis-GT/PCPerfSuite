@@ -49,7 +49,7 @@ public class NavigationMenuTests
     [Fact]
     public void Build_GroupsEntriesUnderContiguousHeaders()
     {
-        IReadOnlyList<NavEntry> entries = NavigationMenu.Build(DeliveredPages(), isLaptop: true);
+        IReadOnlyList<NavEntry> entries = NavigationMenu.Build(DeliveredPages(), isDesktop: false);
 
         // Chaque en-tête forme un seul bloc : la vue groupée n'affichera jamais deux fois la même section.
         IEnumerable<string> blocks = entries.Select(e => e.SectionTitle)
@@ -69,16 +69,16 @@ public class NavigationMenuTests
     }
 
     [Fact]
-    public void Build_LaptopOnlyPage_HiddenOnDesktop_ShownOnLaptop()
+    public void Build_LaptopOnlyPage_HiddenOnlyOnConfirmedDesktop()
     {
-        Assert.DoesNotContain(NavigationMenu.Build(DeliveredPages(), isLaptop: false), e => e.Key == PageKeys.LaptopGpu);
-        Assert.Contains(NavigationMenu.Build(DeliveredPages(), isLaptop: true), e => e.Key == PageKeys.LaptopGpu);
+        Assert.DoesNotContain(NavigationMenu.Build(DeliveredPages(), isDesktop: true), e => e.Key == PageKeys.LaptopGpu);
+        Assert.Contains(NavigationMenu.Build(DeliveredPages(), isDesktop: false), e => e.Key == PageKeys.LaptopGpu);
     }
 
     [Fact]
     public void Build_PageWithoutViewModel_IsComingSoon()
     {
-        IReadOnlyList<NavEntry> entries = NavigationMenu.Build(DeliveredPages(), isLaptop: false);
+        IReadOnlyList<NavEntry> entries = NavigationMenu.Build(DeliveredPages(), isDesktop: true);
 
         NavEntry profiles = Assert.Single(entries, e => e.Key == PageKeys.Profiles);
         Assert.True(profiles.IsComingSoon);
@@ -95,7 +95,7 @@ public class NavigationMenuTests
         var profiles = new object();
         pages[PageKeys.Profiles] = profiles;
 
-        NavEntry entry = Assert.Single(NavigationMenu.Build(pages, isLaptop: false), e => e.Key == PageKeys.Profiles);
+        NavEntry entry = Assert.Single(NavigationMenu.Build(pages, isDesktop: true), e => e.Key == PageKeys.Profiles);
 
         Assert.Same(profiles, entry.ViewModel);
         Assert.False(entry.IsComingSoon);
@@ -107,7 +107,7 @@ public class NavigationMenuTests
         Dictionary<string, object> pages = DeliveredPages();
         pages["page-inconnue"] = new object();
 
-        Assert.Throws<ArgumentException>(() => NavigationMenu.Build(pages, isLaptop: false));
+        Assert.Throws<ArgumentException>(() => NavigationMenu.Build(pages, isDesktop: true));
     }
 
     [Fact]
@@ -117,6 +117,6 @@ public class NavigationMenuTests
         Dictionary<string, object> pages = DeliveredPages();
         pages.Remove(PageKeys.Monitoring);
 
-        Assert.Throws<InvalidOperationException>(() => NavigationMenu.Build(pages, isLaptop: false));
+        Assert.Throws<InvalidOperationException>(() => NavigationMenu.Build(pages, isDesktop: true));
     }
 }

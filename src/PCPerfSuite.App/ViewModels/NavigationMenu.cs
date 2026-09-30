@@ -12,7 +12,8 @@ public enum NavSection
 }
 
 /// <summary>Page du menu : clé stable (<see cref="PageKeys"/>), section, titre affiché et glyphe de Segoe Fluent Icons.
-/// <paramref name="LaptopOnly"/> : page sans objet sur un PC de bureau, absente du menu ailleurs que sur un portable.</summary>
+/// <paramref name="LaptopOnly"/> : page sans objet sur un PC de bureau, retirée du menu sur un PC de bureau avéré (elle reste
+/// sur un portable et sur un châssis indéterminé, où la page dit elle-même ce qu'elle trouve).</summary>
 public sealed record NavPage(string Key, NavSection Section, string Title, string Icon, bool LaptopOnly = false);
 
 /// <summary>Entrée de la navigation latérale : une page du menu et le ViewModel qui la sert.</summary>
@@ -81,12 +82,12 @@ public static class NavigationMenu
     /// <summary>
     /// Les entrées de la liste, dans l'ordre de <see cref="Pages"/>. Une page absente de
     /// <paramref name="viewModels"/> n'est pas encore livrée : elle s'affiche « bientôt disponible ». Une page
-    /// <see cref="NavPage.LaptopOnly"/> n'apparaît que sur un portable.
+    /// <see cref="NavPage.LaptopOnly"/> est retirée sur un PC de bureau avéré.
     ///
     /// Une clé inconnue, ou une page qui n'a ni ViewModel ni texte d'attente, est une erreur de développement : elle
     /// lève, pour se voir au premier lancement plutôt que de laisser une page manquer sans un mot.
     /// </summary>
-    public static IReadOnlyList<NavEntry> Build(IReadOnlyDictionary<string, object> viewModels, bool isLaptop)
+    public static IReadOnlyList<NavEntry> Build(IReadOnlyDictionary<string, object> viewModels, bool isDesktop)
     {
         foreach (string key in viewModels.Keys)
         {
@@ -96,7 +97,7 @@ public static class NavigationMenu
         var entries = new List<NavEntry>();
         foreach (NavPage page in Pages)
         {
-            if (page.LaptopOnly && !isLaptop) continue;
+            if (page.LaptopOnly && isDesktop) continue;
 
             object viewModel = viewModels.TryGetValue(page.Key, out object? provided)
                 ? provided

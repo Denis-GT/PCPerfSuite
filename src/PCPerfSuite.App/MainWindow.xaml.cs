@@ -224,7 +224,10 @@ public partial class MainWindow : Window
         if (_trayHintHandled) return;
         _trayHintHandled = true;
 
-        // Le drapeau se lit et se pose sous le même verrou ; la bulle s'affiche après, hors du verrou.
+        // Déjà vue : rien à écrire. Sans cette lecture, chaque session réécrirait settings.json pour rien.
+        if (AppSettingsStore.Load().Window?.TrayHintShown == true) return;
+
+        // Le drapeau se relit et se pose sous le même verrou ; la bulle s'affiche après, hors du verrou.
         bool firstTime = false;
         AppSettingsStore.Update(settings =>
         {

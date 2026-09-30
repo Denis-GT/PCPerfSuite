@@ -197,9 +197,9 @@ public sealed partial class AppSettingsViewModel : ObservableObject, IPageLifecy
     }
 
     /// <summary>Un sous-onglet qui a son propre cycle de vie l'apprend de sa page : affiché quand la page l'est et
-    /// qu'il est l'onglet choisi.</summary>
+    /// qu'il est l'onglet choisi. SelectedSection peut être null : Ctrl+clic sur la pastille active la désélectionne.</summary>
     private void UpdateSectionShown()
-        => Compatibility.IsPageShown = IsPageShown && SelectedSection.Key == "compatibility";
+        => Compatibility.IsPageShown = IsPageShown && SelectedSection?.Key == "compatibility";
 
     /// <summary>L'onglet Installations clignote tant qu'un logiciel manque, que les Paramètres sont sous les yeux de
     /// l'utilisateur, et qu'il n'est pas déjà dessus : une fois l'onglet ouvert, c'est son contenu qui parle.</summary>

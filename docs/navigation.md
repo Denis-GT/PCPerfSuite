@@ -15,7 +15,8 @@
 - **Sous-onglets** : une page qui grossit reçoit des sous-onglets en pastilles plutôt qu'une entrée de plus. Le modèle
   est `AppSettingsViewModel.Sections` + le style `PillSelector` : une `AppSettingsSection(clé, titre)` par sous-onglet,
   et un panneau dont la `Visibility` compare `SelectedSection.Key`.
-- **Page réservée à certains PC** : `NavPage.LaptopOnly` retire la page du menu hors d'un portable avéré. N'ajoute une
+- **Page réservée à certains PC** : `NavPage.LaptopOnly` retire la page du menu sur un PC de bureau avéré ; sur un
+  châssis indéterminé, elle reste et dit elle-même ce qu'elle trouve. N'ajoute une
   condition de ce genre que pour une page **sans objet** sur ce type de PC ; une fonction absente sur un PC qui pourrait
   l'avoir reste dans le menu, et sa page dit pourquoi elle est absente (règle 3 de CLAUDE.md).
 - **Paramètres** : bouton du pied de la barre, hors de la liste (`NavigationMenu.Settings`).
@@ -68,7 +69,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | OC de l'écran (fréquence) | Régler | Écrans (`displays`) | — | #17 | bientôt disponible |
 | Éclairage RGB : socle et OpenRGB | Régler | Éclairage (`lighting`) | page minimale (inventaire, couleur fixe) | #23 | bientôt disponible |
 | Éclairage RGB : Dynamic Lighting et effets | Régler | Éclairage (`lighting`) | page complète | #24 | bientôt disponible |
-| GPU dédié des portables | Régler | GPU portable (`laptop-gpu`), portables seulement | — | #22 | bientôt disponible |
+| GPU dédié des portables | Régler | GPU portable (`laptop-gpu`), absente d'un PC de bureau avéré | — | #22 | bientôt disponible |
 | Bench CPU / RAM / disque | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** | #10 | bientôt disponible |
 | Bench GPU et test combiné « alimentation » | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** | #11 | bientôt disponible |
 | Diagnostic déterministe et rapport | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Diagnostic** | #12 | bientôt disponible |
@@ -112,8 +113,8 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
    `IBackgroundSensorConsumer` et ajoute-la au tableau d'`UpdateEcoMode`. Sinon, sors tout de suite de ton abonné si
    `MonitoringViewModel.IsBackgroundMode`.
 7. **Fermeture** : si le ViewModel est `IDisposable`, ajoute-le à `MainViewModel.Dispose` par `DisposeSafely`, à sa
-   place dans l'ordre imposé : relevé, ventilateurs, GPU, CPU, overlay, puis services. Ne réordonne pas les étapes
-   existantes.
+   place dans l'ordre imposé : Processus et Installations d'abord, puis le relevé (Monitoring), les ventilateurs, le
+   GPU, le CPU, l'overlay, et enfin les services (GPU, CPU, capteurs). Ne réordonne pas les étapes existantes.
 8. **Diagnostic** : les lignes de la fonction viennent d'un fournisseur `ICompatibilityRowProvider`, rangé dans le
    dossier de la fonction et ajouté à `MainViewModel._compatibilityRows`, jamais d'une méthode de
    `CompatibilityViewModel`.
