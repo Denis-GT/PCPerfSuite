@@ -1,3 +1,4 @@
+using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.Safety;
 
 namespace PCPerfSuite.App;
@@ -12,7 +13,10 @@ internal static class StartupRecoveryHandlers
 {
     public static IReadOnlyList<IStartupRecoveryHandler> Create() =>
     [
-        // Aucun encore : les recherches d'OC (#15, #14), l'essai d'écran (#17), le test combiné (#11), le bench (#10),
-        // les groupes de profils (#8) et la bascule automatique (#9) inscriront ici leur gestionnaire.
+        // Groupes de profils (#8) : suspend un groupe suivi d'un incident, et décoche « Appliquer au démarrage ».
+        new ProfileGroupRecoveryHandler(),
+
+        // Les recherches d'OC (#15, #14), l'essai d'écran (#17), le test combiné (#11), le bench (#10) et la bascule
+        // automatique (#9) inscriront ici leur gestionnaire.
     ];
 }

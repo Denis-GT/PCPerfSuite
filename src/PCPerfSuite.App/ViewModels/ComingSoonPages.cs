@@ -11,14 +11,6 @@ public static class ComingSoonPages
 
     private static readonly Dictionary<string, Text> Texts = new()
     {
-        [PageKeys.Profiles] = new(
-            "Des groupes de réglages processeur, GPU et ventilation, appliqués d'un clic.",
-            new[]
-            {
-                "Un groupe s'enregistre depuis l'état actuel ou depuis les profils des onglets.",
-                "Bascule automatique selon l'usage du PC (bureautique, jeu léger, jeu exigeant), désactivable.",
-                "Chaque groupe reste modifiable à la main.",
-            }),
         [PageKeys.AutoOverclock] = new(
             "Chercher les réglages stables de la carte graphique et du processeur, puis en tirer des profils.",
             new[]
