@@ -36,11 +36,18 @@ public sealed partial class HardwareMonitorService
     /// <summary>Vrai tant qu'un bail couvre ce groupe (lectures détaillées réservées aux mesures : MSR par cœur…).</summary>
     public bool IsCadenceLeased(SensorGroup group) => _leases.IsLeased(group);
 
+    /// <summary>Un bail pris pendant qu'un autre se libère, sur deux threads : sans ce verrou, l'un recopierait son calcul
+    /// par-dessus celui de l'autre, et un bail actif resterait sans effet.</summary>
+    private readonly object _leaseApplyGate = new();
+
     private void OnLeasesChanged()
     {
-        foreach (SensorReadSchedule schedule in _schedules)
+        lock (_leaseApplyGate)
         {
-            schedule.LeaseInterval = _leases.IntervalFor(schedule.Group);
+            foreach (SensorReadSchedule schedule in _schedules)
+            {
+                schedule.LeaseInterval = _leases.IntervalFor(schedule.Group);
+            }
         }
         CadenceChanged?.Invoke();
     }

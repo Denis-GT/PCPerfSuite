@@ -92,6 +92,18 @@ public class CpuThrottleRowProviderTests
     }
 
     [Fact]
+    public void FirmwareLimitations_OneEventPerLogicalProcessor_CountOnce()
+    {
+        DateTimeOffset boot1 = new(2026, 9, 20, 8, 0, 0, TimeSpan.Zero);
+        DateTimeOffset boot2 = boot1.AddDays(2);
+        IEnumerable<SystemEventRecord> events = Enumerable.Range(0, 16)
+            .SelectMany(cpu => new[] { boot1.AddSeconds(cpu * 0.1), boot2.AddSeconds(cpu * 0.1) })
+            .Select(time => new SystemEventRecord(SystemEventKind.FirmwareLimited, 37, time));
+
+        Assert.Equal(2, CpuThrottleRowProvider.Episodes(events));
+    }
+
+    [Fact]
     public void Reasons_NullWhenNothingIsReadable_NoneWhenAllAreClear()
     {
         Assert.Null(CpuThrottleText.Reasons(new CpuThrottleReading { Source = CpuThrottleSource.WindowsCounters }));

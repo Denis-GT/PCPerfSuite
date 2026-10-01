@@ -205,7 +205,14 @@ public sealed partial class HardwareMonitorService : IFanController, IDisposable
         {
             long throttleStart = Stopwatch.GetTimestamp();
             _lastCpuThrottle = ReadCpuThrottle() ?? _lastCpuThrottle;
-            RecordRead(SensorGroup.Cpu, "throttle", "Bridage CPU (MSR, PM table, compteurs Windows)", throttleStart, timings, groupDurations, groupRead);
+            // Affiché dans les temps de lecture, mais hors du coût du groupe Cpu : il ne doit pas espacer la lecture des
+            // températures CPU, dont dépendent les courbes de ventilation et la sécurité thermique.
+            timings.Add(new HardwareReadTiming
+            {
+                Identifier = "throttle",
+                Name = "Bridage CPU (MSR, PM table, compteurs Windows)",
+                Duration = Stopwatch.GetElapsedTime(throttleStart),
+            });
         }
 
         if (due[(int)SensorGroup.Motherboard] && LaptopFans.Support == LaptopFanSupport.Active)

@@ -41,13 +41,15 @@ public class StartupRecoveryTests : IDisposable
 
     private StartupRecovery Recovery(IReadOnlyList<IStartupRecoveryHandler> handlers,
         Func<DateTimeOffset, CancellationToken, SystemEventReadResult>? events = null,
-        Func<SessionJournalEntry, bool>? isLive = null, TimeSpan? timeout = null)
+        Func<SessionJournalEntry, bool>? isLive = null, TimeSpan? timeout = null,
+        Func<DateTimeOffset, DateTimeOffset>? currentBoot = null)
         => new(_journal, handlers,
             events ?? ((_, _) => { Interlocked.Increment(ref _eventReads); return new SystemEventReadResult([], null); }),
             _clock,
             (ex, origin) => _logged.Add($"{origin} : {ex.Message}"),
             isLive ?? (_ => false),
-            timeout);
+            timeout,
+            currentBoot);
 
     /// <summary>Opération écrite par une session d'avant un redémarrage : démarrage de Windows bien plus ancien.</summary>
     private Guid AppendFromAnEarlierBoot(string component, DateTimeOffset startedUtc)
@@ -169,32 +171,61 @@ public class StartupRecoveryTests : IDisposable
         _clock.Now = T0.AddMinutes(30);
         var handler = new Handler("combine", RecoveryStage.CombinedTest, ["test-combine"], _calls);
 
-        Recovery([handler], (_, _) => new SystemEventReadResult(
-        [
-            new SystemEventRecord(SystemEventKind.BootStarted, 12, T0.AddMinutes(5)),
-            new SystemEventRecord(SystemEventKind.KernelPower41, 41, T0.AddMinutes(5.5)) { BugcheckCode = 0, PowerButtonTimestamp = 0 },
-        ], null)).Run();
+        Recovery([handler], (_, _) => new SystemEventReadResult(PowerLossAfterTheOperation(), null), currentBoot: RebootedAt5).Run();
 
         Assert.Equal(IncidentQualificationKind.PowerLoss, Assert.Single(handler.Received).Qualification.Kind);
         Assert.Contains("arrêt brutal", _journal.Read().Entries.Single().Cause);
     }
 
+    private static DateTimeOffset RebootedAt5(DateTimeOffset now) => T0.AddMinutes(5);
+
+    private static SystemEventRecord[] PowerLossAfterTheOperation() =>
+    [
+        new SystemEventRecord(SystemEventKind.BootStarted, 12, T0.AddMinutes(5)),
+        new SystemEventRecord(SystemEventKind.KernelPower41, 41, T0.AddMinutes(5.5)) { BugcheckCode = 0, PowerButtonTimestamp = 0 },
+    ];
+
     [Fact]
-    public void ASlowEventLog_TimesOut_AndHandlersStillRun()
+    public async Task ASlowEventLog_TimesOut_HandlersStillRun_AndTheCauseIsRewrittenLater()
+    {
+        AppendFromAnEarlierBoot("bench", T0);
+        _clock.Now = T0.AddMinutes(30);
+        var handler = new Handler("bench", RecoveryStage.Bench, ["bench"], _calls);
+        using var release = new ManualResetEventSlim();
+
+        StartupRecovery recovery = Recovery([handler], (_, _) =>
+        {
+            release.Wait(TimeSpan.FromSeconds(5));
+            return new SystemEventReadResult(PowerLossAfterTheOperation(), null);
+        }, timeout: TimeSpan.FromMilliseconds(50), currentBoot: RebootedAt5);
+        StartupRecoveryReport report = recovery.Run();
+
+        Assert.Equal(["bench"], _calls);
+        Assert.Equal(IncidentQualificationKind.Unknown, handler.Received.Single().Qualification.Kind);
+        Assert.NotNull(report.EventsProblem);
+        Assert.True(report.QualificationDeferred);
+        Assert.False(report.Compacted);
+
+        release.Set();
+        await recovery.LateQualification!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        string? cause = _journal.Read().Entries.Single().Cause;
+        Assert.Contains("arrêt brutal", cause);
+        Assert.Contains("qualifié après le lancement", cause);
+    }
+
+    [Fact]
+    public void ATruncatedEventLog_QualifiesNothing_AndSaysWhy()
     {
         AppendFromAnEarlierBoot("bench", T0);
         _clock.Now = T0.AddMinutes(30);
         var handler = new Handler("bench", RecoveryStage.Bench, ["bench"], _calls);
 
-        StartupRecoveryReport report = Recovery([handler], (_, token) =>
-        {
-            token.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
-            return new SystemEventReadResult([], null);
-        }, timeout: TimeSpan.FromMilliseconds(100)).Run();
+        StartupRecoveryReport report = Recovery([handler],
+            (_, _) => new SystemEventReadResult(PowerLossAfterTheOperation(), null, Truncated: true), currentBoot: RebootedAt5).Run();
 
-        Assert.Equal(["bench"], _calls);
         Assert.Equal(IncidentQualificationKind.Unknown, handler.Received.Single().Qualification.Kind);
-        Assert.NotNull(report.EventsProblem);
+        Assert.Contains("tronqué", report.EventsProblem?.Reason);
     }
 
     [Fact]

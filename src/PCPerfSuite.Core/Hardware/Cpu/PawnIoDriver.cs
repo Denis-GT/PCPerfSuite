@@ -462,7 +462,9 @@ public sealed class PawnIoModule : IDisposable
         => TryExecute(function, input, outputCount, out output, out _);
 
     /// <param name="returned">Nombre de valeurs réellement écrites par le module (au plus <paramref name="outputCount"/>) :
-    /// <paramref name="output"/> est toujours de la taille demandée, complété de zéros.</param>
+    /// <paramref name="output"/> est toujours de la taille demandée, complété de zéros. Un appel réussi qui annonce 0
+    /// valeur alors qu'on en attendait compte comme complet : rien ne garantit que chaque version de PawnIO renseigne
+    /// cette taille (à vérifier), et le compter vide ferait régresser les lectures qui marchaient avant.</param>
     public bool TryExecute(string function, ulong[] input, int outputCount, out ulong[] output, out int returned)
     {
         output = outputCount > 0 ? new ulong[outputCount] : NoValues;
@@ -489,7 +491,7 @@ public sealed class PawnIoModule : IDisposable
                     input, (nuint)input.Length,
                     output, (nuint)output.Length,
                     out nuint returnSize);
-                returned = (int)Math.Min(returnSize, (nuint)output.Length);
+                returned = returnSize == 0 && LastError == 0 ? output.Length : (int)Math.Min(returnSize, (nuint)output.Length);
                 return LastError == 0;
             }
             catch (Exception ex)

@@ -39,31 +39,40 @@ public static class SystemEventReader
     /// <summary>Tous les types.</summary>
     public static IReadOnlyCollection<SystemEventKind> AllKinds { get; } = Enum.GetValues<SystemEventKind>();
 
-    /// <summary>Événements des <paramref name="days"/> derniers jours.</summary>
+    /// <summary>Types utiles à la reprise au lancement : tous sauf la limitation par le micrologiciel (un événement par
+    /// processeur logique à chaque démarrage, sans rapport avec un arrêt).</summary>
+    public static IReadOnlyCollection<SystemEventKind> RecoveryKinds { get; } =
+        AllKinds.Where(kind => kind != SystemEventKind.FirmwareLimited).ToArray();
+
+    /// <summary>Événements des <paramref name="days"/> derniers jours. Lus du plus récent au plus ancien : au plafond,
+    /// ce sont les plus anciens qui manquent, jamais l'écran bleu d'hier.</summary>
     public static SystemEventReadResult ReadLastDays(int days, IReadOnlyCollection<SystemEventKind>? kinds = null,
         CancellationToken cancellationToken = default)
     {
         long milliseconds = (long)TimeSpan.FromDays(Math.Max(1, days)).TotalMilliseconds;
         return Read($"TimeCreated[timediff(@SystemTime) <= {milliseconds.ToString(CultureInfo.InvariantCulture)}]",
-            kinds, cancellationToken);
+            kinds, newestFirst: true, cancellationToken);
     }
 
-    /// <summary>Événements journalisés depuis <paramref name="sinceUtc"/>.</summary>
+    /// <summary>Événements journalisés depuis <paramref name="sinceUtc"/>, du plus ancien au plus récent.</summary>
     public static SystemEventReadResult ReadSince(DateTimeOffset sinceUtc, IReadOnlyCollection<SystemEventKind>? kinds = null,
         CancellationToken cancellationToken = default)
     {
         string since = sinceUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
-        return Read($"TimeCreated[@SystemTime >= '{since}']", kinds, cancellationToken);
+        return Read($"TimeCreated[@SystemTime >= '{since}']", kinds, newestFirst: false, cancellationToken);
     }
 
     private static SystemEventReadResult Read(string timeFilter, IReadOnlyCollection<SystemEventKind>? kinds,
-        CancellationToken cancellationToken)
+        bool newestFirst, CancellationToken cancellationToken)
     {
         try
         {
             var events = new List<SystemEventRecord>();
             bool truncated = false;
-            var query = new EventLogQuery(LogName, PathType.LogName, BuildQuery(kinds ?? AllKinds, timeFilter));
+            var query = new EventLogQuery(LogName, PathType.LogName, BuildQuery(kinds ?? AllKinds, timeFilter))
+            {
+                ReverseDirection = newestFirst,
+            };
             using var reader = new EventLogReader(query);
 
             for (EventRecord? record = reader.ReadEvent(); record is not null; record = reader.ReadEvent())
@@ -119,7 +128,7 @@ public static class SystemEventReader
         SystemEventKind.BugCheck => [1001],
         SystemEventKind.UnexpectedShutdown => [6008],
         SystemEventKind.BootStarted => [12, 6005],
-        SystemEventKind.CleanShutdown => [13, 6006],
+        SystemEventKind.CleanShutdown => [13, 109, 6006],
         SystemEventKind.HardwareError => [17, 18, 19, 47],
         SystemEventKind.DisplayDriverReset => [4101],
         SystemEventKind.DiskError => [7, 51, 153],
@@ -135,7 +144,7 @@ public static class SystemEventReader
         (WerSystem, 1001) => SystemEventKind.BugCheck,
         ("EventLog", 6008) => SystemEventKind.UnexpectedShutdown,
         (KernelGeneral, 12) or ("EventLog", 6005) => SystemEventKind.BootStarted,
-        (KernelGeneral, 13) or ("EventLog", 6006) => SystemEventKind.CleanShutdown,
+        (KernelGeneral, 13) or (KernelPower, 109) or ("EventLog", 6006) => SystemEventKind.CleanShutdown,
         (Whea, 17 or 18 or 19 or 47) => SystemEventKind.HardwareError,
         ("Display", 4101) => SystemEventKind.DisplayDriverReset,
         ("disk", 7 or 51 or 153) => SystemEventKind.DiskError,

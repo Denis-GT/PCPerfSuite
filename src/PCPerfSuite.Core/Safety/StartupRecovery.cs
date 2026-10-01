@@ -73,6 +73,10 @@ public sealed record StartupRecoveryReport(
     public static StartupRecoveryReport Failed(string problem) => new([], [], [], 0, problem, null, false);
 
     public bool HasInterruptedOperations => Recovered.Count > 0;
+
+    /// <summary>Le journal Système n'a pas été lu à temps : la qualification complète est réécrite dans le journal de
+    /// session en arrière-plan, les gestionnaires ont reçu une qualification « inconnue ».</summary>
+    public bool QualificationDeferred { get; init; }
 }
 
 /// <summary>
@@ -103,7 +107,10 @@ public sealed class StartupRecovery
     private readonly Action<Exception, string> _log;
     private readonly Func<SessionJournalEntry, bool> _isHeldByLiveProcess;
     private readonly TimeSpan _eventReadTimeout;
+    private readonly Func<DateTimeOffset, DateTimeOffset> _currentBoot;
 
+    /// <param name="currentBoot">Démarrage de Windows d'après l'heure donnée ; par défaut
+    /// <see cref="SessionJournal.BootTime"/>, injecté par les tests.</param>
     public StartupRecovery(
         SessionJournal journal,
         IReadOnlyList<IStartupRecoveryHandler> handlers,
@@ -111,7 +118,8 @@ public sealed class StartupRecovery
         TimeProvider time,
         Action<Exception, string> log,
         Func<SessionJournalEntry, bool>? isHeldByLiveProcess = null,
-        TimeSpan? eventReadTimeout = null)
+        TimeSpan? eventReadTimeout = null,
+        Func<DateTimeOffset, DateTimeOffset>? currentBoot = null)
     {
         _journal = journal;
         _handlers = handlers;
@@ -120,7 +128,12 @@ public sealed class StartupRecovery
         _log = log;
         _isHeldByLiveProcess = isHeldByLiveProcess ?? IsHeldByLivePcPerfSuite;
         _eventReadTimeout = eventReadTimeout ?? EventReadTimeout;
+        _currentBoot = currentBoot ?? SessionJournal.BootTime;
     }
+
+    /// <summary>Qualification reprise en tâche de fond quand le journal Système n'a pas été lu à temps au lancement :
+    /// terminée quand la cause complète a été réécrite dans le journal de session (null sans objet).</summary>
+    public Task? LateQualification { get; private set; }
 
     /// <summary>Gestionnaires dans l'ordre d'appel : par étape, puis dans l'ordre d'inscription.</summary>
     public static IReadOnlyList<IStartupRecoveryHandler> Order(IEnumerable<IStartupRecoveryHandler> handlers)
@@ -147,11 +160,12 @@ public sealed class StartupRecovery
         var recovered = new List<RecoveredEntry>();
         var outcomes = new List<RecoveryHandlerOutcome>();
 
+        Task<SystemEventReadResult>? lateRead = null;
         if (pending.Count > 0)
         {
             DateTimeOffset since = pending.Min(entry => entry.StartedUtc) - TimeSpan.FromMinutes(1);
-            (IReadOnlyList<SystemEventRecord>? events, eventsProblem) = ReadEvents(since);
-            DateTimeOffset currentBoot = SessionJournal.BootTime(now);
+            (IReadOnlyList<SystemEventRecord>? events, eventsProblem, lateRead) = ReadEvents(since);
+            DateTimeOffset currentBoot = _currentBoot(now);
 
             foreach (SessionJournalEntry entry in pending)
             {
@@ -167,44 +181,84 @@ public sealed class StartupRecovery
                 if (outcome is not null) outcomes.Add(outcome);
             }
 
+            var notes = new Dictionary<Guid, string>();
             foreach (RecoveredEntry item in recovered)
             {
-                string cause = item.Qualification.Summary;
-                if (failed.Contains(item.Entry.Id)) cause = $"{cause} ; {FailedHandlerNote}";
-                else if (!handled.Contains(item.Entry.Id)) cause = $"{cause} ; {NoHandlerNote}";
-                _journal.Close(item.Entry.Id, item.Entry.Component, SessionEntryState.Failed, cause);
+                string note = failed.Contains(item.Entry.Id) ? $" ; {FailedHandlerNote}"
+                    : !handled.Contains(item.Entry.Id) ? $" ; {NoHandlerNote}"
+                    : "";
+                notes[item.Entry.Id] = note;
+                _journal.Close(item.Entry.Id, item.Entry.Component, SessionEntryState.Failed, item.Qualification.Summary + note);
             }
+
+            if (lateRead is not null) LateQualification = RequalifyWhenRead(lateRead, recovered, notes, currentBoot);
         }
 
-        // Un processus encore vivant peut écrire pendant le compactage : on attend qu'il ait fini.
-        bool compacted = skipped.Count == 0 && _journal.Compact(now);
+        // Un processus encore vivant, ou la qualification qui se termine en tâche de fond, peut écrire pendant le
+        // compactage : on le laisse au lancement suivant.
+        bool compacted = skipped.Count == 0 && lateRead is null && _journal.Compact(now);
 
         return new StartupRecoveryReport(recovered, skipped, outcomes, content.IgnoredLines, content.Problem,
-            eventsProblem, compacted);
+            eventsProblem, compacted)
+        {
+            QualificationDeferred = lateRead is not null,
+        };
     }
 
-    private (IReadOnlyList<SystemEventRecord>? Events, Unavailable? Problem) ReadEvents(DateTimeOffset since)
+    /// <summary>Lecture du journal Système, bornée par <see cref="EventReadTimeout"/>. Au-delà, la lecture continue en
+    /// tâche de fond (rendue en troisième) : la qualification complète sera réécrite dès qu'elle aboutira, au lieu d'être
+    /// perdue pour toujours. Une lecture tronquée au plafond ne qualifie rien : un arrêt pourrait y manquer.</summary>
+    private (IReadOnlyList<SystemEventRecord>? Events, Unavailable? Problem, Task<SystemEventReadResult>? Late) ReadEvents(DateTimeOffset since)
     {
-        using var cancellation = new CancellationTokenSource();
         try
         {
-            Task<SystemEventReadResult> read = Task.Run(() => _readEventsSince(since, cancellation.Token));
+            Task<SystemEventReadResult> read = Task.Run(() => _readEventsSince(since, CancellationToken.None));
             if (!read.Wait(_eventReadTimeout))
             {
-                cancellation.Cancel();
                 return (null, new Unavailable(UnavailableCause.HardwareOrDriver,
-                    $"journal Système non lu en {_eventReadTimeout.TotalSeconds:0} s au lancement"));
+                    $"journal Système non lu en {_eventReadTimeout.TotalSeconds:0} s au lancement (qualification reprise en arrière-plan)"), read);
             }
 
-            SystemEventReadResult result = read.Result;
-            return (result.Events, result.Problem);
+            return Usable(read.Result) is { } events
+                ? (events, null, null)
+                : (null, read.Result.Problem ?? Truncated(), null);
         }
         catch (Exception ex)
         {
             _log(ex, "reprise au démarrage : lecture du journal Système");
-            return (null, new Unavailable(UnavailableCause.HardwareOrDriver, "lecture du journal Système en échec"));
+            return (null, new Unavailable(UnavailableCause.HardwareOrDriver, "lecture du journal Système en échec"), null);
         }
     }
+
+    private static IReadOnlyList<SystemEventRecord>? Usable(SystemEventReadResult result)
+        => result.Truncated ? null : result.Events;
+
+    private static Unavailable Truncated() => new(UnavailableCause.HardwareOrDriver,
+        $"journal Système tronqué à {SystemEventReader.MaxRecords} événements, qualification impossible");
+
+    /// <summary>Réécrit la cause des opérations reprises quand la lecture en retard aboutit : la dernière ligne
+    /// l'emporte. Ne lève jamais.</summary>
+    private Task RequalifyWhenRead(Task<SystemEventReadResult> read, IReadOnlyList<RecoveredEntry> recovered,
+        IReadOnlyDictionary<Guid, string> notes, DateTimeOffset currentBoot)
+        => read.ContinueWith(task =>
+        {
+            try
+            {
+                if (task.Status != TaskStatus.RanToCompletion || Usable(task.Result) is not { } events) return;
+
+                DateTimeOffset now = _time.GetUtcNow();
+                foreach (RecoveredEntry item in recovered)
+                {
+                    IncidentQualification late = IncidentClassifier.Qualify(item.Entry.StartedUtc, item.Entry.BootUtc, currentBoot, events, now);
+                    _journal.Close(item.Entry.Id, item.Entry.Component, SessionEntryState.Failed,
+                        $"{late.Summary} (qualifié après le lancement){notes.GetValueOrDefault(item.Entry.Id, "")}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _log(ex, "reprise au démarrage : qualification en retard");
+            }
+        }, TaskScheduler.Default);
 
     private RecoveryHandlerOutcome? RunHandler(IStartupRecoveryHandler handler, IReadOnlyList<RecoveredEntry> recovered,
         HashSet<Guid> handled, HashSet<Guid> failed)

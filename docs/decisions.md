@@ -75,6 +75,9 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
     kebab-case ; valeurs = nombres ou mots, jamais un nom d'application ou de fichier (masqués).
   - Écriture courte en ajout, `WriteThrough` puis `Flush(true)`, précédée d'un saut de ligne ; lecture tolérante (fin
     arrachée ignorée). Rétention 30 jours, compactage au lancement seulement.
+  - Une exception non gérée qui tue l'app clôt ses opérations ouvertes (`AbandonAll`). Limite connue : un processus tué
+    de l'extérieur (Gestionnaire des tâches) laisse son opération en cours, et un arrêt anormal de Windows survenu
+    ensuite, avant tout redémarrage, lui est imputé.
   - Reprise : un gestionnaire `IStartupRecoveryHandler` (étape `RecoveryStage`, composants) s'inscrit dans
     `src/PCPerfSuite.App/StartupRecoveryHandlers.cs`. Il reçoit, avant toute fenêtre, ses opérations restées en cours
     avec leur `IncidentQualification`, ne montre aucune fenêtre, et peut lever sans gêner les autres. Le bilan

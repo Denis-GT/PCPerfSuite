@@ -17,7 +17,7 @@ public enum SystemEventKind
     /// <summary>Démarrage de Windows (Kernel-General 12, EventLog 6005).</summary>
     BootStarted,
 
-    /// <summary>Arrêt propre de Windows (Kernel-General 13, EventLog 6006).</summary>
+    /// <summary>Arrêt propre de Windows (Kernel-General 13, Kernel-Power 109, EventLog 6006), Démarrage rapide compris.</summary>
     CleanShutdown,
 
     /// <summary>WHEA-Logger 17, 18, 19 ou 47 : erreur matérielle corrigée (17, 19, 47) ou fatale (18, au démarrage

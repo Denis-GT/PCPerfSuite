@@ -69,7 +69,12 @@ public partial class App : System.Windows.Application
         // Le thread d'interface n'est pas le seul à travailler : la boucle de relevé a le sien, et les
         // ViewModels partent en Task.Run. Une exception y passait jusqu'ici sans laisser la moindre trace.
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
             CrashLog.Record(args.ExceptionObject as Exception, "thread de fond");
+            // L'app va mourir : ses opérations en cours sont closes ici, sinon le prochain arrêt de Windows, même des
+            // heures plus tard, leur serait imputé au lancement suivant.
+            if (args.IsTerminating) SessionJournal.Current.AbandonAll();
+        };
 
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
@@ -116,7 +121,7 @@ public partial class App : System.Windows.Application
             var recovery = new StartupRecovery(
                 SessionJournal.Current,
                 StartupRecoveryHandlers.Create(),
-                (since, cancellationToken) => SystemEventReader.ReadSince(since, cancellationToken: cancellationToken),
+                (since, cancellationToken) => SystemEventReader.ReadSince(since, SystemEventReader.RecoveryKinds, cancellationToken),
                 TimeProvider.System,
                 (exception, origin) => CrashLog.Record(exception, origin));
             return recovery.Run();

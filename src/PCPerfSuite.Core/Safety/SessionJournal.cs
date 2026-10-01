@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using PCPerfSuite.Core.SystemInfo;
@@ -45,10 +46,15 @@ public sealed class SessionJournal
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>Cause écrite pour les opérations ouvertes quand l'app meurt d'une exception non gérée.</summary>
+    public const string CrashedCause = "app plantée (erreur inattendue)";
+
     private readonly Func<string> _path;
     private readonly TimeProvider _time;
     private readonly object _writeGate = new();
-    private string? _lastError;
+    private readonly ConcurrentDictionary<Guid, SessionOperation> _open = new();
+    private string? _lastWriteError;
+    private string? _lastReadError;
 
     /// <summary>Journal de l'app, dans son dossier de données (chemin relu à chaque écriture, mode portable).</summary>
     public static SessionJournal Current { get; } = new(() => AppDataPaths.Current.SessionJournalFile, TimeProvider.System);
@@ -65,8 +71,43 @@ public sealed class SessionJournal
 
     public string FilePath => _path();
 
-    /// <summary>Raison de la dernière écriture ou lecture ratée, null si la dernière a réussi.</summary>
-    public string? LastError => Volatile.Read(ref _lastError);
+    /// <summary>Raison de la dernière écriture ratée (ouverture, clôture, compactage), null si la dernière a réussi.
+    /// Un texte court, sans chemin : il part dans le diagnostic.</summary>
+    public string? LastWriteError => Volatile.Read(ref _lastWriteError);
+
+    /// <summary>Raison de la dernière lecture ratée, null si la dernière a réussi.</summary>
+    public string? LastReadError => Volatile.Read(ref _lastReadError);
+
+    /// <summary>Dernier problème, d'écriture d'abord.</summary>
+    public string? LastError => LastWriteError ?? LastReadError;
+
+    /// <summary>
+    /// Clôt, comme échouées, les opérations encore ouvertes par ce processus : à appeler quand l'app meurt d'une
+    /// exception non gérée. Sans cela, l'opération resterait « en cours » et serait imputée au prochain arrêt de Windows,
+    /// même survenu des heures plus tard (une coupure le soir après un bench planté l'après-midi). Un processus tué de
+    /// l'extérieur (Gestionnaire des tâches) n'a pas cette chance : son opération reste imputée au redémarrage qui suit.
+    /// Renvoie le nombre d'opérations closes ; ne lève jamais.
+    /// </summary>
+    public int AbandonAll(string cause = CrashedCause)
+    {
+        int closed = 0;
+        foreach (SessionOperation operation in _open.Values)
+        {
+            if (operation.Fail(cause)) closed++;
+        }
+        return closed;
+    }
+
+    internal void Forget(Guid id) => _open.TryRemove(id, out _);
+
+    /// <summary>Message court d'une erreur de fichier, sans le chemin que porte <see cref="Exception.Message"/>.</summary>
+    internal static string Describe(Exception exception) => exception switch
+    {
+        UnauthorizedAccessException => "accès refusé au fichier du journal",
+        FileNotFoundException or DirectoryNotFoundException => "dossier du journal introuvable",
+        IOException => "fichier du journal occupé ou disque indisponible",
+        _ => $"erreur {exception.GetType().Name}",
+    };
 
     /// <summary>
     /// Ouvre une opération : écrit tout de suite sa ligne « en cours ». <paramref name="component"/> et
@@ -90,7 +131,9 @@ public sealed class SessionJournal
         };
 
         bool durable = TryAppend(line);
-        return new SessionOperation(this, line.Id, line.Component, durable);
+        var operation = new SessionOperation(this, line.Id, line.Component, durable);
+        if (durable) _open[line.Id] = operation;
+        return operation;
     }
 
     /// <summary>Clôt une opération (celle d'une session précédente, par <see cref="StartupRecovery"/>, ou la sienne par
@@ -128,10 +171,12 @@ public sealed class SessionJournal
         }
         catch (Exception ex)
         {
-            Volatile.Write(ref _lastError, ex.Message);
-            return new SessionJournalContent([], 0, ex.Message);
+            string problem = Describe(ex);
+            Volatile.Write(ref _lastReadError, problem);
+            return new SessionJournalContent([], 0, problem);
         }
 
+        Volatile.Write(ref _lastReadError, null);
         (List<SessionJournalLine> lines, int ignored) = ParseLines(bytes);
         return new SessionJournalContent(Merge(lines), ignored, null);
     }
@@ -178,12 +223,12 @@ public sealed class SessionJournal
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { /* reste un fichier voisin, sans effet */ }
             }
 
-            Volatile.Write(ref _lastError, null);
+            Volatile.Write(ref _lastWriteError, null);
             return true;
         }
         catch (Exception ex)
         {
-            Volatile.Write(ref _lastError, ex.Message);
+            Volatile.Write(ref _lastWriteError, $"compactage : {Describe(ex)}");
             return false;
         }
     }
@@ -215,7 +260,7 @@ public sealed class SessionJournal
                     stream.Write(bytes);
                     stream.Flush(flushToDisk: true);
 
-                    Volatile.Write(ref _lastError, null);
+                    Volatile.Write(ref _lastWriteError, null);
                     return true;
                 }
                 catch (IOException) when (attempt < 3)
@@ -224,7 +269,7 @@ public sealed class SessionJournal
                 }
                 catch (Exception ex)
                 {
-                    Volatile.Write(ref _lastError, ex.Message);
+                    Volatile.Write(ref _lastWriteError, Describe(ex));
                     return false;
                 }
             }
@@ -375,6 +420,7 @@ public sealed class SessionOperation : IDisposable
     private bool Close(SessionEntryState state, string? cause)
     {
         if (Interlocked.Exchange(ref _closed, 1) != 0) return false;
+        _journal.Forget(Id);
         return _journal.Close(Id, Component, state, cause);
     }
 }

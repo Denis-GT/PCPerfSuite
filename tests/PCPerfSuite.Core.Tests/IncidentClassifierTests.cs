@@ -93,6 +93,16 @@ public class IncidentClassifierTests
     }
 
     [Fact]
+    public void SameBoot_WithACleanShutdown_IsACleanShutdown_FastStartup()
+    {
+        // Démarrage rapide : Windows « arrêté » sans vrai redémarrage, l'heure de démarrage ne change pas.
+        IncidentQualification result = IncidentClassifier.Qualify(T, EntryBoot, EntryBoot,
+            [new SystemEventRecord(SystemEventKind.CleanShutdown, 109, At(10))], At(600));
+
+        Assert.Equal(IncidentQualificationKind.CleanShutdown, result.Kind);
+    }
+
+    [Fact]
     public void SameBoot_KeepsATdrThatHappenedDuringTheOperation()
     {
         IncidentQualification result = IncidentClassifier.Qualify(T, EntryBoot, EntryBoot, [Tdr(2)], At(5));

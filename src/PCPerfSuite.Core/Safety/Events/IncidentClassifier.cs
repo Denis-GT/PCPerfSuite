@@ -143,10 +143,16 @@ public static class IncidentClassifier
 
         if (sameBoot)
         {
-            // Windows ne s'est pas arrêté : seule l'app l'a été. Un TDR ou une erreur WHEA pendant l'opération reste utile.
+            // Pas de vrai redémarrage : seule l'app s'est arrêtée, ou Windows a été « arrêté » avec le Démarrage rapide
+            // (le noyau hiberne, l'heure de démarrage ne change pas, mais l'arrêt est journalisé). Un TDR ou une erreur
+            // WHEA pendant l'opération reste utile.
             IReadOnlyList<Incident> live = events is null ? [] : LiveIncidents(events, entryTimeUtc, nowUtc);
-            return new IncidentQualification(IncidentQualificationKind.Interrupted, live,
-                WithLive("interrompu (l'app s'est arrêtée, pas Windows)", live));
+            bool shutDown = events?.Any(e => e.Kind == SystemEventKind.CleanShutdown && e.TimeUtc >= entryTimeUtc) == true;
+            return shutDown
+                ? new IncidentQualification(IncidentQualificationKind.CleanShutdown, live,
+                    WithLive("arrêt normal de Windows (Démarrage rapide)", live))
+                : new IncidentQualification(IncidentQualificationKind.Interrupted, live,
+                    WithLive("interrompu (l'app s'est arrêtée, pas Windows)", live));
         }
 
         if (events is null)

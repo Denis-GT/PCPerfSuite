@@ -56,13 +56,15 @@ internal sealed class AmdThrottleReader : IDisposable
             return new CpuThrottleReading { Source = CpuThrottleSource.WindowsCounters, Unavailable = Unavailable };
         }
 
-        if (_last is not null && Stopwatch.GetElapsedTime(_lastReadTimestamp) < MinInterval) return _last;
+        // Une fois par seconde au plus, lecture réussie ou non : un échec qui se répète ne doit pas envoyer une commande
+        // au SMU à chaque relevé.
+        if (_lastReadTimestamp != 0 && Stopwatch.GetElapsedTime(_lastReadTimestamp) < MinInterval) return _last ?? Fallback();
 
         CpuThrottleReading? reading = TryReadTable();
-        if (reading is null) return _last ?? new CpuThrottleReading { Source = CpuThrottleSource.WindowsCounters, Unavailable = Unavailable };
+        _lastReadTimestamp = Stopwatch.GetTimestamp();
+        if (reading is null) return _last ?? Fallback();
 
         _last = reading;
-        _lastReadTimestamp = Stopwatch.GetTimestamp();
         return reading;
     }
 
@@ -112,13 +114,17 @@ internal sealed class AmdThrottleReader : IDisposable
         return new CpuThrottleReading
         {
             Source = CpuThrottleSource.AmdPmTable,
-            Thermal = limits.ThmAtLimit,
-            PowerLimit = limits.PptAtLimit,
-            CurrentLimit = limits.TdcAtLimit || limits.EdcAtLimit,
+            // Une valeur du moment écartée laisse la raison inconnue, jamais « non bridé ».
+            Thermal = limits.ThmC is null ? null : limits.ThmAtLimit,
+            PowerLimit = limits.PptWatts is null ? null : limits.PptAtLimit,
+            CurrentLimit = limits.TdcAtLimit || limits.EdcAtLimit ? true
+                : limits.TdcAmps is null || limits.EdcAmps is null ? null : false,
             TjMaxC = limits.ThmLimitC is { } thm ? (int)Math.Round(thm) : null,
             Amd = limits,
         };
     }
+
+    private CpuThrottleReading Fallback() => new() { Source = CpuThrottleSource.WindowsCounters, Unavailable = Unavailable };
 
     public void Dispose() => _smu?.Dispose();
 }

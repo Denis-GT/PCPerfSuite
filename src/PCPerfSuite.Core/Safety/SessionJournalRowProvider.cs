@@ -30,7 +30,7 @@ public sealed class SessionJournalRowProvider : ICompatibilityRowProvider
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<CompatibilityRow> GetRows() => [BuildRow(_report, Volatile.Read(ref _content), _journal.LastError)];
+    public IReadOnlyList<CompatibilityRow> GetRows() => [BuildRow(_report, Volatile.Read(ref _content), _journal.LastWriteError)];
 
     public static CompatibilityRow BuildRow(StartupRecoveryReport report, SessionJournalContent? content, string? writeError)
     {
@@ -44,6 +44,7 @@ public sealed class SessionJournalRowProvider : ICompatibilityRowProvider
                 $"{item.Entry.Component} : {IncidentClassifier.Label(item.Qualification.Kind)}"));
             parts.Add($"Au lancement, {Plural(report.Recovered.Count, "opération interrompue", "opérations interrompues")} : {items}.");
             if (report.EventsProblem is { } events) parts.Add($"Qualification incomplète : {events.Reason}.");
+            if (report.QualificationDeferred) parts.Add("La cause complète est réécrite dans le journal dès que Windows a répondu.");
         }
 
         foreach (RecoveryHandlerOutcome outcome in report.Handlers.Where(outcome => !outcome.Succeeded))

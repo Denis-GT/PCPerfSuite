@@ -71,7 +71,8 @@ public sealed class CpuThrottleRowProvider : ICompatibilityRowProvider
             null => "Limitations par le micrologiciel : pas encore lues.",
             { Events: { } events } => events.Count == 0
                 ? $"Aucune limitation par le micrologiciel (Kernel-Processor-Power 37) sur {WindowsEventsRowProvider.Days} jours."
-                : $"Vitesse limitée par le micrologiciel (Kernel-Processor-Power 37) : {events.Count} fois sur {WindowsEventsRowProvider.Days} jours.",
+                : $"Vitesse limitée par le micrologiciel (Kernel-Processor-Power 37) : {Episodes(events)} fois sur {WindowsEventsRowProvider.Days} jours "
+                    + $"({events.Count} événements, Windows en écrit un par processeur logique).",
             { Problem: { } problem } => $"Limitations par le micrologiciel : N/D ({problem.Reason}).",
             _ => "",
         });
@@ -85,6 +86,20 @@ public sealed class CpuThrottleRowProvider : ICompatibilityRowProvider
     }
 
     private static string Count(int? value) => value is { } v ? v.ToString() : "N/D";
+
+    /// <summary>Épisodes de limitation : les événements écrits à moins de 2 minutes d'écart (un par processeur logique,
+    /// au même démarrage) n'en font qu'un.</summary>
+    internal static int Episodes(IEnumerable<SystemEventRecord> events)
+    {
+        int episodes = 0;
+        DateTimeOffset? last = null;
+        foreach (DateTimeOffset time in events.Select(e => e.TimeUtc).Order())
+        {
+            if (last is not { } previous || time - previous > TimeSpan.FromMinutes(2)) episodes++;
+            last = time;
+        }
+        return episodes;
+    }
 
     private static string FineReasons(IntelPerfLimitReasons fine)
     {

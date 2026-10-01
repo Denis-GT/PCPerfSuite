@@ -13,6 +13,7 @@ public class SystemEventReaderTests
     [InlineData("EventLog", 6005, SystemEventKind.BootStarted)]
     [InlineData("Microsoft-Windows-Kernel-General", 12, SystemEventKind.BootStarted)]
     [InlineData("Microsoft-Windows-Kernel-General", 13, SystemEventKind.CleanShutdown)]
+    [InlineData("Microsoft-Windows-Kernel-Power", 109, SystemEventKind.CleanShutdown)]
     [InlineData("Microsoft-Windows-WHEA-Logger", 18, SystemEventKind.HardwareError)]
     [InlineData("Display", 4101, SystemEventKind.DisplayDriverReset)]
     [InlineData("disk", 153, SystemEventKind.DiskError)]
@@ -41,7 +42,7 @@ public class SystemEventReaderTests
         Assert.Contains("EventID=41 or", query);
         Assert.Contains("EventID=4101", query);
         Assert.EndsWith("and TimeCreated[timediff(@SystemTime) <= 1000]]]", query);
-        Assert.Equal(16, query.Split("EventID=").Length - 1);
+        Assert.Equal(17, query.Split("EventID=").Length - 1);
     }
 
     [Fact]

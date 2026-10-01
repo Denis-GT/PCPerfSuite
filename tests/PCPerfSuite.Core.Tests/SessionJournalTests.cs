@@ -230,6 +230,34 @@ public class SessionJournalTests : IDisposable
     }
 
     [Fact]
+    public void AbandonAll_ClosesTheOpenOperations_AndOnlyThem()
+    {
+        SessionOperation open = _journal.Begin("bench", "cpu");
+        SessionOperation done = _journal.Begin("bench", "gpu");
+        done.Complete();
+
+        Assert.Equal(1, _journal.AbandonAll());
+
+        SessionJournalContent content = _journal.Read();
+        SessionJournalEntry abandoned = content.Entries.Single(entry => entry.Id == open.Id);
+        Assert.Equal(SessionEntryState.Failed, abandoned.State);
+        Assert.Equal(SessionJournal.CrashedCause, abandoned.Cause);
+        Assert.Equal(SessionEntryState.Completed, content.Entries.Single(entry => entry.Id == done.Id).State);
+        Assert.Equal(0, _journal.AbandonAll());
+    }
+
+    [Fact]
+    public void ErrorMessages_NeverCarryThePath()
+    {
+        var journal = new SessionJournal(_dir.Root, _clock);
+
+        journal.Begin("bench", "cpu");
+
+        Assert.NotNull(journal.LastWriteError);
+        Assert.DoesNotContain(_dir.Root, journal.LastWriteError);
+    }
+
+    [Fact]
     public void Close_RefusesInProgress()
     {
         SessionOperation operation = _journal.Begin("bench", "cpu");
