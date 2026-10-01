@@ -135,28 +135,9 @@ public sealed class WindowsPerformanceSettingsService
                 },
                 // HKCU : le réglage appartient au profil de l'utilisateur, pas à la machine.
                 RequiresElevation = false,
+                TargetsUserProfile = true,
                 Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
                     @"Software\Microsoft\GameBar", "AutoGameModeEnabled", enable ? 1 : 0),
-            },
-
-            new()
-            {
-                Id = "visual-effects-performance",
-                Name = "Effets visuels : privilégier les performances",
-                Category = "Interface",
-                Description = "Équivalent de Panneau de configuration → Performances → \"Ajuster afin d'obtenir les meilleures performances\" : coupe animations, ombres et transparences.",
-                GetState = () =>
-                {
-                    int? value = RegistryHelper.ReadDword(RegistryHive.CurrentUser,
-                        @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting");
-                    // Valeur absente = réglage par défaut de Windows ("Laisser Windows choisir"), qui
-                    // n'active pas ce mode "performances" (équivalent à 0/1/3).
-                    return value == 2 ? TweakState.Enabled : TweakState.Disabled;
-                },
-                // HKCU, comme le Mode Jeu : aucune élévation nécessaire.
-                RequiresElevation = false,
-                Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
-                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting", enable ? 2 : 0),
             },
 
             new()

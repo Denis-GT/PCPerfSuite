@@ -31,6 +31,10 @@ public sealed class PerformanceTweak
     /// de rester dans une position qui ne correspond à rien.</summary>
     public bool IsReadOnly { get; init; }
 
+    /// <summary>Vrai quand le réglage s'écrit dans le profil (HKCU) : app élevée sous un autre compte que celui devant
+    /// l'écran (<c>SessionUser.IsOtherProfile</c>), il réglerait le profil de l'administrateur, et il est grisé.</summary>
+    public bool TargetsUserProfile { get; init; }
+
     public required Func<TweakState> GetState { get; init; }
     public required Action<bool> Apply { get; init; }
 }
