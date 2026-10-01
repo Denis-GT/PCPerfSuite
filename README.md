@@ -27,8 +27,9 @@ le lancement.
 
 Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings.json`
 (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
-des ventilateurs au démarrage et à la fermeture), et le témoin du contrôle GPU AMD
-(`adlx-plantage.temoin`). Seuls les installeurs téléchargés passent par un dossier temporaire
+des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU AMD
+(`adlx-plantage.temoin`) et le journal de session (`journal-session.jsonl` : opérations risquées en
+cours, reprises au lancement suivant, gardées 30 jours). Seuls les installeurs téléchargés passent par un dossier temporaire
 (`%TEMP%\PCPerfSuite`).
 
 Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
@@ -369,6 +370,18 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   température mémoire (junction) n'existe que sur les GPU NVIDIA en GDDR6X.
 - **Paramètres › Compatibilité de ce PC** résume ce qui est lu et pilotable sur la machine, et
   pourquoi le reste manque. « Copier le rapport » en fait un texte à joindre à un signalement.
+  On y trouve aussi :
+  - **Raisons de bridage CPU** : ce qui bridait le processeur au dernier relevé (thermique,
+    PROCHOT, puissance), TjMax, fréquences, et les limitations par le micrologiciel journalisées
+    par Windows. Lu dans les registres MSR (Intel) ou la PM table (AMD, **expérimental**, Ryzen
+    3000, 5000 et 5000H seulement) avec PawnIO, sinon dans les compteurs de Windows, qui ne
+    donnent qu'un indice. Rien n'est jamais écrit dans le processeur.
+  - **Journaux Windows** : arrêts brutaux, écrans bleus, arrêts inattendus, TDR du pilote
+    graphique, erreurs matérielles WHEA et erreurs de disque des 30 derniers jours. Seuls les
+    types et les codes sont repris, jamais le texte des messages, qui peut nommer des applications.
+  - **Journal de session** : les opérations risquées interrompues au dernier arrêt, et ce qui leur
+    est arrivé d'après Windows (interrompu, arrêt brutal, écran bleu…). Un « arrêt brutal » dit un
+    indice compatible avec une coupure ou une alimentation qui décroche, jamais une certitude.
 - **Paramètres › Installations** liste les deux logiciels externes dont l'app a besoin, avec leur
   état (installé ou non, version) et à quoi ils servent :
   - **PawnIO** : le bouton télécharge la dernière version de l'installeur depuis le dépôt GitHub
