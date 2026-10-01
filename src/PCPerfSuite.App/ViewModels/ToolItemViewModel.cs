@@ -30,6 +30,14 @@ public sealed partial class ToolItemViewModel : ObservableObject
     private CancellationTokenSource? _operation;
     private PrimaryAction _primary;
 
+    /// <summary>Un installeur lancé d'ici tournait encore au bout du délai d'attente : tant que l'outil n'apparaît pas
+    /// installé, la ligne ne propose pas d'en lancer un second.</summary>
+    private bool _installerStillOpen;
+
+    /// <summary>Augmenté avant chaque relecture d'un seul outil : une relecture de toute la page, partie avant, ne
+    /// réécrit pas l'état de cette ligne avec ce qu'elle avait lu plus tôt.</summary>
+    internal int StateGeneration { get; set; }
+
     public ToolItemViewModel(ToolDefinition definition, ToolboxViewModel owner)
     {
         Definition = definition;
@@ -160,6 +168,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
 
         ToolDelivery delivery = Definition.Delivery;
         bool present = State.IsPresent;
+        if (present) _installerStillOpen = false;
         string version = State.Version is { Length: > 0 } v ? $" ({v})" : "";
         bool hasRelease = Release is not null;
         bool newer = present && hasRelease && ToolVersion.IsNewer(Release!.Version, State.Version);
@@ -179,6 +188,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
             ToolDelivery.PortableExe or ToolDelivery.PortableZip => present
                 ? ($"Portable prêt{version}", PrimaryAction.Launch)
                 : ("Non installé", PrimaryAction.InstallPortable),
+            _ when _installerStillOpen && !present => ("Installeur ouvert", PrimaryAction.None),
             _ => present
                 ? ($"Installé{version}", State.ExecutablePath is not null ? PrimaryAction.Launch : PrimaryAction.None)
                 : ("Non installé", PrimaryAction.RunInstaller),
@@ -256,6 +266,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
 
         // La version confirmée, pas celle que le catalogue aurait pu prendre pendant que la question était ouverte.
         ToolActionOutcome outcome = await ToolboxActions.RunInstallerAsync(Definition, r, Progress(), token);
+        _installerStillOpen = outcome.StillRunning;
         ShowOutcome(outcome);
         await _owner.RefreshItemAsync(this);
     }
@@ -263,7 +274,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
     private Task LaunchAsync()
     {
         ToolInstallState state = State;
-        return RunBusyAsync(async _ =>
+        return RunBusyAsync(cancellable: false, action: async _ =>
         {
             Message = "Vérification…";
             ToolActionOutcome outcome = await Task.Run(() => ToolboxActions.Launch(Definition, state));
@@ -279,7 +290,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
             "Il se réinstalle d'un clic.");
         if (!confirmed) return Task.CompletedTask;
 
-        return RunBusyAsync(async _ =>
+        return RunBusyAsync(cancellable: false, action: async _ =>
         {
             Message = "Suppression…";
             ToolActionOutcome outcome = await Task.Run(() => ToolboxActions.RemovePortable(Definition));
@@ -297,7 +308,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
             "winget s'ouvre dans sa propre fenêtre et peut te demander d'accepter des conditions.");
         if (!confirmed) return Task.CompletedTask;
 
-        return RunBusyAsync(async _ => Message = (await Task.Run(() => WingetFallback.Install(Definition))).Message);
+        return RunBusyAsync(cancellable: false, action: async _ => Message = (await Task.Run(() => WingetFallback.Install(Definition))).Message);
     }
 
     private void OpenPage()
@@ -332,13 +343,17 @@ public sealed partial class ToolItemViewModel : ObservableObject
         if (text == OfficialInstaller.InstallingMessage) CanCancel = false;
     });
 
-    private async Task RunBusyAsync(Func<CancellationToken, Task> action)
+    private Task RunBusyAsync(Func<CancellationToken, Task> action) => RunBusyAsync(cancellable: true, action);
+
+    /// <summary><paramref name="cancellable"/> faux : l'action ne lit pas le jeton (lancement, suppression), « Annuler »
+    /// n'est donc pas proposé.</summary>
+    private async Task RunBusyAsync(bool cancellable, Func<CancellationToken, Task> action)
     {
         _operation?.Dispose();
         _operation = new CancellationTokenSource();
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(_operation.Token, _owner.ShutdownToken);
         IsBusy = true;
-        CanCancel = true;
+        CanCancel = cancellable;
         Message = null;
         try
         {

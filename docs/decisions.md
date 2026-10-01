@@ -36,11 +36,11 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   AppDataPaths, jamais un `Path.Combine` sur `Root` ailleurs ; on relit le chemin au moment d'écrire, sans le figer
   dans un champ statique. Noms réservés : `bench\` (#10), `rapports\` (#12, rapports et étalons), `usage.json` (#9),
   le journal de session (#4, nom et format choisis et documentés ici par #4), un journal des opérations disque (#19),
-  `sauvegardes-pilotes\` comme dossier proposé par défaut (#18), `catalogue-outils.json` et `catalogue-outils.json.sig`
-  (dernier catalogue en ligne accepté, #7). La racine se choisit une seule fois, en tête
+  `sauvegardes-pilotes\` comme dossier proposé par défaut (#18). La racine se choisit une seule fois, en tête
   d'`App.OnStartup`, par `AppDataPaths.TryUseRoot` (#13 : racine portable si `portable.flag` est à côté de l'exe).
   **Hors de ce dossier, volontairement** : `%ProgramData%\PCPerfSuite` (dossier sécurisé de #7 : `Installations\` pour
-  les dossiers de travail d'OfficialInstaller, `Tools\` pour les outils portables, `catalogue-outils.plancher`, demain
+  les dossiers de travail d'OfficialInstaller, `Tools\` pour les outils portables, le dernier catalogue d'outils accepté
+  `catalogue-outils.json` et `.sig` avec son plancher `catalogue-outils.plancher`, partagés par tous les comptes, demain
   les fichiers de bench) et, seulement si l'app tourne sans élévation, `%TEMP%\PCPerfSuite` pour ses installeurs. Tout
   fichier téléchargé, qu'il soit lancé ensuite ou remis à l'utilisateur, est vérifié dans un dossier que seuls les
   administrateurs peuvent modifier : jamais sous AppDataPaths, modifiable par tout programme de la session et qui peut
@@ -121,7 +121,7 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
 | Signature des fichiers publiés par Denis `CatalogSignature` (ECDSA P-256, IEEE P1363, contexte signé avec le contenu) ; outil `tools/catalogue/depot/outils/signer.cs` | #7 | `src/PCPerfSuite.Core/Installations/CatalogSignature.cs` | livrée ; pour la table de scores de #12 (même clé, autre contexte) |
 | Lancement sans élévation `UnelevatedLauncher.TryLaunch`, `TryShowInExplorer` (ShellExecute par le shell du bureau ; aucun repli lancé par le processus élevé, pas même explorer.exe : sans shell, échec avec le chemin) | #7 | `src/PCPerfSuite.Core/Installations/UnelevatedLauncher.cs` | livrée ; pour #18 (DDU), #23 (OpenRGB) |
 | Catalogue d'outils : définitions figées `ToolCatalog` (hôtes, éditeur relevé sur le vrai fichier ou non signé, type, détection, licence), versions signées `ToolCatalogStore` (copie intégrée, cache revérifié, catalogue en ligne pris seulement s'il est signé et plus récent), actions `ToolboxActions`, détection `ToolDetection`, registre `ToolboxChanges`, ligne `ToolboxRowProvider`. Relevé du 01/10/2026 : non signés Prime95, FurMark 2, y-cruncher, 7-Zip et **OpenRGB 1.0 (MSI et zip)** ; OpenRGB publie les mêmes fichiers sur GitHub (CalcProgrammer1, que suit winget) et sur Codeberg | #7 | `src/PCPerfSuite.Core/Installations/ToolCatalog*.cs`, `Toolbox*.cs` ; génération et signature : `tools/catalogue/` | livrée (expérimental) ; #18 (DDU), #23 (OpenRGB : à installer par l'utilisateur, faute de signature) |
-| Dossier Téléchargements de la personne devant l'écran `UserDownloads` (publics si `SessionUser.IsOtherProfile`, nom libre, marque « venu d'Internet ») | #7 | `src/PCPerfSuite.Core/Installations/UserDownloads.cs` | livrée ; pour #18 (sauvegardes proposées), #13 |
+| Dépôt d'un fichier dans les Téléchargements de la personne connectée `UserDownloads.TryDeposit` : copie sous le jeton du shell de la session (explorer.exe), jamais en administrateur, donc seulement là où l'utilisateur peut écrire lui-même (Téléchargements redirigés, jonctions, noms courts : Windows juge) ; nom libre, marque « venu d'Internet » ; compte connecté même si l'app tourne sous un autre compte | #7 | `src/PCPerfSuite.Core/Installations/UserDownloads.cs` | livrée ; pour #18 (sauvegardes proposées), #13 |
 | API appliquer/capturer des onglets Processeur, GPU et Ventilateurs, orchestrateur des groupes | #8 | `src/PCPerfSuite.Core/Profiles/` | prévue |
 | Bail de réglage `TuningLease` (un seul pilote automatique des réglages CPU/GPU/ventilateurs à la fois) | #8 | `src/PCPerfSuite.Core/Profiles/` | prévue |
 | `ApplicationMatch` (chemin complet normalisé, éditeur facultatif) et lecteur du premier plan | #9 | `src/PCPerfSuite.Core/Processes/` | prévue |

@@ -11,13 +11,6 @@
             <controls:PageHeader Title="Boîte à outils"
                                  Subtitle="Les outils utiles au diagnostic et au réglage, téléchargés depuis leur source officielle et vérifiés avant d'être gardés."/>
 
-            <!-- App lancée sous un autre compte : les fichiers ne vont pas dans les Téléchargements de la personne devant l'écran. -->
-            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,12"
-                    Visibility="{Binding OtherProfileMessage, Converter={StaticResource NullToVisibility}}">
-                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
-                         Text="{Binding OtherProfileMessage, Mode=OneTime}"/>
-            </Border>
-
             <!-- Catalogue en ligne refusé pour une raison qui mérite d'être vue (signature, retour en arrière). -->
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,12"
                     Visibility="{Binding CatalogWarning, Converter={StaticResource NullToVisibility}}">

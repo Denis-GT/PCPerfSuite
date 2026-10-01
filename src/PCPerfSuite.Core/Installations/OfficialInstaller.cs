@@ -56,9 +56,10 @@ public sealed record OfficialInstallerSource(
 /// <paramref name="ExitCode"/> est le code rendu par l'installeur, null s'il n'a pas été lancé ou pas attendu jusqu'au
 /// bout : chaque installeur a ses propres codes, c'est à l'appelant, qui le connaît, de les interpréter.
 /// <paramref name="Failure"/> : nature d'un échec survenu avant le lancement (lien mort, fichier différent…), pour
-/// proposer la bonne suite.</summary>
+/// proposer la bonne suite. <paramref name="StillRunning"/> : l'installeur tourne encore au bout du délai d'attente ;
+/// son dossier de travail est laissé en place, et il ne faut pas en relancer un second.</summary>
 public readonly record struct InstallOutcome(bool Succeeded, string Message, int? ExitCode = null,
-    DownloadFailureKind Failure = DownloadFailureKind.None);
+    DownloadFailureKind Failure = DownloadFailureKind.None, bool StillRunning = false);
 
 /// <summary>Pourquoi un téléchargement a échoué : de quoi proposer la bonne suite (page officielle, winget, réessayer).</summary>
 public enum DownloadFailureKind
@@ -144,6 +145,7 @@ public static class OfficialInstaller
         OfficialInstallerSource source, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         string? folder = null;
+        bool keepFolder = false;
         try
         {
             ValidateSource(source);
@@ -161,8 +163,10 @@ public static class OfficialInstaller
             progress?.Report("Téléchargement…");
             await DownloadAsync(source, path, progress, cancellationToken).ConfigureAwait(false);
 
-            return await RunVerifiedAsync(path, source.Kind, source.ExpectedPublisher, source.Arguments, progress, cancellationToken)
+            InstallOutcome outcome = await RunVerifiedAsync(path, source.Kind, source.ExpectedPublisher, source.Arguments, progress, cancellationToken)
                 .ConfigureAwait(false);
+            keepFolder = outcome.StillRunning;
+            return outcome;
         }
         catch (Exception ex)
         {
@@ -170,7 +174,8 @@ public static class OfficialInstaller
         }
         finally
         {
-            if (folder is not null) DeleteWorkFolder(folder);
+            // Installeur encore en cours : son dossier reste, PurgeStaleWorkFolders le reprendra plus tard.
+            if (folder is not null && !keepFolder) DeleteWorkFolder(folder);
         }
     }
 
@@ -237,6 +242,9 @@ public static class OfficialInstaller
             {
                 VerifyHeader(locked, kind);
                 VerifySignature(locked, path, expectedPublisher);
+
+                // Dernier moment où « Annuler » (ou la fermeture de l'app) a un effet : ensuite, l'installeur est lancé.
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch
             {
@@ -313,28 +321,51 @@ public static class OfficialInstaller
     /// <summary>Efface les dossiers de travail de plus de <paramref name="olderThan"/> laissés par une opération
     /// interrompue (app fermée pendant un téléchargement, extraction coupée). Best-effort, à appeler hors du thread
     /// d'interface.</summary>
+    /// <remarks>Élevée, l'app ne purge que %ProgramData%\PCPerfSuite (Installations, et les « .partiel-* » des outils
+    /// portables), jamais %TEMP% : un programme non élevé de la session y fait ce qu'il veut, jonctions comprises, et une
+    /// purge en administrateur qui suivrait l'une d'elles effacerait des dossiers de Windows.</remarks>
     public static void PurgeStaleWorkFolders(TimeSpan olderThan)
     {
-        foreach (string? root in new[]
-                 {
-                     ProgramDataFolder.TryGetExisting(ProgramDataFolder.WorkFolderName),
-                     Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations"),
-                 })
+        if (!ElevationHelper.IsAdministrator())
         {
-            PurgeStaleChildren(root, olderThan);
+            PurgeStaleChildren(Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations"), olderThan, IsWorkFolderName);
+            return;
+        }
+
+        PurgeStaleChildren(ProgramDataFolder.TryGetExisting(ProgramDataFolder.WorkFolderName), olderThan, IsWorkFolderName);
+        if (ProgramDataFolder.TryGetExisting(ProgramDataFolder.ToolsFolderName) is not { } tools) return;
+
+        foreach (string tool in Directory.EnumerateDirectories(tools, "*", NoLinks))
+        {
+            PurgeStaleChildren(tool, olderThan, name => name.StartsWith(PartialFolderPrefix, StringComparison.Ordinal));
         }
     }
 
-    /// <summary>Sous-dossiers de <paramref name="root"/> plus anciens que <paramref name="olderThan"/>, effacés.</summary>
-    internal static void PurgeStaleChildren(string? root, TimeSpan olderThan)
+    /// <summary>Préfixe des dossiers de travail d'un outil portable, sous Tools\&lt;id&gt;.</summary>
+    public const string PartialFolderPrefix = ".partiel-";
+
+    private static readonly EnumerationOptions NoLinks = new() { AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = false };
+
+    /// <summary>Nom d'un dossier créé par <see cref="CreateWorkFolder"/> (Guid sans tirets).</summary>
+    private static bool IsWorkFolderName(string name) => Guid.TryParseExact(name, "N", out _);
+
+    /// <summary>Sous-dossiers de <paramref name="root"/> plus anciens que <paramref name="olderThan"/> et portant un nom de
+    /// dossier de travail, effacés. Rien n'est fait si la racine ou l'un de ses parents est un lien, et un sous-dossier
+    /// qui en est un est ignoré : la purge ne sort jamais du dossier.</summary>
+    internal static void PurgeStaleChildren(string? root, TimeSpan olderThan, Func<string, bool> isOurs)
     {
         try
         {
             if (root is null || !Directory.Exists(root)) return;
-            DateTime limit = DateTime.UtcNow - olderThan;
-            foreach (string child in Directory.EnumerateDirectories(root))
+            for (DirectoryInfo? folder = new(root); folder is not null; folder = folder.Parent)
             {
-                if (Directory.GetCreationTimeUtc(child) < limit) DeleteWorkFolder(child);
+                if ((folder.Attributes & FileAttributes.ReparsePoint) != 0) return;
+            }
+
+            DateTime limit = DateTime.UtcNow - olderThan;
+            foreach (string child in Directory.EnumerateDirectories(root, "*", NoLinks))
+            {
+                if (isOurs(Path.GetFileName(child)) && Directory.GetCreationTimeUtc(child) < limit) DeleteWorkFolder(child);
             }
         }
         catch
@@ -637,8 +668,8 @@ public static class OfficialInstaller
                 catch (OperationCanceledException)
                 {
                     return new InstallOutcome(false,
-                        $"L'installeur tourne encore après {InstallTimeout.TotalMinutes:0} minutes. Laisse-le finir, puis reviens dans " +
-                        "PCPerfSuite : l'état se relit au retour de la fenêtre.");
+                        $"L'installeur tourne encore après {InstallTimeout.TotalMinutes:0} minutes. Laisse-le finir sans en relancer un autre, " +
+                        "puis reviens dans PCPerfSuite : l'état se relit au retour de la fenêtre.", StillRunning: true);
                 }
 
                 int exitCode = process.ExitCode;

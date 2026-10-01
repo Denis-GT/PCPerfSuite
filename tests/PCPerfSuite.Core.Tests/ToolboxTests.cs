@@ -232,19 +232,26 @@ public class ToolboxTests
     }
 
     [Fact]
-    public void La_mise_a_jour_reprend_les_reglages_mais_jamais_les_programmes()
+    public void La_mise_a_jour_reprend_ce_que_l_outil_a_cree_mais_jamais_ce_que_l_editeur_livrait()
     {
         using var temp = new TempDirectory();
         string old = Path.Combine(temp.Root, "9.9.2");
         string fresh = Path.Combine(temp.Root, "9.9.3");
-        Directory.CreateDirectory(Path.Combine(old, "Smart", "disque1"));
+        Directory.CreateDirectory(Path.Combine(old, "CdiResource", "language"));
         Directory.CreateDirectory(fresh);
+        File.WriteAllText(Path.Combine(old, "DiskInfo64.exe"), "ancien programme");
+        File.WriteAllText(Path.Combine(old, "LisezMoi.txt"), "ancien texte");
+        File.WriteAllText(Path.Combine(old, "CdiResource", "language", "Ancienne.lang"), "langue retirée par l'éditeur");
+        ToolboxActions.WriteShippedFilesManifest(old);
+
+        // Créés ensuite par l'outil.
+        Directory.CreateDirectory(Path.Combine(old, "Smart", "disque1"));
         File.WriteAllText(Path.Combine(old, "DiskInfo.ini"), "mes réglages");
         File.WriteAllText(Path.Combine(old, "Smart", "disque1", "historique.csv"), "températures");
-        File.WriteAllText(Path.Combine(old, "DiskInfo64.exe"), "ancien programme");
-        File.WriteAllText(Path.Combine(old, "ancienne.dll"), "ancienne bibliothèque");
-        File.WriteAllText(Path.Combine(old, "LisezMoi.txt"), "ancien texte");
+        File.WriteAllText(Path.Combine(old, "greffon.dll"), "bibliothèque ajoutée");
+        File.WriteAllText(Path.Combine(old, "Conflit"), "fichier dont la place est prise par un dossier");
         File.WriteAllText(Path.Combine(fresh, "LisezMoi.txt"), "nouveau texte");
+        Directory.CreateDirectory(Path.Combine(fresh, "Conflit"));
 
         int kept = ToolboxActions.CarryOverSettings(old, fresh);
 
@@ -252,8 +259,23 @@ public class ToolboxTests
         Assert.Equal("mes réglages", File.ReadAllText(Path.Combine(fresh, "DiskInfo.ini")));
         Assert.True(File.Exists(Path.Combine(fresh, "Smart", "disque1", "historique.csv")));
         Assert.False(File.Exists(Path.Combine(fresh, "DiskInfo64.exe")));
-        Assert.False(File.Exists(Path.Combine(fresh, "ancienne.dll")));
+        Assert.False(File.Exists(Path.Combine(fresh, "greffon.dll")));
+        Assert.False(File.Exists(Path.Combine(fresh, "CdiResource", "language", "Ancienne.lang")));
         Assert.Equal("nouveau texte", File.ReadAllText(Path.Combine(fresh, "LisezMoi.txt")));
+        Assert.True(Directory.Exists(Path.Combine(fresh, "Conflit")));
+    }
+
+    [Fact]
+    public void Sans_liste_des_fichiers_livres_rien_n_est_repris()
+    {
+        using var temp = new TempDirectory();
+        string old = Path.Combine(temp.Root, "ancienne");
+        string fresh = Path.Combine(temp.Root, "nouvelle");
+        Directory.CreateDirectory(old);
+        Directory.CreateDirectory(fresh);
+        File.WriteAllText(Path.Combine(old, "reglages.ini"), "x");
+
+        Assert.Equal(0, ToolboxActions.CarryOverSettings(old, fresh));
     }
 
     [Fact]
@@ -264,20 +286,56 @@ public class ToolboxTests
     }
 
     [Fact]
-    public void L_app_elevee_ne_depose_rien_dans_un_dossier_de_Windows_ni_par_une_jonction()
+    public void Le_fichier_depose_sous_le_jeton_de_l_utilisateur_est_marque_comme_venu_d_Internet()
     {
         using var temp = new TempDirectory();
+        string source = temp.File("source.zip");
+        File.WriteAllText(source, "contenu vérifié");
+        string downloads = Path.Combine(temp.Root, "Telechargements");
+        Directory.CreateDirectory(downloads);
+        File.WriteAllText(Path.Combine(downloads, "outil.zip"), "déjà là");
+        using Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token = UserDownloads.CurrentToken()!;
 
-        Assert.NotNull(UserDownloads.RefusalReason(Environment.SystemDirectory));
-        Assert.NotNull(UserDownloads.RefusalReason(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
-        Assert.NotNull(UserDownloads.RefusalReason(Path.Combine(temp.Root, "absent")));
-        Assert.Null(UserDownloads.RefusalReason(temp.Root));
+        DepositResult? deposit = UserDownloads.DepositAs(token, source, downloads, "outil.zip", new Uri("https://editeur.example/outil.zip"), out string? error);
 
-        string target = Path.Combine(temp.Root, "cible");
-        Directory.CreateDirectory(target);
-        string link = Path.Combine(temp.Root, "lien");
-        Assert.True(Junctions.TryCreate(link, target), "mklink /J ne demande aucun droit particulier : la jonction doit exister.");
-        Assert.Contains("lien", UserDownloads.RefusalReason(link));
+        Assert.True(deposit is not null, error);
+        Assert.Equal(Path.Combine(downloads, "outil (2).zip"), deposit!.Path);
+        Assert.Equal("contenu vérifié", File.ReadAllText(deposit.Path));
+        Assert.Contains("ZoneId=3", File.ReadAllText(deposit.Path + ":Zone.Identifier"));
+    }
+
+    [Fact]
+    public void Un_dossier_ou_l_utilisateur_ne_peut_pas_ecrire_ne_recoit_rien()
+    {
+        // C'est Windows qui juge, avec les droits de l'utilisateur : un dossier qui lui refuse l'écriture (comme
+        // C:\Windows pour un compte standard) ne reçoit rien, quel que soit le chemin qui y mène.
+        using var temp = new TempDirectory();
+        string source = temp.File("source.zip");
+        File.WriteAllText(source, "x");
+        string locked = Path.Combine(temp.Root, "interdit");
+        var info = new DirectoryInfo(locked);
+        info.Create();
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(me,
+            System.Security.AccessControl.FileSystemRights.CreateFiles | System.Security.AccessControl.FileSystemRights.WriteData,
+            System.Security.AccessControl.AccessControlType.Deny);
+        System.Security.AccessControl.DirectorySecurity security = info.GetAccessControl();
+        security.AddAccessRule(deny);
+        info.SetAccessControl(security);
+        try
+        {
+            using Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token = UserDownloads.CurrentToken()!;
+
+            DepositResult? deposit = UserDownloads.DepositAs(token, source, locked, "outil.zip", new Uri("https://editeur.example/outil.zip"), out string? error);
+
+            Assert.Null(deposit);
+            Assert.Contains("ne peut pas écrire", error);
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            info.SetAccessControl(security);
+        }
     }
 
     // Registre des modifications

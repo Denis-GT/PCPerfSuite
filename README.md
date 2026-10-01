@@ -29,12 +29,12 @@ Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings
 (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
 des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU AMD
 (`adlx-plantage.temoin`) et le journal de session (`journal-session.jsonl` : opérations risquées en
-cours, reprises au lancement suivant, gardées 30 jours). La Boîte à outils y gardera son dernier
-catalogue en ligne (`catalogue-outils.json` et sa signature). Ce qui est téléchargé passe par
+cours, reprises au lancement suivant, gardées 30 jours). Ce que la Boîte à outils télécharge passe par
 `%ProgramData%\PCPerfSuite`, que seuls les administrateurs peuvent modifier : `Installations\` pour un
-fichier en cours de vérification, `Tools\` pour les outils portables, et le plus haut numéro de
-catalogue accepté (`catalogue-outils.plancher`). Lancée sans droits administrateur, l'app se replie
-sur `%TEMP%\PCPerfSuite` pour ses installeurs.
+fichier en cours de vérification, `Tools\` pour les outils portables, et, pour tous les comptes du PC,
+le dernier catalogue en ligne accepté (`catalogue-outils.json` et sa signature) avec le plus haut numéro
+accepté (`catalogue-outils.plancher`). Lancée sans droits administrateur, l'app se replie sur
+`%TEMP%\PCPerfSuite` pour ses installeurs.
 
 Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
 page sont dans `docs/navigation.md` ; les décisions transverses et les briques partagées dans
@@ -410,8 +410,10 @@ Ce dossier est créé avec une liste d'accès protégée (administrateurs et SYS
 en lecture) et le niveau d'intégrité « Élevé ». Un dossier déjà créé par un autre compte, ou une
 jonction, est refusé. « Supprimer » efface l'outil. Un installeur s'ouvre après confirmation
 (« Non » par défaut) : l'app est administrateur, il n'y aura pas d'autre invite. Les fichiers
-téléchargés seuls arrivent vérifiés dans tes Téléchargements, marqués comme venus d'Internet. Si l'app
-tourne sous un autre compte que le tien, ils vont dans les Téléchargements publics.
+téléchargés seuls arrivent vérifiés dans tes Téléchargements, marqués comme venus d'Internet. La copie se
+fait avec tes droits à toi (ceux du bureau), jamais en administrateur : même un dossier Téléchargements
+redirigé ailleurs ne reçoit que ce que ton compte pourrait y écrire lui-même. Elle va dans les
+Téléchargements du compte connecté, même si l'app tourne sous un autre compte administrateur.
 
 **Lancer.** Un outil est lancé par le shell du bureau, avec tes droits habituels et non ceux,
 administrateur, de PCPerfSuite. S'il a besoin d'être administrateur, Windows te le demande. Un

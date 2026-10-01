@@ -3,13 +3,15 @@ using PCPerfSuite.Core.PowerSettings;
 namespace PCPerfSuite.Core.Installations;
 
 /// <summary>Issue d'une action de la Boîte à outils, avec un message prêt à afficher. <paramref name="Path"/> : fichier
-/// déposé pour l'utilisateur. <paramref name="ExitCode"/> : code rendu par un installeur.</summary>
+/// déposé pour l'utilisateur. <paramref name="ExitCode"/> : code rendu par un installeur. <paramref name="StillRunning"/> :
+/// l'installeur tourne encore au bout du délai d'attente, il ne faut pas en relancer un second.</summary>
 public sealed record ToolActionOutcome(
     bool Succeeded,
     string Message,
     DownloadFailureKind Failure = DownloadFailureKind.None,
     string? Path = null,
-    int? ExitCode = null);
+    int? ExitCode = null,
+    bool StillRunning = false);
 
 /// <summary>
 /// Ce que la Boîte à outils fait d'un outil : le remettre dans Téléchargements, le déposer en portable dans le dossier
@@ -29,7 +31,11 @@ public static class ToolboxActions
     /// <summary>Code de l'installeur de PawnIO quand cette version est déjà installée.</summary>
     private const int AlreadyInstalledExitCode = 183;
 
-    private const string WorkFolderPrefix = ".partiel-";
+    private const string WorkFolderPrefix = OfficialInstaller.PartialFolderPrefix;
+
+    /// <summary>Liste des fichiers livrés par l'archive (chemins relatifs), écrite dans le dossier de chaque version : à la
+    /// mise à jour, tout fichier qui n'y figure pas a été créé par l'outil (réglages, historique) et se reprend.</summary>
+    public const string ShippedFilesManifest = ".pcperfsuite-fichiers-livres.txt";
 
     /// <summary>Fichiers jamais repris d'une ancienne version : les programmes viennent de la nouvelle, vérifiée.</summary>
     private static readonly HashSet<string> ProgramExtensions = new(StringComparer.OrdinalIgnoreCase) { ".exe", ".dll", ".sys", ".com", ".scr", ".cpl", ".ocx" };
@@ -54,21 +60,11 @@ public static class ToolboxActions
             : "empreinte vérifiée";
 
     /// <summary>Télécharge et vérifie dans un dossier de travail protégé, puis dépose une copie dans les Téléchargements
-    /// de l'utilisateur (ou les Téléchargements publics si l'app tourne sous un autre compte), marquée comme venue
-    /// d'Internet.</summary>
+    /// de la personne connectée, avec ses droits à elle (<see cref="UserDownloads"/>), marquée comme venue d'Internet.</summary>
     public static async Task<ToolActionOutcome> DownloadForUserAsync(ToolDefinition tool, ToolRelease? release,
         IProgress<string>? progress, CancellationToken cancellationToken)
     {
         if (release is null || release.ToolId != tool.Id) return NoRelease(tool);
-        if (UserDownloads.Choose() is not { } downloads)
-        {
-            return Fail("Le dossier Téléchargements est introuvable sur ce compte : utilise le lien ci-dessus dans ton navigateur.");
-        }
-
-        if (UserDownloads.RefusalReason(downloads.Path) is { } refusal)
-        {
-            return Fail($"Fichier non déposé : {refusal}. Utilise le lien ci-dessus dans ton navigateur.");
-        }
 
         string? work = null;
         try
@@ -81,22 +77,18 @@ public static class ToolboxActions
             if (!download.Succeeded) return new ToolActionOutcome(false, download.Message, download.Failure);
 
             progress?.Report("Copie dans Téléchargements…");
-            string destination = await Task.Run(() =>
+            (DepositResult? deposit, string? error) = await Task.Run(() =>
             {
-                // La copie part du fichier vérifié, dans un dossier que l'utilisateur ne peut pas modifier, et crée un
-                // fichier neuf qui prend les droits de son dossier : l'utilisateur peut ensuite le déplacer ou l'effacer.
-                string target = UserDownloads.UniquePath(downloads.Path, release.FileName);
-                File.Copy(partial, target, overwrite: false);
-                UserDownloads.MarkFromInternet(target, release.Url);
-                return target;
+                DepositResult? result = UserDownloads.TryDeposit(partial, release.FileName, release.Url, out string? reason);
+                return (result, reason);
             }, cancellationToken).ConfigureAwait(false);
 
-            string where = downloads.IsPublic
-                ? $"dans les Téléchargements publics ({downloads.Path}), visibles de tous les comptes : PCPerfSuite tourne sous un autre compte que le tien"
-                : $"dans tes Téléchargements ({downloads.Path})";
+            if (deposit is null) return Fail($"Fichier non déposé : {error}. Utilise le lien ci-dessus dans ton navigateur.");
+
             string run = tool.IsSigned ? "" : " Il n'est pas signé par son éditeur : PCPerfSuite ne le lance pas.";
-            return new ToolActionOutcome(true, $"{System.IO.Path.GetFileName(destination)} est {where}, {VerifiedDescription(tool)}.{run}",
-                Path: destination);
+            return new ToolActionOutcome(true,
+                $"{System.IO.Path.GetFileName(deposit.Path)} est dans tes Téléchargements ({deposit.Folder}), {VerifiedDescription(tool)}.{run}",
+                Path: deposit.Path);
         }
         catch (OperationCanceledException)
         {
@@ -177,7 +169,7 @@ public static class ToolboxActions
             Directory.CreateDirectory(payload);
             ZipExtractionResult extraction = SafeZipExtractor.ExtractAll(downloaded, payload, tool.MaxExtractedBytes,
                 progress: progress, cancellationToken: cancellationToken);
-            if (!extraction.Succeeded) return new ToolActionOutcome(false, extraction.Error!, DownloadFailureKind.Mismatch);
+            if (!extraction.Succeeded) return new ToolActionOutcome(false, extraction.Error!, extraction.Failure);
 
             // L'exe sorti de l'archive n'a encore jamais été vérifié ; un exe autonome l'a été au téléchargement.
             progress?.Report("Vérification de l'outil…");
@@ -190,6 +182,7 @@ public static class ToolboxActions
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        WriteShippedFilesManifest(payload);
         ToolInstallState previous = ToolDetection.DetectPortable(tool, toolFolder);
         int kept = previous is { IsPresent: true, Location: { } oldFolder } && !SameFolder(oldFolder, System.IO.Path.Combine(toolFolder, release.Version))
             ? CarryOverSettings(oldFolder, payload)
@@ -204,25 +197,52 @@ public static class ToolboxActions
         return new ToolActionOutcome(true, $"{tool.Name} {release.Version} est prêt (signature de {publisher} vérifiée).{settings}");
     }
 
-    /// <summary>Recopie dans <paramref name="newFolder"/> les fichiers de l'ancienne version qu'il n'a pas (réglages,
-    /// historique : DiskInfo.ini, Smart\…), sans jamais reprendre un programme. Renvoie le nombre de fichiers repris.</summary>
+    /// <summary>
+    /// Recopie dans <paramref name="newFolder"/> les fichiers que l'outil a créés dans son ancienne version (réglages,
+    /// historique : DiskInfo.ini, Smart\…), c'est-à-dire ceux qui ne figurent pas dans la liste des fichiers livrés de
+    /// l'ancienne version (<see cref="ShippedFilesManifest"/>). Un fichier livré puis retiré par l'éditeur n'est donc
+    /// jamais repris, ni un programme, ni un fichier dont la place est prise. Sans liste, rien n'est repris. Un fichier qui
+    /// ne se copie pas est sauté : la mise à jour ne bute jamais dessus. Renvoie le nombre de fichiers repris.
+    /// </summary>
     internal static int CarryOverSettings(string oldFolder, string newFolder)
     {
+        string manifest = System.IO.Path.Combine(oldFolder, ShippedFilesManifest);
+        if (!File.Exists(manifest)) return 0;
+
+        var shipped = new HashSet<string>(File.ReadAllLines(manifest).Where(line => line.Length > 0), StringComparer.OrdinalIgnoreCase);
         int copied = 0;
         foreach (string file in Directory.EnumerateFiles(oldFolder, "*", SearchOption.AllDirectories))
         {
+            string relative = System.IO.Path.GetRelativePath(oldFolder, file);
+            if (shipped.Contains(relative) || relative.Equals(ShippedFilesManifest, StringComparison.OrdinalIgnoreCase)) continue;
             if (ProgramExtensions.Contains(System.IO.Path.GetExtension(file))) continue;
 
-            string relative = System.IO.Path.GetRelativePath(oldFolder, file);
-            string target = System.IO.Path.Combine(newFolder, relative);
-            if (File.Exists(target)) continue;
+            try
+            {
+                string target = System.IO.Path.Combine(newFolder, relative);
+                if (File.Exists(target) || Directory.Exists(target)) continue;
 
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
-            File.Copy(file, target, overwrite: false);
-            copied++;
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: false);
+                copied++;
+            }
+            catch
+            {
+                // Place prise par un dossier, chemin trop long : ce fichier reste à l'ancienne version, la mise à jour continue.
+            }
         }
 
         return copied;
+    }
+
+    /// <summary>Écrit la liste des fichiers livrés dans le dossier de la version.</summary>
+    internal static void WriteShippedFilesManifest(string folder)
+    {
+        List<string> files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+            .Select(file => System.IO.Path.GetRelativePath(folder, file))
+            .Where(relative => !relative.Equals(ShippedFilesManifest, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        File.WriteAllLines(System.IO.Path.Combine(folder, ShippedFilesManifest), files);
     }
 
     /// <summary>Télécharge l'installeur officiel (ou l'archive qui le contient), le vérifie et le lance. L'app étant
@@ -234,6 +254,7 @@ public static class ToolboxActions
         if (release is null || release.ToolId != tool.Id) return NoRelease(tool);
 
         InstallOutcome outcome;
+        bool keepWork = false;
         if (tool.Delivery == ToolDelivery.Installer)
         {
             outcome = await OfficialInstaller.DownloadAndRunAsync(SourceFor(tool, release), progress, cancellationToken).ConfigureAwait(false);
@@ -255,10 +276,11 @@ public static class ToolboxActions
                     Directory.CreateDirectory(installerFolder);
                     return SafeZipExtractor.ExtractSingle(archive, tool.LaunchFile!, installerFolder, tool.MaxBytes, cancellationToken);
                 }, cancellationToken).ConfigureAwait(false);
-                if (!extraction.Succeeded) return new ToolActionOutcome(false, extraction.Error!, DownloadFailureKind.Mismatch);
+                if (!extraction.Succeeded) return new ToolActionOutcome(false, extraction.Error!, extraction.Failure);
 
                 outcome = await OfficialInstaller.RunVerifiedAsync(extraction.ExtractedPath!, InstallerFileKind.Exe, publisher,
                     tool.InstallerArguments, progress, cancellationToken).ConfigureAwait(false);
+                keepWork = outcome.StillRunning;
             }
             catch (OperationCanceledException)
             {
@@ -270,8 +292,16 @@ public static class ToolboxActions
             }
             finally
             {
-                if (work is not null) OfficialInstaller.DeleteWorkFolder(work);
+                // Installeur encore en cours : son dossier reste, PurgeStaleWorkFolders le reprendra plus tard.
+                if (work is not null && !keepWork) OfficialInstaller.DeleteWorkFolder(work);
             }
+        }
+
+        if (outcome.StillRunning)
+        {
+            // Inscrit dès maintenant : le registre des modifications ne le listera qu'une fois l'outil réellement installé.
+            RecordInstall(tool, release.Version);
+            return new ToolActionOutcome(false, outcome.Message, outcome.Failure, StillRunning: true);
         }
 
         if (outcome.ExitCode == AlreadyInstalledExitCode && tool.Detection == ToolDetectionKind.PawnIo)

@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Installations;
 
@@ -48,10 +47,11 @@ public enum CatalogComparison
 /// Le catalogue d'outils : copie embarquée, copie en cache, catalogue en ligne signé.
 ///
 /// Confiance : le catalogue en ligne n'est pris que si sa signature vaut pour la clé publique embarquée
-/// (<see cref="ToolCatalogTrust.PublicKey"/>) ET si son numéro dépasse celui déjà connu. Le plus haut numéro accepté est
-/// gardé dans %ProgramData%\PCPerfSuite, que seuls les administrateurs peuvent modifier : effacer ou remplacer le cache
-/// (dossier de données de l'utilisateur, <see cref="AppDataPaths"/>) ne fait pas accepter un ancien catalogue signé,
-/// aux adresses peut-être vulnérables. Le cache est revérifié à chaque lecture comme s'il venait du réseau.
+/// (<see cref="ToolCatalogTrust.PublicKey"/>) ET si son numéro dépasse celui déjà connu. Le dernier catalogue accepté
+/// (avec sa signature) et le plus haut numéro accepté sont gardés dans %ProgramData%\PCPerfSuite, que seuls les
+/// administrateurs peuvent modifier, et partagés par tous les comptes du PC : un programme non élevé ne peut ni y
+/// remettre un ancien catalogue signé, aux adresses peut-être vulnérables, ni effacer la mémoire du dernier accepté. Le
+/// cache est revérifié à chaque lecture comme s'il venait du réseau.
 ///
 /// Le catalogue et sa signature sont lus à la même révision du dépôt (SHA du commit de main) : le CDN de GitHub met
 /// chaque fichier en cache séparément, et lire « main » deux fois pourrait apparier un catalogue neuf et une ancienne
@@ -67,8 +67,7 @@ public sealed class ToolCatalogStore
 
     private readonly IReadOnlyList<ToolDefinition> _definitions;
     private readonly string? _publicKey;
-    private readonly AppDataPaths? _cachePaths;
-    private readonly string? _floorFile;
+    private readonly string? _cacheFolder;
     private readonly HttpClient? _client;
     private readonly object _gate = new();
     private ToolCatalogStatus _status;
@@ -79,15 +78,14 @@ public sealed class ToolCatalogStore
     {
     }
 
-    /// <summary>Pour les tests : clé, copie embarquée, dossier du cache, fichier du plancher et client HTTP donnés. Null :
-    /// ceux de l'app (<see cref="AppDataPaths.Current"/>, %ProgramData%\PCPerfSuite, le client d'OfficialInstaller).</summary>
+    /// <summary>Pour les tests : clé, copie embarquée, dossier du cache et du plancher, client HTTP donnés. Null : ceux de
+    /// l'app (%ProgramData%\PCPerfSuite, le client d'OfficialInstaller).</summary>
     internal ToolCatalogStore(IReadOnlyList<ToolDefinition> definitions, string? publicKey, byte[] embedded,
-        AppDataPaths? cachePaths = null, string? floorFile = null, HttpClient? client = null)
+        string? cacheFolder = null, HttpClient? client = null)
     {
         _definitions = definitions;
         _publicKey = publicKey;
-        _cachePaths = cachePaths;
-        _floorFile = floorFile;
+        _cacheFolder = cacheFolder;
         _client = client;
         ToolCatalogDocument document = ToolCatalogParser.Parse(embedded, definitions, out string? error)
             ?? new ToolCatalogDocument(ToolCatalogParser.SupportedFormat, 0, null, new Dictionary<string, ToolRelease>(),
@@ -116,12 +114,16 @@ public sealed class ToolCatalogStore
 
         try
         {
-            AppDataPaths paths = _cachePaths ?? AppDataPaths.Current;
-            if (!File.Exists(paths.ToolCatalogCacheFile) || !File.Exists(paths.ToolCatalogCacheSignatureFile)) return;
+            if (CacheFolder(create: false) is not { } folder) return;
+            string jsonFile = Path.Combine(folder, ProgramDataFolder.CatalogCacheFileName);
+            string signatureFile = Path.Combine(folder, ProgramDataFolder.CatalogCacheSignatureFileName);
+            if (!File.Exists(jsonFile) || !File.Exists(signatureFile)) return;
 
-            byte[] json = File.ReadAllBytes(paths.ToolCatalogCacheFile);
-            string signature = File.ReadAllText(paths.ToolCatalogCacheSignatureFile);
-            if (Accept(json, signature, ToolCatalogOrigin.Cache, out string? note) == CatalogComparison.Older)
+            // Plus ancien que la copie intégrée (l'app a été mise à jour depuis) : rien d'anormal, la copie intégrée sert.
+            // Plus ancien que le plancher : le cache a été remplacé, ce qui mérite d'être dit.
+            CatalogComparison? comparison = Accept(File.ReadAllBytes(jsonFile), File.ReadAllText(signatureFile), ToolCatalogOrigin.Cache,
+                out string? note, out long sequence);
+            if (comparison == CatalogComparison.Older && sequence < Floor())
             {
                 SetOnlineMessage($"copie du catalogue gardée sur ce PC ({note}) plus ancienne que le n° {Floor()} déjà accepté : ignorée",
                     suspicious: true);
@@ -166,7 +168,7 @@ public sealed class ToolCatalogStore
             return SetOnlineMessage($"catalogue en ligne injoignable ({reason}) : PCPerfSuite utilise sa dernière liste connue", suspicious: false);
         }
 
-        switch (Accept(json, signature, ToolCatalogOrigin.Online, out string? note))
+        switch (Accept(json, signature, ToolCatalogOrigin.Online, out string? note, out _))
         {
             case null:
                 return SetOnlineMessage($"catalogue en ligne refusé ({note}) : PCPerfSuite garde sa dernière liste connue", suspicious: true);
@@ -193,14 +195,16 @@ public sealed class ToolCatalogStore
     /// <summary>Vérifie un catalogue signé et le prend s'il est plus récent que celui en usage et pas plus ancien que le
     /// plancher. Null s'il n'est pas digne de confiance (<paramref name="note"/> dit pourquoi) ; sinon le résultat de la
     /// comparaison, et <paramref name="note"/> son numéro (« n° 12 »).</summary>
-    internal CatalogComparison? Accept(byte[] json, string signature, ToolCatalogOrigin origin, out string? note)
+    internal CatalogComparison? Accept(byte[] json, string signature, ToolCatalogOrigin origin, out string? note, out long sequence)
     {
+        sequence = 0;
         if (Trusted(json, signature, out string? refusal) is not { } document)
         {
             note = refusal;
             return null;
         }
 
+        sequence = document.Sequence;
         note = $"n° {document.Sequence}";
         long floor = Floor();
         CatalogComparison comparison;
@@ -301,15 +305,13 @@ public sealed class ToolCatalogStore
         }
     }
 
-    /// <summary>Fichier du plancher : celui des tests, ou %ProgramData%\PCPerfSuite\catalogue-outils.plancher (dossier
-    /// vérifié, créé si besoin).</summary>
+    /// <summary>Fichier du plancher, dans le dossier du cache.</summary>
     private string? FloorPath(bool create)
-    {
-        if (_floorFile is not null) return _floorFile;
+        => CacheFolder(create) is { } folder ? Path.Combine(folder, ProgramDataFolder.CatalogFloorFileName) : null;
 
-        string? root = create ? ProgramDataFolder.TryEnsure().Path : ProgramDataFolder.TryGetExisting();
-        return root is null ? null : Path.Combine(root, ProgramDataFolder.CatalogFloorFileName);
-    }
+    /// <summary>Dossier du cache et du plancher : celui des tests, ou %ProgramData%\PCPerfSuite (vérifié, créé si besoin).</summary>
+    private string? CacheFolder(bool create)
+        => _cacheFolder ?? (create ? ProgramDataFolder.TryEnsure().Path : ProgramDataFolder.TryGetExisting());
 
     private ToolCatalogStatus SetOnlineMessage(string message, bool suspicious)
     {
@@ -331,10 +333,9 @@ public sealed class ToolCatalogStore
     {
         try
         {
-            AppDataPaths paths = _cachePaths ?? AppDataPaths.Current;
-            Directory.CreateDirectory(Path.GetDirectoryName(paths.ToolCatalogCacheFile)!);
-            WriteAtomically(paths.ToolCatalogCacheSignatureFile, Encoding.ASCII.GetBytes(signature));
-            WriteAtomically(paths.ToolCatalogCacheFile, json);
+            if (CacheFolder(create: true) is not { } folder) return;
+            WriteAtomically(Path.Combine(folder, ProgramDataFolder.CatalogCacheSignatureFileName), Encoding.ASCII.GetBytes(signature));
+            WriteAtomically(Path.Combine(folder, ProgramDataFolder.CatalogCacheFileName), json);
         }
         catch
         {

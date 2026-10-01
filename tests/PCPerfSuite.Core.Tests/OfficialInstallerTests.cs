@@ -475,20 +475,42 @@ public class OfficialInstallerTests
             TimeSpan.FromSeconds(5), CancellationToken.None, big.Client()));
     }
 
+    private static bool IsGuid(string name) => Guid.TryParseExact(name, "N", out _);
+
     [Fact]
-    public void Les_dossiers_de_travail_abandonnes_sont_effaces_et_les_recents_gardes()
+    public void Les_dossiers_de_travail_abandonnes_sont_effaces_et_les_recents_ou_etrangers_gardes()
     {
         using var temp = new TempDirectory();
-        string old = Path.Combine(temp.Root, "ancien");
-        string recent = Path.Combine(temp.Root, "recent");
-        Directory.CreateDirectory(old);
-        Directory.CreateDirectory(recent);
+        string old = Path.Combine(temp.Root, Guid.NewGuid().ToString("N"));
+        string recent = Path.Combine(temp.Root, Guid.NewGuid().ToString("N"));
+        string foreign = Path.Combine(temp.Root, "pas-a-nous");
+        foreach (string folder in new[] { old, recent, foreign }) Directory.CreateDirectory(folder);
         Directory.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        Directory.SetCreationTimeUtc(foreign, DateTime.UtcNow.AddDays(-2));
 
-        OfficialInstaller.PurgeStaleChildren(temp.Root, TimeSpan.FromHours(6));
+        OfficialInstaller.PurgeStaleChildren(temp.Root, TimeSpan.FromHours(6), IsGuid);
 
         Assert.False(Directory.Exists(old));
         Assert.True(Directory.Exists(recent));
+        Assert.True(Directory.Exists(foreign));
+    }
+
+    [Fact]
+    public void La_purge_ne_suit_jamais_une_jonction()
+    {
+        // Une jonction posée à la place du dossier de travail mènerait la purge ailleurs : elle n'est pas suivie, et un
+        // sous-dossier qui en est une n'est pas parcouru.
+        using var temp = new TempDirectory();
+        string elsewhere = Path.Combine(temp.Root, "ailleurs");
+        string precious = Path.Combine(elsewhere, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(precious);
+        Directory.SetCreationTimeUtc(precious, DateTime.UtcNow.AddDays(-2));
+        string root = Path.Combine(temp.Root, "Installations");
+        Assert.True(Junctions.TryCreate(root, elsewhere), "mklink /J ne demande aucun droit particulier : la jonction doit exister.");
+
+        OfficialInstaller.PurgeStaleChildren(root, TimeSpan.FromHours(6), IsGuid);
+
+        Assert.True(Directory.Exists(precious));
     }
 
     [Fact]

@@ -68,14 +68,6 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
 
     [ObservableProperty, NotifyCanExecuteChangedFor(nameof(RefreshCommand))] private bool isRefreshing;
 
-    /// <summary>App lancée sous un autre compte que la personne devant l'écran : les fichiers vont dans les
-    /// Téléchargements publics, et la page le dit d'avance.</summary>
-    public string? OtherProfileMessage => SessionUser.IsOtherProfile
-        ? $"PCPerfSuite tourne sous le compte {SessionUser.ProcessAccount}, pas sous {SessionUser.InteractiveAccount} : les " +
-          $"fichiers téléchargés vont dans les Téléchargements publics{(UserDownloads.Choose() is { } folder ? $" ({folder.Path})" : "")}, " +
-          "visibles de tous les comptes."
-        : null;
-
     /// <summary>Première ouverture : lecture du catalogue et de l'état des outils, jamais dans le constructeur.</summary>
     partial void OnIsPageShownChanged(bool value)
     {
@@ -141,6 +133,7 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
     /// <summary>État d'un seul outil, après une action.</summary>
     public async Task RefreshItemAsync(ToolItemViewModel item)
     {
+        item.StateGeneration++;
         ToolInstallState state = await Task.Run(() => ToolDetection.Detect(item.Definition));
         item.State = state;
         UpdateFolderWarning(await Task.Run(ProgramDataFolder.Inspect));
@@ -149,13 +142,15 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
     private async Task RefreshStatesAsync()
     {
         List<ToolDefinition> tools = Items.Select(item => item.Definition).ToList();
+        int[] generations = Items.Select(item => item.StateGeneration).ToArray();
         (IReadOnlyList<ToolInstallState> states, SecureFolderResult folder, bool winget) = await Task.Run(() =>
             (ToolDetection.DetectAll(tools), ProgramDataFolder.Inspect(), WingetFallback.FindExecutable() is not null));
 
         HasWinget = winget;
         for (int i = 0; i < Items.Count; i++)
         {
-            Items[i].State = states[i];
+            // Une ligne relue entre-temps (fin d'action) garde son état, plus récent que celui lu ici.
+            if (Items[i].StateGeneration == generations[i]) Items[i].State = states[i];
             Items[i].IsChecked = true;
         }
 

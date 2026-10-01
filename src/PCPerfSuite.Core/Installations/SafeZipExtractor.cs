@@ -3,8 +3,11 @@ using System.IO.Compression;
 namespace PCPerfSuite.Core.Installations;
 
 /// <summary>Issue d'une extraction : <paramref name="ExtractedPath"/> est le dossier (archive entière) ou le fichier
-/// (une seule entrée) écrit, null en cas d'échec, que <paramref name="Error"/> explique.</summary>
-public readonly record struct ZipExtractionResult(bool Succeeded, string? Error, string? ExtractedPath = null);
+/// (une seule entrée) écrit, null en cas d'échec, que <paramref name="Error"/> explique. <paramref name="Failure"/> :
+/// <see cref="DownloadFailureKind.Mismatch"/> pour une archive refusée (elle n'est pas celle de l'éditeur),
+/// <see cref="DownloadFailureKind.Other"/> pour une annulation ou une erreur de disque.</summary>
+public readonly record struct ZipExtractionResult(bool Succeeded, string? Error, string? ExtractedPath = null,
+    DownloadFailureKind Failure = DownloadFailureKind.None);
 
 /// <summary>
 /// Extraction d'une archive téléchargée, sans jamais écrire hors du dossier choisi.
@@ -80,7 +83,7 @@ public static class SafeZipExtractor
         }
         catch (OperationCanceledException)
         {
-            return Fail("Extraction annulée.");
+            return Fail("Extraction annulée.", DownloadFailureKind.Other);
         }
         catch (InvalidDataException ex)
         {
@@ -88,7 +91,7 @@ public static class SafeZipExtractor
         }
         catch (Exception ex)
         {
-            return Fail($"Extraction impossible ({ex.Message}).");
+            return Fail($"Extraction impossible ({ex.Message}).", DownloadFailureKind.Other);
         }
     }
 
@@ -126,7 +129,7 @@ public static class SafeZipExtractor
         }
         catch (OperationCanceledException)
         {
-            return Fail("Extraction annulée.");
+            return Fail("Extraction annulée.", DownloadFailureKind.Other);
         }
         catch (InvalidDataException ex)
         {
@@ -134,7 +137,7 @@ public static class SafeZipExtractor
         }
         catch (Exception ex)
         {
-            return Fail($"Extraction impossible ({ex.Message}).");
+            return Fail($"Extraction impossible ({ex.Message}).", DownloadFailureKind.Other);
         }
     }
 
@@ -210,7 +213,7 @@ public static class SafeZipExtractor
     private static string TooLargeMessage(long max)
         => $"L'archive décompressée dépasserait {max / (1024 * 1024)} Mo : extraction refusée.";
 
-    private static ZipExtractionResult Fail(string message) => new(false, message);
+    private static ZipExtractionResult Fail(string message, DownloadFailureKind kind = DownloadFailureKind.Mismatch) => new(false, message, null, kind);
 
     private sealed class ZipLimitException(string message) : Exception(message);
 }

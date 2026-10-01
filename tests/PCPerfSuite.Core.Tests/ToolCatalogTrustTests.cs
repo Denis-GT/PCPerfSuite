@@ -17,7 +17,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
     public void Dispose() => _floor.Dispose();
 
     private ToolCatalogStore Store(ECDsa key, byte[] embedded)
-        => new(ToolCatalog.All, PublicKeyOf(key), embedded, floorFile: _floor.File("plancher"));
+        => new(ToolCatalog.All, PublicKeyOf(key), embedded, cacheFolder: _floor.Root);
 
     private const string Context = ToolCatalogTrust.SignatureContext;
 
@@ -110,7 +110,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         var store = Store(key, Catalog(5));
         byte[] newer = Catalog(6, "3.02");
 
-        CatalogComparison? result = store.Accept(newer, CatalogSignature.Sign(newer, Context, key), ToolCatalogOrigin.Online, out _);
+        CatalogComparison? result = store.Accept(newer, CatalogSignature.Sign(newer, Context, key), ToolCatalogOrigin.Online, out _, out _);
 
         Assert.Equal(CatalogComparison.Newer, result);
         Assert.Equal(6, store.Status.Document.Sequence);
@@ -125,7 +125,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         var store = Store(key, Catalog(5));
         byte[] older = Catalog(4, "2.99");
 
-        CatalogComparison? result = store.Accept(older, CatalogSignature.Sign(older, Context, key), ToolCatalogOrigin.Online, out _);
+        CatalogComparison? result = store.Accept(older, CatalogSignature.Sign(older, Context, key), ToolCatalogOrigin.Online, out _, out _);
 
         Assert.Equal(CatalogComparison.Older, result);
         Assert.Equal(5, store.Status.Document.Sequence);
@@ -140,9 +140,9 @@ public sealed class ToolCatalogTrustTests : IDisposable
         byte[] same = Catalog(5);
         byte[] conflicting = Catalog(5, "3.99");
 
-        Assert.Equal(CatalogComparison.Same, store.Accept(same, CatalogSignature.Sign(same, Context, key), ToolCatalogOrigin.Online, out _));
+        Assert.Equal(CatalogComparison.Same, store.Accept(same, CatalogSignature.Sign(same, Context, key), ToolCatalogOrigin.Online, out _, out _));
         Assert.Equal(CatalogComparison.Conflicting,
-            store.Accept(conflicting, CatalogSignature.Sign(conflicting, Context, key), ToolCatalogOrigin.Online, out _));
+            store.Accept(conflicting, CatalogSignature.Sign(conflicting, Context, key), ToolCatalogOrigin.Online, out _, out _));
         Assert.Equal("3.01", store.ReleaseOf("cpu-z")!.Version);
     }
 
@@ -154,7 +154,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         var store = Store(key, Catalog(5));
         byte[] forged = Catalog(99, "6.66");
 
-        CatalogComparison? result = store.Accept(forged, CatalogSignature.Sign(forged, Context, attacker), ToolCatalogOrigin.Online, out string? why);
+        CatalogComparison? result = store.Accept(forged, CatalogSignature.Sign(forged, Context, attacker), ToolCatalogOrigin.Online, out string? why, out _);
 
         Assert.Null(result);
         Assert.Contains("signature", why);
@@ -183,29 +183,24 @@ public sealed class ToolCatalogTrustTests : IDisposable
 
         Assert.Equal(0, store.Status.Document.Sequence);
         Assert.NotEmpty(store.Status.Document.Rejected);
-        Assert.Equal(CatalogComparison.Newer, store.Accept(online, CatalogSignature.Sign(online, Context, key), ToolCatalogOrigin.Online, out _));
+        Assert.Equal(CatalogComparison.Newer, store.Accept(online, CatalogSignature.Sign(online, Context, key), ToolCatalogOrigin.Online, out _, out _));
     }
 
     // Cache et plancher sur disque, dans un dossier de test : jamais ceux de l'app.
 
+    /// <summary>Dossier qui tient lieu de %ProgramData%\PCPerfSuite : cache, signature et plancher.</summary>
     private sealed class Disk : IDisposable
     {
         private readonly TempDirectory _temp = new();
 
-        public Disk()
-        {
-            Paths = new PCPerfSuite.Core.SystemInfo.AppDataPaths(Path.Combine(_temp.Root, "donnees"));
-            Directory.CreateDirectory(Paths.Root);
-            FloorFile = Path.Combine(_temp.Root, "plancher");
-        }
-
-        public PCPerfSuite.Core.SystemInfo.AppDataPaths Paths { get; }
-        public string FloorFile { get; }
+        public string Folder => _temp.Root;
+        public string CacheFile => Path.Combine(Folder, ProgramDataFolder.CatalogCacheFileName);
+        public string FloorFile => Path.Combine(Folder, ProgramDataFolder.CatalogFloorFileName);
 
         public void WriteCache(byte[] json, string signature)
         {
-            File.WriteAllBytes(Paths.ToolCatalogCacheFile, json);
-            File.WriteAllText(Paths.ToolCatalogCacheSignatureFile, signature);
+            File.WriteAllBytes(CacheFile, json);
+            File.WriteAllText(Path.Combine(Folder, ProgramDataFolder.CatalogCacheSignatureFileName), signature);
         }
 
         public void Dispose() => _temp.Dispose();
@@ -218,7 +213,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using var disk = new Disk();
         byte[] cached = Catalog(8, "3.02");
         disk.WriteCache(cached, CatalogSignature.Sign(cached, Context, key));
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder);
 
         store.LoadCache();
 
@@ -234,12 +229,30 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using var disk = new Disk();
         byte[] cached = Catalog(8, "3.02");
         disk.WriteCache(cached, CatalogSignature.Sign(Catalog(9), Context, key));
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder);
 
         store.LoadCache();
 
         Assert.Equal(ToolCatalogOrigin.Embedded, store.Status.Origin);
         Assert.Equal(5, store.Status.Document.Sequence);
+    }
+
+    [Fact]
+    public void Un_cache_plus_ancien_que_la_copie_integree_est_ignore_sans_alerte()
+    {
+        // L'app a été mise à jour avec une copie plus récente que le dernier catalogue en ligne : rien d'anormal.
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] cached = Catalog(4, "2.99");
+        disk.WriteCache(cached, CatalogSignature.Sign(cached, Context, key));
+        File.WriteAllText(disk.FloorFile, "4");
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder);
+
+        store.LoadCache();
+
+        Assert.Equal(5, store.Status.Document.Sequence);
+        Assert.Null(store.Status.OnlineMessage);
+        Assert.False(store.Status.OnlineRefusalIsSuspicious);
     }
 
     [Fact]
@@ -252,7 +265,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         File.WriteAllText(disk.FloorFile, "12");
         byte[] old = Catalog(8, "2.99");
         disk.WriteCache(old, CatalogSignature.Sign(old, Context, key));
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder);
 
         store.LoadCache();
 
@@ -285,14 +298,14 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using var disk = new Disk();
         byte[] online = Catalog(9, "3.03");
         FakeHttp server = Server(online, CatalogSignature.Sign(online, Context, key));
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder, server.Client());
 
         ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
 
         Assert.Equal(ToolCatalogOrigin.Online, status.Origin);
         Assert.Equal(9, status.Document.Sequence);
         Assert.All(server.Requests.Where(u => u.Host == "raw.githubusercontent.com"), u => Assert.Contains($"/{Revision}/", u.AbsolutePath));
-        Assert.True(File.Exists(disk.Paths.ToolCatalogCacheFile));
+        Assert.True(File.Exists(disk.CacheFile));
         Assert.Equal("9", File.ReadAllText(disk.FloorFile));
     }
 
@@ -303,7 +316,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using var disk = new Disk();
         byte[] online = Catalog(9);
         FakeHttp server = Server(online, CatalogSignature.Sign(online, Context, key), resolveRevision: false);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder, server.Client());
 
         ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
 
@@ -318,14 +331,14 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using ECDsa attacker = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var disk = new Disk();
         byte[] forged = Catalog(50, "6.66");
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile,
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder,
             Server(forged, CatalogSignature.Sign(forged, Context, attacker)).Client());
 
         ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
 
         Assert.Equal(5, status.Document.Sequence);
         Assert.True(status.OnlineRefusalIsSuspicious);
-        Assert.False(File.Exists(disk.Paths.ToolCatalogCacheFile));
+        Assert.False(File.Exists(disk.CacheFile));
         Assert.False(File.Exists(disk.FloorFile));
     }
 
@@ -335,7 +348,7 @@ public sealed class ToolCatalogTrustTests : IDisposable
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var disk = new Disk();
         var server = new FakeHttp(_ => FakeHttp.Status(System.Net.HttpStatusCode.NotFound));
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Folder, server.Client());
 
         ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
 

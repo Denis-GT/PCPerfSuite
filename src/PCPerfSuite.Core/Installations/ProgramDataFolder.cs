@@ -39,8 +39,10 @@ public static class ProgramDataFolder
     /// fichiers vérifiés avant d'être remis à l'utilisateur).</summary>
     public const string WorkFolderName = "Installations";
 
-    /// <summary>Plus haut numéro de catalogue d'outils accepté (plancher contre un retour en arrière), ici parce que
-    /// seuls les administrateurs peuvent le modifier.</summary>
+    /// <summary>Dernier catalogue d'outils accepté, sa signature, et le plus haut numéro accepté (plancher contre un retour
+    /// en arrière) : ici parce que seuls les administrateurs peuvent les modifier, pour tous les comptes du PC.</summary>
+    public const string CatalogCacheFileName = "catalogue-outils.json";
+    public const string CatalogCacheSignatureFileName = "catalogue-outils.json.sig";
     public const string CatalogFloorFileName = "catalogue-outils.plancher";
 
     /// <summary>SYSTEM et Administrateurs : contrôle total ; Utilisateurs : lecture et exécution (0x1200a9). Protégée :

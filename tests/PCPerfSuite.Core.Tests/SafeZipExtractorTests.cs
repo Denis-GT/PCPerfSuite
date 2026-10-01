@@ -74,6 +74,7 @@ public class SafeZipExtractorTests
 
         Assert.False(result.Succeeded);
         Assert.Contains("dangereux", result.Error);
+        Assert.Equal(DownloadFailureKind.Mismatch, result.Failure);
 
         // Rien n'a été écrit, ni dehors ni dedans : l'archive est jugée en entier avant la première écriture.
         Assert.Empty(Directory.EnumerateFileSystemEntries(destination));
@@ -97,6 +98,7 @@ public class SafeZipExtractorTests
         Assert.Equal("Extraction… 5 / 5 fichiers", reports[^1]);
         Assert.False(stopped.Succeeded);
         Assert.Contains("annulée", stopped.Error);
+        Assert.Equal(PCPerfSuite.Core.Installations.DownloadFailureKind.Other, stopped.Failure);
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(temp.Root, "b")));
     }
 
