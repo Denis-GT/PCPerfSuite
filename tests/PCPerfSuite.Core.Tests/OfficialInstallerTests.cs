@@ -142,6 +142,179 @@ public class OfficialInstallerTests
         Assert.StartsWith("https://", RtssInstallation.DownloadPageUrl);
     }
 
+    private const string ValidSha = "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032";
+    private const string GitHubAsset = "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe";
+
+    [Fact]
+    public async Task Un_fichier_non_signe_n_est_jamais_lance_meme_avec_son_empreinte()
+    {
+        var source = new OfficialInstallerSource(new Uri(GitHubAsset), OfficialInstaller.GitHubHosts, "setup.exe", "", ExpectedPublisher: null)
+        {
+            ExpectedSha256 = ValidSha,
+        };
+
+        InstallOutcome outcome = await Run(source);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("jamais", outcome.Message);
+    }
+
+    [Fact]
+    public async Task Une_archive_ne_se_lance_pas()
+    {
+        InstallOutcome outcome = await Run(Source(GitHubAsset) with { Kind = InstallerFileKind.Zip });
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("zip", outcome.Message);
+    }
+
+    [Fact]
+    public void Une_source_ni_signee_ni_accompagnee_de_son_empreinte_est_refusee()
+    {
+        var source = new OfficialInstallerSource(new Uri(GitHubAsset), OfficialInstaller.GitHubHosts, "a.exe", "", ExpectedPublisher: null);
+
+        Exception error = Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(source));
+        Assert.Contains("empreinte", error.Message);
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-1L)]
+    [InlineData(OfficialInstaller.MaxAllowedBytes + 1)]
+    public void Une_taille_maximale_hors_limites_est_refusee(long maxBytes)
+    {
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { MaxBytes = maxBytes }));
+    }
+
+    [Fact]
+    public void Une_taille_attendue_au_dela_de_la_limite_ou_une_empreinte_mal_formee_sont_refusees()
+    {
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { ExpectedSize = OfficialInstaller.DefaultMaxBytes + 1 }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { ExpectedSha256 = "abc" }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { DownloadTimeout = TimeSpan.FromHours(3) }));
+    }
+
+    [Fact]
+    public async Task Un_telechargement_refuse_ne_cree_aucun_fichier()
+    {
+        using var temp = new TempDirectory();
+        string destination = temp.File("a.exe");
+
+        DownloadOutcome outcome = await OfficialInstaller.DownloadToFileAsync(Source("https://example.com/a.exe"), destination, null, CancellationToken.None);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(DownloadFailureKind.Refused, outcome.Failure);
+        Assert.False(File.Exists(destination));
+    }
+
+    [Fact]
+    public async Task Un_fichier_deja_present_n_est_ni_ecrase_ni_supprime()
+    {
+        using var temp = new TempDirectory();
+        string destination = temp.File("a.exe");
+        File.WriteAllText(destination, "à moi");
+
+        DownloadOutcome outcome = await OfficialInstaller.DownloadToFileAsync(Source(GitHubAsset), destination, null, CancellationToken.None);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal("à moi", File.ReadAllText(destination));
+    }
+
+    private static HttpResponseMessage Response(byte[] body) => new(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+
+    private static string Sha256Of(byte[] data) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data));
+
+    [Fact]
+    public async Task Le_fichier_dont_l_empreinte_correspond_est_garde()
+    {
+        using var temp = new TempDirectory();
+        byte[] body = "MZ contenu de l'installeur"u8.ToArray();
+        string destination = temp.File("ok.exe");
+
+        await OfficialInstaller.SaveAsync(Response(body), destination, Source(GitHubAsset) with { ExpectedSha256 = Sha256Of(body).ToLowerInvariant(), ExpectedSize = body.Length },
+            null, CancellationToken.None);
+
+        Assert.Equal(body, File.ReadAllBytes(destination));
+    }
+
+    [Fact]
+    public async Task Un_fichier_dont_l_empreinte_differe_est_refuse()
+    {
+        using var temp = new TempDirectory();
+        byte[] body = "MZ contenu remplacé"u8.ToArray();
+
+        Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(body), temp.File("ko.exe"),
+            Source(GitHubAsset) with { ExpectedSha256 = ValidSha }, null, CancellationToken.None));
+
+        Assert.Contains("SHA-256", error.Message);
+    }
+
+    [Fact]
+    public async Task Une_taille_differente_de_celle_attendue_est_refusee_avant_ecriture()
+    {
+        using var temp = new TempDirectory();
+        byte[] body = new byte[100];
+        string destination = temp.File("taille.exe");
+
+        Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(body), destination,
+            Source(GitHubAsset) with { ExpectedSha256 = ValidSha, ExpectedSize = 99 }, null, CancellationToken.None));
+
+        Assert.Contains("attendus", error.Message);
+        Assert.False(File.Exists(destination));
+    }
+
+    [Fact]
+    public async Task Un_fichier_plus_gros_que_la_limite_de_la_source_est_refuse()
+    {
+        using var temp = new TempDirectory();
+
+        Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(new byte[2048]), temp.File("gros.exe"),
+            Source(GitHubAsset) with { MaxBytes = 1024 }, null, CancellationToken.None));
+
+        Assert.Contains("gros", error.Message);
+    }
+
+    [Theory]
+    [InlineData("netix.dl.sourceforge.net", true)]
+    [InlineData("dl.sourceforge.net", false)]
+    [InlineData("evildl.sourceforge.net", false)]
+    [InlineData("downloads.sourceforge.net", true)]
+    [InlineData("sourceforge.net", false)]
+    public void Un_suffixe_autorise_n_accepte_que_ses_sous_domaines(string host, bool expected)
+    {
+        var hosts = new[] { "downloads.sourceforge.net", "*.dl.sourceforge.net" };
+
+        Assert.Equal(expected, OfficialInstaller.IsAllowedHost(new Uri($"https://{host}/f.zip"), hosts));
+    }
+
+    [Fact]
+    public void Un_fichier_qui_n_a_pas_l_en_tete_attendu_est_refuse()
+    {
+        using var temp = new TempDirectory();
+        string notExe = temp.File("faux.exe");
+        File.WriteAllText(notExe, "<html>page d'erreur</html>");
+        string notMsi = temp.File("faux.msi");
+        File.WriteAllBytes(notMsi, "MZ\0\0"u8.ToArray());
+
+        Assert.False(OfficialInstaller.TryVerifySignedFile(notExe, InstallerFileKind.Exe, "CPUID", out string? exeError));
+        Assert.Contains("programme Windows", exeError);
+        Assert.False(OfficialInstaller.TryVerifySignedFile(notMsi, InstallerFileKind.Msi, "CPUID", out string? msiError));
+        Assert.Contains("Windows Installer", msiError);
+        Assert.False(OfficialInstaller.TryVerifySignedFile(temp.File("absent.exe"), InstallerFileKind.Exe, "CPUID", out _));
+    }
+
+    [Fact]
+    public void Un_exe_signe_n_est_accepte_que_pour_son_editeur()
+    {
+        // dotnet.exe, signé par Microsoft, est là partout où ces tests tournent.
+        string dotnet = Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet.exe"));
+        if (!File.Exists(dotnet)) return;
+
+        Assert.True(OfficialInstaller.TryVerifySignedFile(dotnet, InstallerFileKind.Exe, "Microsoft Corporation", out string? error), error);
+        Assert.False(OfficialInstaller.TryVerifySignedFile(dotnet, InstallerFileKind.Exe, "OCBASE", out string? wrong));
+        Assert.Contains("Microsoft Corporation", wrong);
+    }
+
     [Fact]
     public void La_detection_des_logiciels_externes_ne_leve_jamais()
     {

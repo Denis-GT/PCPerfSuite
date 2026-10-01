@@ -16,6 +16,12 @@ internal readonly record struct SignatureCheck(bool IsValid, string? Publisher, 
 ///
 /// Une signature valide ne suffit pas à elle seule : n'importe qui peut signer un programme avec son propre certificat.
 /// L'appelant compare donc aussi <see cref="SignatureCheck.Publisher"/> à l'éditeur attendu.
+///
+/// L'éditeur est lu sur le certificat que WinVerifyTrust vient de valider (son état de vérification), jamais sur « le
+/// premier certificat du fichier » : un exe peut porter plusieurs blocs de signature et des certificats en plus. Lire le
+/// premier venu (X509Certificate.CreateFromSignedFile) refusait OCCT, dont le premier certificat est « ocbase.com » alors
+/// que la signature validée est celle d'« OCBASE » ; et, dans l'autre sens, aurait accepté un fichier signé par n'importe
+/// qui, auquel on aurait ajouté un faux certificat au nom de l'éditeur attendu.
 /// </summary>
 internal static class AuthenticodeVerifier
 {
@@ -35,30 +41,23 @@ internal static class AuthenticodeVerifier
     /// trouverait au même chemin une fraction de seconde plus tard.</summary>
     public static SignatureCheck Check(string path, SafeFileHandle? openHandle = null)
     {
-        int status;
         try
         {
-            status = Verify(path, openHandle);
+            (int status, string? publisher, string? publisherError) = Verify(path, openHandle);
+            if (status != 0) return new SignatureCheck(false, null, Describe(status));
+            return publisher is null
+                ? new SignatureCheck(false, null, $"éditeur illisible ({publisherError ?? "certificat du signataire introuvable"})")
+                : new SignatureCheck(true, publisher, null);
         }
         catch (Exception ex)
         {
             return new SignatureCheck(false, null, $"vérification impossible ({ex.Message})");
         }
-
-        if (status != 0) return new SignatureCheck(false, null, Describe(status));
-
-        try
-        {
-            using var certificate = new X509Certificate2(X509Certificate.CreateFromSignedFile(path));
-            return new SignatureCheck(true, PublisherOf(certificate), null);
-        }
-        catch (Exception ex)
-        {
-            return new SignatureCheck(false, null, $"éditeur illisible ({ex.Message})");
-        }
     }
 
-    private static int Verify(string path, SafeFileHandle? openHandle)
+    /// <summary>Statut de WinVerifyTrust et, si la signature est valide, l'éditeur du certificat qu'il a validé, lu dans
+    /// son état de vérification avant de le refermer.</summary>
+    private static (int Status, string? Publisher, string? PublisherError) Verify(string path, SafeFileHandle? openHandle)
     {
         IntPtr pathPointer = Marshal.StringToHGlobalUni(path);
         IntPtr filePointer = Marshal.AllocHGlobal(Marshal.SizeOf<WintrustFileInfo>());
@@ -87,16 +86,54 @@ internal static class AuthenticodeVerifier
             // -1 : pas de fenêtre parente, donc aucune interface (UiNone).
             int status = WinVerifyTrust(new IntPtr(-1), ref action, ref data);
 
-            // Toujours fermer, même en cas d'échec : Windows garde un état de vérification qui ne se libère qu'ainsi.
-            data.StateAction = StateClose;
-            WinVerifyTrust(new IntPtr(-1), ref action, ref data);
-            return status;
+            string? publisher = null;
+            string? publisherError = null;
+            try
+            {
+                if (status == 0) publisher = SignerPublisher(data.StateData);
+            }
+            catch (Exception ex)
+            {
+                publisherError = ex.Message;
+            }
+            finally
+            {
+                // Toujours fermer, même en cas d'échec : Windows garde un état de vérification qui ne se libère qu'ainsi.
+                data.StateAction = StateClose;
+                WinVerifyTrust(new IntPtr(-1), ref action, ref data);
+            }
+
+            return (status, publisher, publisherError);
         }
         finally
         {
             Marshal.FreeHGlobal(filePointer);
             Marshal.FreeHGlobal(pathPointer);
         }
+    }
+
+    /// <summary>Éditeur du certificat de tête du premier signataire, celui dont WinVerifyTrust vient de valider la chaîne.
+    /// Null si l'état ne le donne pas.</summary>
+    private static string? SignerPublisher(IntPtr stateData)
+    {
+        if (stateData == IntPtr.Zero) return null;
+
+        IntPtr provider = WTHelperProvDataFromStateData(stateData);
+        if (provider == IntPtr.Zero) return null;
+
+        IntPtr signer = WTHelperGetProvSignerFromChain(provider, 0, false, 0);
+        if (signer == IntPtr.Zero) return null;
+
+        IntPtr providerCert = WTHelperGetProvCertFromChain(signer, 0);
+        if (providerCert == IntPtr.Zero) return null;
+
+        // CRYPT_PROVIDER_CERT : un DWORD (cbStruct), puis le PCCERT_CONTEXT, aligné sur la taille d'un pointeur.
+        IntPtr certContext = Marshal.ReadIntPtr(providerCert, IntPtr.Size);
+        if (certContext == IntPtr.Zero) return null;
+
+        // Le constructeur duplique le contexte : il reste valable après la fermeture de l'état.
+        using var certificate = new X509Certificate2(certContext);
+        return PublisherOf(certificate);
     }
 
     /// <summary>Organisation du certificat, ou à défaut son nom courant.</summary>
@@ -156,4 +193,14 @@ internal static class AuthenticodeVerifier
 
     [DllImport("wintrust.dll", ExactSpelling = true)]
     private static extern int WinVerifyTrust(IntPtr window, ref Guid action, ref WintrustData data);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperProvDataFromStateData(IntPtr stateData);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperGetProvSignerFromChain(IntPtr providerData, uint signerIndex,
+        [MarshalAs(UnmanagedType.Bool)] bool counterSigner, uint counterSignerIndex);
+
+    [DllImport("wintrust.dll", ExactSpelling = true)]
+    private static extern IntPtr WTHelperGetProvCertFromChain(IntPtr signer, uint certIndex);
 }
