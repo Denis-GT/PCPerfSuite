@@ -36,17 +36,16 @@ public sealed class ToolboxChanges : ISystemChangeOwner
     public string Id => "boite-a-outils";
     public string Title => "Boîte à outils";
 
-    public bool HasChanges => Describe().Count > 0;
+    /// <summary>S'arrête au premier outil portable trouvé, ou à la première installation inscrite encore présente.</summary>
+    public bool HasChanges
+        => _tools.Where(t => t.IsPortable).Any(t => SafeDetect(t) is { IsPresent: true, IsPortable: true })
+           || SafeInstalledByApp().Any(record => _tools.FirstOrDefault(t => t.Id == record.Id) is { IsInstaller: true } tool && SafeDetect(tool).IsPresent);
 
     public IReadOnlyList<SystemChange> Describe()
     {
         var changes = new List<SystemChange>();
 
-        foreach (ToolDefinition tool in _tools.Where(t => t.IsPortable))
-        {
-            ToolInstallState state = SafeDetect(tool);
-            if (state is { IsPresent: true, IsPortable: true }) changes.Add(PortableChange(tool, state));
-        }
+        foreach ((ToolDefinition tool, ToolInstallState state) in PresentPortables()) changes.Add(PortableChange(tool, state));
 
         foreach (ToolInstallRecord record in SafeInstalledByApp())
         {
@@ -74,11 +73,8 @@ public sealed class ToolboxChanges : ISystemChangeOwner
         var failures = new List<string>();
         int removed = 0;
 
-        foreach (ToolDefinition tool in _tools.Where(t => t.IsPortable))
+        foreach ((ToolDefinition tool, ToolInstallState state) in PresentPortables())
         {
-            ToolInstallState state = SafeDetect(tool);
-            if (state is not { IsPresent: true, IsPortable: true }) continue;
-
             ToolActionOutcome outcome = SafeRemove(tool);
             if (outcome.Succeeded)
             {
@@ -98,6 +94,12 @@ public sealed class ToolboxChanges : ISystemChangeOwner
         string? message = failures.Count > 0 ? string.Join(" ", failures) : null;
         return new SystemRestoreResult(status, notRestored, message);
     }
+
+    private IEnumerable<(ToolDefinition Tool, ToolInstallState State)> PresentPortables()
+        => _tools.Where(t => t.IsPortable)
+            .Select(t => (Tool: t, State: SafeDetect(t)))
+            .Where(pair => pair.State is { IsPresent: true, IsPortable: true })
+            .ToList();
 
     private static SystemChange PortableChange(ToolDefinition tool, ToolInstallState state)
         => new($"{tool.Name} {state.Version} (portable)".Replace("  ", " "),

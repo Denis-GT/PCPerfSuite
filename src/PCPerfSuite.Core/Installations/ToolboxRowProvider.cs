@@ -33,11 +33,11 @@ public sealed class ToolboxRowProvider : ICompatibilityRowProvider
     {
         SecureFolderResult folder = ProgramDataFolder.Inspect();
         var portables = new List<string>();
-        foreach (ToolDefinition tool in _tools.Where(t => t.IsPortable))
+        List<ToolDefinition> portableTools = _tools.Where(t => t.IsPortable).ToList();
+        IReadOnlyList<ToolInstallState> states = ToolDetection.DetectAll(portableTools);
+        for (int i = 0; i < portableTools.Count; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            ToolInstallState state = ToolDetection.Detect(tool);
-            if (state.IsPresent) portables.Add($"{tool.Name} {state.Version}".TrimEnd());
+            if (states[i].IsPresent) portables.Add($"{portableTools[i].Name} {states[i].Version}".TrimEnd());
         }
 
         Volatile.Write(ref _reading, new Reading(folder, WingetFallback.FindExecutable() is not null, portables));
@@ -90,7 +90,11 @@ public sealed class ToolboxRowProvider : ICompatibilityRowProvider
         }
 
         if (portables is { Count: > 0 }) details.Add($"Outils portables déposés : {string.Join(", ", portables)}.");
-        details.Add("Expérimental : téléchargements et lancements pas encore vérifiés sur une vraie machine.");
+        List<string> unverified = tools.Where(t => t.Delivery != ToolDelivery.OfficialPageOnly && !t.IsVerified).Select(t => t.Name).ToList();
+        if (unverified.Count > 0)
+        {
+            details.Add($"Expérimental (pas encore vérifié sur une vraie machine) : {string.Join(", ", unverified)}.");
+        }
 
         bool folderRefused = folder is { IsReady: false, IsAbsent: false };
         return new CompatibilityRow(RowTitle, statusText, string.Join(" ", details), !folderRefused && !status.OnlineRefusalIsSuspicious);

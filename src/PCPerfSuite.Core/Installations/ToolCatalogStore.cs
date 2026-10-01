@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Reflection;
+using System.Text;
+using System.Text.Json;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Installations;
@@ -31,10 +34,10 @@ public enum CatalogComparison
     /// <summary>Plus récent : il remplace celui en usage.</summary>
     Newer,
 
-    /// <summary>Le même, octet pour octet.</summary>
+    /// <summary>Le même (mêmes versions, adresses et empreintes).</summary>
     Same,
 
-    /// <summary>Numéro plus petit : refusé (protection contre un retour à une version plus ancienne).</summary>
+    /// <summary>Numéro plus petit que celui déjà accepté : refusé (protection contre un retour en arrière).</summary>
     Older,
 
     /// <summary>Même numéro, contenu différent : refusé, deux publications ne partagent jamais un numéro.</summary>
@@ -45,33 +48,47 @@ public enum CatalogComparison
 /// Le catalogue d'outils : copie embarquée, copie en cache, catalogue en ligne signé.
 ///
 /// Confiance : le catalogue en ligne n'est pris que si sa signature vaut pour la clé publique embarquée
-/// (<see cref="ToolCatalogTrust.PublicKey"/>) ET si son numéro dépasse celui déjà connu (embarqué ou en cache) : un
-/// serveur qui servirait un ancien catalogue signé, aux adresses peut-être vulnérables, est refusé. Le cache, écrit
-/// dans le dossier de données (<see cref="AppDataPaths"/>), est revérifié à chaque lecture comme s'il venait du réseau.
-/// Même accepté, un catalogue ne peut rien changer d'autre que versions, adresses, empreintes et tailles : hôtes et
-/// éditeurs restent ceux figés dans <see cref="ToolCatalog"/>.
+/// (<see cref="ToolCatalogTrust.PublicKey"/>) ET si son numéro dépasse celui déjà connu. Le plus haut numéro accepté est
+/// gardé dans %ProgramData%\PCPerfSuite, que seuls les administrateurs peuvent modifier : effacer ou remplacer le cache
+/// (dossier de données de l'utilisateur, <see cref="AppDataPaths"/>) ne fait pas accepter un ancien catalogue signé,
+/// aux adresses peut-être vulnérables. Le cache est revérifié à chaque lecture comme s'il venait du réseau.
+///
+/// Le catalogue et sa signature sont lus à la même révision du dépôt (SHA du commit de main) : le CDN de GitHub met
+/// chaque fichier en cache séparément, et lire « main » deux fois pourrait apparier un catalogue neuf et une ancienne
+/// signature. Même accepté, un catalogue ne peut rien changer d'autre que versions, adresses, empreintes et tailles :
+/// hôtes et éditeurs restent ceux figés dans <see cref="ToolCatalog"/>.
 /// </summary>
 public sealed class ToolCatalogStore
 {
     private const string EmbeddedResourceSuffix = "catalogue-outils.json";
     private const int MaxSignatureBytes = 1024;
+    private const int MaxRefBytes = 4096;
     private static readonly TimeSpan OnlineTimeout = TimeSpan.FromSeconds(15);
 
     private readonly IReadOnlyList<ToolDefinition> _definitions;
     private readonly string? _publicKey;
+    private readonly AppDataPaths? _cachePaths;
+    private readonly string? _floorFile;
+    private readonly HttpClient? _client;
     private readonly object _gate = new();
     private ToolCatalogStatus _status;
+    private long _floor = -1;
 
     public ToolCatalogStore(IReadOnlyList<ToolDefinition> definitions)
         : this(definitions, ToolCatalogTrust.PublicKey, LoadEmbeddedBytes())
     {
     }
 
-    /// <summary>Pour les tests : clé et copie embarquée données.</summary>
-    internal ToolCatalogStore(IReadOnlyList<ToolDefinition> definitions, string? publicKey, byte[] embedded)
+    /// <summary>Pour les tests : clé, copie embarquée, dossier du cache, fichier du plancher et client HTTP donnés. Null :
+    /// ceux de l'app (<see cref="AppDataPaths.Current"/>, %ProgramData%\PCPerfSuite, le client d'OfficialInstaller).</summary>
+    internal ToolCatalogStore(IReadOnlyList<ToolDefinition> definitions, string? publicKey, byte[] embedded,
+        AppDataPaths? cachePaths = null, string? floorFile = null, HttpClient? client = null)
     {
         _definitions = definitions;
         _publicKey = publicKey;
+        _cachePaths = cachePaths;
+        _floorFile = floorFile;
+        _client = client;
         ToolCatalogDocument document = ToolCatalogParser.Parse(embedded, definitions, out string? error)
             ?? new ToolCatalogDocument(ToolCatalogParser.SupportedFormat, 0, null, new Dictionary<string, ToolRelease>(),
                 new[] { $"copie intégrée illisible ({error})" });
@@ -87,24 +104,28 @@ public sealed class ToolCatalogStore
     public ToolRelease? ReleaseOf(string toolId)
         => Status.Document.Releases.TryGetValue(toolId, out ToolRelease? release) ? release : null;
 
-    /// <summary>Vrai tant que la clé de signature n'est pas inscrite dans l'app : le catalogue en ligne est alors
-    /// ignoré, et seule la copie intégrée sert.</summary>
+    /// <summary>Vrai quand la clé de signature est inscrite dans l'app (<see cref="ToolCatalogTrust.PublicKey"/>). Faux :
+    /// le catalogue en ligne est ignoré, et seule la copie intégrée sert.</summary>
     public bool IsOnlineEnabled => !string.IsNullOrWhiteSpace(_publicKey);
 
-    /// <summary>Lit la copie en cache, si elle est valide et plus récente que la copie intégrée. Lecture de fichiers
-    /// seulement : à appeler hors du thread d'interface. Ne lève jamais.</summary>
+    /// <summary>Lit la copie en cache, si elle est signée, plus récente que la copie intégrée et pas plus ancienne que le
+    /// plus haut numéro déjà accepté. Lecture de fichiers seulement : à appeler hors du thread d'interface. Ne lève jamais.</summary>
     public void LoadCache()
     {
         if (!IsOnlineEnabled) return;
 
         try
         {
-            AppDataPaths paths = AppDataPaths.Current;
+            AppDataPaths paths = _cachePaths ?? AppDataPaths.Current;
             if (!File.Exists(paths.ToolCatalogCacheFile) || !File.Exists(paths.ToolCatalogCacheSignatureFile)) return;
 
             byte[] json = File.ReadAllBytes(paths.ToolCatalogCacheFile);
             string signature = File.ReadAllText(paths.ToolCatalogCacheSignatureFile);
-            Accept(json, signature, ToolCatalogOrigin.Cache, out _);
+            if (Accept(json, signature, ToolCatalogOrigin.Cache, out string? note) == CatalogComparison.Older)
+            {
+                SetOnlineMessage($"copie du catalogue gardée sur ce PC ({note}) plus ancienne que le n° {Floor()} déjà accepté : ignorée",
+                    suspicious: true);
+            }
         }
         catch
         {
@@ -126,11 +147,14 @@ public sealed class ToolCatalogStore
         string signature;
         try
         {
-            json = await OfficialInstaller.DownloadBytesAsync(ToolCatalogTrust.CatalogUrl, ToolCatalogTrust.Hosts,
-                ToolCatalogParser.MaxDocumentBytes, OnlineTimeout, cancellationToken).ConfigureAwait(false);
-            byte[] signatureBytes = await OfficialInstaller.DownloadBytesAsync(ToolCatalogTrust.SignatureUrl, ToolCatalogTrust.Hosts,
-                MaxSignatureBytes, OnlineTimeout, cancellationToken).ConfigureAwait(false);
-            signature = System.Text.Encoding.ASCII.GetString(signatureBytes);
+            // Une révision introuvable (quota de l'API de GitHub atteint) n'empêche rien : la branche sert alors, au
+            // risque d'un décalage passager entre les deux fichiers, que la vérification de signature rattrape.
+            string revision = await ResolveRevisionAsync(cancellationToken).ConfigureAwait(false) ?? ToolCatalogTrust.Branch;
+            json = await OfficialInstaller.DownloadBytesAsync(ToolCatalogTrust.FileUrl(revision, ToolCatalogTrust.CatalogFileName),
+                ToolCatalogTrust.Hosts, ToolCatalogParser.MaxDocumentBytes, OnlineTimeout, cancellationToken, _client).ConfigureAwait(false);
+            byte[] signatureBytes = await OfficialInstaller.DownloadBytesAsync(ToolCatalogTrust.FileUrl(revision, ToolCatalogTrust.SignatureFileName),
+                ToolCatalogTrust.Hosts, MaxSignatureBytes, OnlineTimeout, cancellationToken, _client).ConfigureAwait(false);
+            signature = Encoding.ASCII.GetString(signatureBytes);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -142,13 +166,11 @@ public sealed class ToolCatalogStore
             return SetOnlineMessage($"catalogue en ligne injoignable ({reason}) : PCPerfSuite utilise sa dernière liste connue", suspicious: false);
         }
 
-        if (Accept(json, signature, ToolCatalogOrigin.Online, out string? refusal) is not { } comparison)
+        switch (Accept(json, signature, ToolCatalogOrigin.Online, out string? note))
         {
-            return SetOnlineMessage($"catalogue en ligne refusé ({refusal}) : PCPerfSuite garde sa dernière liste connue", suspicious: true);
-        }
+            case null:
+                return SetOnlineMessage($"catalogue en ligne refusé ({note}) : PCPerfSuite garde sa dernière liste connue", suspicious: true);
 
-        switch (comparison)
-        {
             case CatalogComparison.Newer:
                 SaveCache(json, signature);
                 return Status;
@@ -159,18 +181,18 @@ public sealed class ToolCatalogStore
 
             case CatalogComparison.Older:
                 return SetOnlineMessage(
-                    $"catalogue en ligne {refusal} plus ancien que le n° {Status.Document.Sequence} déjà connu : refusé, " +
+                    $"catalogue en ligne {note} plus ancien que le n° {Math.Max(Status.Document.Sequence, Floor())} déjà accepté : refusé, " +
                     "par protection contre un retour en arrière", suspicious: true);
 
             default:
                 return SetOnlineMessage(
-                    $"catalogue en ligne {refusal} différent de celui déjà connu sous ce numéro : refusé", suspicious: true);
+                    $"catalogue en ligne {note} différent de celui déjà connu sous ce numéro : refusé", suspicious: true);
         }
     }
 
-    /// <summary>Vérifie un catalogue signé et le prend s'il est plus récent que celui en usage. Null s'il n'est pas digne
-    /// de confiance (<paramref name="note"/> dit pourquoi) ; sinon le résultat de la comparaison, et
-    /// <paramref name="note"/> son numéro (« n° 12 »).</summary>
+    /// <summary>Vérifie un catalogue signé et le prend s'il est plus récent que celui en usage et pas plus ancien que le
+    /// plancher. Null s'il n'est pas digne de confiance (<paramref name="note"/> dit pourquoi) ; sinon le résultat de la
+    /// comparaison, et <paramref name="note"/> son numéro (« n° 12 »).</summary>
     internal CatalogComparison? Accept(byte[] json, string signature, ToolCatalogOrigin origin, out string? note)
     {
         if (Trusted(json, signature, out string? refusal) is not { } document)
@@ -180,17 +202,24 @@ public sealed class ToolCatalogStore
         }
 
         note = $"n° {document.Sequence}";
-        return Offer(document, origin);
+        long floor = Floor();
+        CatalogComparison comparison;
+        lock (_gate)
+        {
+            comparison = document.Sequence < floor ? CatalogComparison.Older : Compare(_status.Document, document);
+            if (comparison == CatalogComparison.Newer) _status = new ToolCatalogStatus(document, origin, null);
+        }
+
+        if (comparison == CatalogComparison.Newer && document.Sequence > floor) WriteFloor(document.Sequence);
+        return comparison;
     }
 
-    /// <summary>Compare un candidat au catalogue en usage, par numéro de publication, puis octet pour octet.</summary>
-    public static CatalogComparison Compare(ToolCatalogDocument current, byte[]? currentBytes, ToolCatalogDocument candidate, byte[]? candidateBytes)
+    /// <summary>Compare un candidat au catalogue en usage, par numéro de publication, puis par contenu.</summary>
+    public static CatalogComparison Compare(ToolCatalogDocument current, ToolCatalogDocument candidate)
     {
         if (candidate.Sequence > current.Sequence) return CatalogComparison.Newer;
         if (candidate.Sequence < current.Sequence) return CatalogComparison.Older;
-        return currentBytes is not null && candidateBytes is not null && currentBytes.AsSpan().SequenceEqual(candidateBytes)
-            ? CatalogComparison.Same
-            : SameReleases(current, candidate) ? CatalogComparison.Same : CatalogComparison.Conflicting;
+        return SameReleases(current, candidate) ? CatalogComparison.Same : CatalogComparison.Conflicting;
     }
 
     /// <summary>Signature valable et document lisible, ou null avec la raison.</summary>
@@ -207,14 +236,79 @@ public sealed class ToolCatalogStore
         return document;
     }
 
-    private CatalogComparison Offer(ToolCatalogDocument candidate, ToolCatalogOrigin origin)
+    /// <summary>SHA du dernier commit de la branche, null s'il ne peut pas être lu.</summary>
+    private async Task<string?> ResolveRevisionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            byte[] body = await OfficialInstaller.DownloadBytesAsync(ToolCatalogTrust.BranchRefUrl, ToolCatalogTrust.Hosts, MaxRefBytes,
+                OnlineTimeout, cancellationToken, _client).ConfigureAwait(false);
+            using JsonDocument reference = JsonDocument.Parse(body);
+            string? sha = reference.RootElement.GetProperty("object").GetProperty("sha").GetString();
+            return sha is { Length: 40 } && sha.All(Uri.IsHexDigit) ? sha : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Plus haut numéro déjà accepté (0 si aucun), lu une fois.</summary>
+    private long Floor()
     {
         lock (_gate)
         {
-            CatalogComparison comparison = Compare(_status.Document, null, candidate, null);
-            if (comparison == CatalogComparison.Newer) _status = new ToolCatalogStatus(candidate, origin, null);
-            return comparison;
+            if (_floor >= 0) return _floor;
         }
+
+        long floor = 0;
+        try
+        {
+            string? path = FloorPath(create: false);
+            if (path is not null && File.Exists(path)
+                && long.TryParse(File.ReadAllText(path).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out long read))
+            {
+                floor = read;
+            }
+        }
+        catch
+        {
+            // Plancher illisible : la copie intégrée reste le plancher, comme avant le premier catalogue en ligne.
+        }
+
+        lock (_gate)
+        {
+            if (_floor < 0) _floor = floor;
+            return _floor;
+        }
+    }
+
+    private void WriteFloor(long sequence)
+    {
+        lock (_gate) _floor = Math.Max(_floor, sequence);
+
+        try
+        {
+            if (FloorPath(create: true) is { } path) WriteAtomically(path, Encoding.ASCII.GetBytes(sequence.ToString(CultureInfo.InvariantCulture)));
+        }
+        catch
+        {
+            // best-effort : le plancher reste en mémoire pour la session, le cache et la copie intégrée après.
+        }
+    }
+
+    /// <summary>Fichier du plancher : celui des tests, ou %ProgramData%\PCPerfSuite\catalogue-outils.plancher (dossier
+    /// vérifié, créé si besoin).</summary>
+    private string? FloorPath(bool create)
+    {
+        if (_floorFile is not null) return _floorFile;
+
+        string? root = create ? ProgramDataFolder.TryEnsure().Path : ProgramDataFolder.TryGetExisting();
+        return root is null ? null : Path.Combine(root, ProgramDataFolder.CatalogFloorFileName);
     }
 
     private ToolCatalogStatus SetOnlineMessage(string message, bool suspicious)
@@ -226,20 +320,20 @@ public sealed class ToolCatalogStore
         }
     }
 
-    /// <summary>Mêmes versions, adresses et empreintes pour chaque outil : deux copies d'un même catalogue relues par
-    /// des chemins différents (intégrée, cache) se comparent ainsi sans garder leurs octets.</summary>
+    /// <summary>Mêmes versions, adresses et empreintes pour chaque outil.</summary>
     private static bool SameReleases(ToolCatalogDocument a, ToolCatalogDocument b)
         => a.Releases.Count == b.Releases.Count
            && a.Releases.All(pair => b.Releases.TryGetValue(pair.Key, out ToolRelease? other) && other == pair.Value);
 
-    /// <summary>Écriture atomique du catalogue et de sa signature (fichier temporaire puis remplacement).</summary>
-    private static void SaveCache(byte[] json, string signature)
+    /// <summary>Écriture atomique du catalogue et de sa signature. Une coupure entre les deux laisse une paire qui ne se
+    /// vérifie pas : le cache est alors ignoré, jamais pris à tort.</summary>
+    private void SaveCache(byte[] json, string signature)
     {
         try
         {
-            AppDataPaths paths = AppDataPaths.Current;
+            AppDataPaths paths = _cachePaths ?? AppDataPaths.Current;
             Directory.CreateDirectory(Path.GetDirectoryName(paths.ToolCatalogCacheFile)!);
-            WriteAtomically(paths.ToolCatalogCacheSignatureFile, System.Text.Encoding.ASCII.GetBytes(signature));
+            WriteAtomically(paths.ToolCatalogCacheSignatureFile, Encoding.ASCII.GetBytes(signature));
             WriteAtomically(paths.ToolCatalogCacheFile, json);
         }
         catch
@@ -290,7 +384,16 @@ public static class ToolCatalogTrust
     /// catalogue en ligne est alors ignoré, et seule la copie intégrée sert.</summary>
     public static readonly string? PublicKey = null;
 
-    public static readonly Uri CatalogUrl = new("https://raw.githubusercontent.com/Denis-GT/PCPerfSuite-catalogue/main/catalogue-outils.json");
-    public static readonly Uri SignatureUrl = new("https://raw.githubusercontent.com/Denis-GT/PCPerfSuite-catalogue/main/catalogue-outils.json.sig");
-    public static readonly IReadOnlyList<string> Hosts = new[] { "raw.githubusercontent.com" };
+    public const string Repository = "Denis-GT/PCPerfSuite-catalogue";
+    public const string Branch = "main";
+    public const string CatalogFileName = "catalogue-outils.json";
+    public const string SignatureFileName = "catalogue-outils.json.sig";
+
+    /// <summary>Référence de la branche, pour lire les deux fichiers à la même révision.</summary>
+    public static readonly Uri BranchRefUrl = new($"https://api.github.com/repos/{Repository}/git/ref/heads/{Branch}");
+
+    public static readonly IReadOnlyList<string> Hosts = new[] { "raw.githubusercontent.com", "api.github.com" };
+
+    /// <summary>Adresse d'un fichier du dépôt à une révision (SHA de commit ou nom de branche).</summary>
+    public static Uri FileUrl(string revision, string fileName) => new($"https://raw.githubusercontent.com/{Repository}/{revision}/{fileName}");
 }

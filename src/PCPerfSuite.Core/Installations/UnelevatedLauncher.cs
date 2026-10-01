@@ -1,33 +1,22 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace PCPerfSuite.Core.Installations;
-
-/// <summary>Comment un outil a été lancé.</summary>
-public enum UnelevatedLaunchResult
-{
-    /// <summary>Lancé par le shell du bureau, avec les droits de la personne connectée : l'outil demande lui-même
-    /// l'autorisation de Windows (UAC) s'il a besoin d'être administrateur.</summary>
-    Launched,
-
-    /// <summary>Le shell n'a pas répondu : l'Explorateur est ouvert sur le fichier, à lancer d'un double-clic.</summary>
-    ShownInExplorer,
-
-    Failed,
-}
 
 /// <summary>
 /// Lance un programme SANS les droits administrateur de PCPerfSuite. L'app tourne élevée : un Process.Start direct
 /// transmettrait ce jeton à l'outil, sans invite. Ici, c'est le shell du bureau (explorer.exe, qui tourne déjà sous le
 /// compte de la personne connectée) qui fait le ShellExecute, par sa vue du bureau (IShellWindows → IShellBrowser →
 /// IShellView → IShellDispatch2.ShellExecute) : la méthode que Microsoft donne pour lancer un processus non élevé depuis
-/// un processus élevé. Un outil qui a besoin d'être administrateur affiche alors sa propre invite UAC.
+/// un processus élevé. Un outil qui a besoin d'être administrateur affiche alors sa propre invite UAC. Vérifié le
+/// 01/10/2026 : le processus lancé a pour parent explorer.exe, pas PCPerfSuite.
 ///
-/// Si le shell ne répond pas (Explorateur arrêté, bureau à distance particulier), rien n'est lancé en administrateur
-/// à la place : l'Explorateur est ouvert sur le fichier (explorer.exe /select, comme Processus › Ouvrir l'emplacement),
-/// et l'utilisateur le lance d'un double-clic.
+/// Aucun repli ne démarre quoi que ce soit depuis le processus élevé, pas même explorer.exe : sans shell en cours
+/// d'exécution (Explorateur arrêté, session particulière), un explorer.exe lancé d'ici deviendrait lui-même le shell,
+/// en administrateur, et tout ce que l'utilisateur ouvrirait ensuite en hériterait. Le shell absent, l'opération échoue
+/// et le message donne le chemin, à ouvrir à la main.
 ///
-/// Best-effort (règle 2) : ne lève jamais.
+/// Best-effort (règle 2) : ne lève jamais. Appelable depuis n'importe quel thread (le shell est un serveur COM hors
+/// processus) ; les appels traversent un processus : à faire hors du thread d'interface.
 /// </summary>
 public static class UnelevatedLauncher
 {
@@ -42,45 +31,42 @@ public static class UnelevatedLauncher
     private static readonly Guid ShellBrowserIid = new("000214E2-0000-0000-C000-000000000046");
     private static readonly Guid DispatchIid = new("00020400-0000-0000-C000-000000000046");
 
-    /// <summary><paramref name="showInExplorerOnFailure"/> : si le shell ne répond pas, ouvrir l'Explorateur sur le
-    /// fichier plutôt que d'échouer (faux pour une commande comme winget, qui ne se lance pas d'un double-clic).</summary>
-    public static UnelevatedLaunchResult Launch(string path, string arguments, out string? error, bool showInExplorerOnFailure = true)
+    /// <summary>Vrai si le programme est lancé par le shell ; sinon <paramref name="error"/> dit pourquoi, chemin compris.</summary>
+    public static bool TryLaunch(string path, string arguments, out string? error)
     {
         if (!File.Exists(path))
         {
             error = $"Fichier introuvable : {path}";
-            return UnelevatedLaunchResult.Failed;
+            return false;
         }
 
         try
         {
             ShellExecuteFromDesktop(path, arguments, Path.GetDirectoryName(path) ?? "");
             error = null;
-            return UnelevatedLaunchResult.Launched;
+            return true;
         }
-        catch (Exception shellError)
+        catch (Exception ex)
         {
-            error = null;
-            if (showInExplorerOnFailure && TryShowInExplorer(path, out error)) return UnelevatedLaunchResult.ShownInExplorer;
-            error = $"Lancement impossible ({shellError.Message}). {error}".TrimEnd();
-            return UnelevatedLaunchResult.Failed;
+            error = $"Le shell de Windows n'a pas répondu ({ex.Message}) : rien n'a été lancé. Ouvre toi-même {path}.";
+            return false;
         }
     }
 
-    /// <summary>Ouvre l'Explorateur sur le fichier, sélectionné. L'Explorateur tourne sous le compte de la personne
-    /// connectée : rien n'hérite du jeton de PCPerfSuite.</summary>
+    /// <summary>Ouvre l'Explorateur sur le fichier, sélectionné, par le shell du bureau : l'Explorateur tourne sous le compte
+    /// de la personne connectée, rien n'hérite du jeton de PCPerfSuite.</summary>
     public static bool TryShowInExplorer(string path, out string? error)
     {
         try
         {
-            Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
-                $"/select,\"{path}\"") { UseShellExecute = true })?.Dispose();
+            ShellExecuteFromDesktop(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                $"/select,\"{path}\"", Path.GetDirectoryName(path) ?? "");
             error = null;
             return true;
         }
         catch (Exception ex)
         {
-            error = $"Impossible d'ouvrir l'Explorateur sur « {path} » ({ex.Message}).";
+            error = $"L'Explorateur n'a pas pu être ouvert ({ex.Message}). Le fichier est ici : {path}";
             return false;
         }
     }

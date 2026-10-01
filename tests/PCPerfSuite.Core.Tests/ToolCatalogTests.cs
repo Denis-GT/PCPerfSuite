@@ -177,6 +177,17 @@ public class ToolCatalogTests
             OfficialInstallerSource source = ToolboxActions.SourceFor(tool, release);
 
             OfficialInstaller.ValidateSource(source);
+
+            // La source reprend tout ce qui protège le téléchargement : pour une archive, l'empreinte est la seule
+            // garantie des fichiers qu'elle contient en plus de l'exe principal.
+            Assert.Equal(release.Url, source.Url);
+            Assert.Equal(release.Sha256, source.ExpectedSha256);
+            Assert.Equal(release.Size, source.ExpectedSize);
+            Assert.Same(tool.AllowedHosts, source.AllowedHosts);
+            Assert.Equal(tool.ExpectedPublisher, source.ExpectedPublisher);
+            Assert.Equal(tool.FileKind, source.Kind);
+            Assert.Equal(tool.MaxBytes, source.MaxBytes);
+            Assert.Equal(tool.DownloadTimeout, source.DownloadTimeout);
             Assert.Equal(Uri.UriSchemeHttps, release.Url.Scheme);
             Assert.True(OfficialInstaller.IsAllowedHost(release.Url, tool.AllowedHosts), release.Url.Host);
             Assert.Equal(Path.GetFileName(release.FileName), release.FileName);
@@ -190,7 +201,9 @@ public class ToolCatalogTests
         ToolCatalogDocument document = Embedded();
 
         Assert.Equal("OCCT.exe", document.Releases["occt"].FileName);
-        Assert.Equal("DDU v18.1.5.3_setup.exe", document.Releases["ddu"].FileName);
+        ToolRelease ddu = document.Releases["ddu"];
+        Assert.Equal(Uri.UnescapeDataString(ddu.Url.Segments[^1]), ddu.FileName);
+        Assert.Contains(" ", ddu.FileName);
         Assert.StartsWith("[Guru3D]-RTSSSetup", document.Releases["rtss"].FileName);
     }
 
@@ -206,12 +219,16 @@ public class ToolCatalogTests
     }
 
     [Fact]
-    public void Le_catalogue_en_ligne_vient_du_seul_hote_brut_de_GitHub()
+    public void Le_catalogue_en_ligne_se_lit_a_une_revision_du_depot_sur_les_seuls_hotes_de_GitHub()
     {
-        Assert.Equal(Uri.UriSchemeHttps, ToolCatalogTrust.CatalogUrl.Scheme);
-        Assert.True(OfficialInstaller.IsAllowedHost(ToolCatalogTrust.CatalogUrl, ToolCatalogTrust.Hosts));
-        Assert.True(OfficialInstaller.IsAllowedHost(ToolCatalogTrust.SignatureUrl, ToolCatalogTrust.Hosts));
-        Assert.Equal(new[] { "raw.githubusercontent.com" }, ToolCatalogTrust.Hosts);
-        Assert.Matches(new Regex(@"\.sig$"), ToolCatalogTrust.SignatureUrl.AbsolutePath);
+        const string sha = "0123456789abcdef0123456789abcdef01234567";
+        Uri catalog = ToolCatalogTrust.FileUrl(sha, ToolCatalogTrust.CatalogFileName);
+        Uri signature = ToolCatalogTrust.FileUrl(sha, ToolCatalogTrust.SignatureFileName);
+
+        Assert.Equal($"https://raw.githubusercontent.com/Denis-GT/PCPerfSuite-catalogue/{sha}/catalogue-outils.json", catalog.AbsoluteUri);
+        Assert.Matches(new Regex(@"\.json\.sig$"), signature.AbsolutePath);
+        Assert.True(OfficialInstaller.IsAllowedHost(catalog, ToolCatalogTrust.Hosts));
+        Assert.True(OfficialInstaller.IsAllowedHost(ToolCatalogTrust.BranchRefUrl, ToolCatalogTrust.Hosts));
+        Assert.Equal(new[] { "raw.githubusercontent.com", "api.github.com" }, ToolCatalogTrust.Hosts);
     }
 }

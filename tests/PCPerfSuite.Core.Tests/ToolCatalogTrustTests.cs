@@ -9,8 +9,16 @@ namespace PCPerfSuite.Core.Tests;
 /// publication croissant (un ancien catalogue signé, servi de nouveau, est refusé). Clés générées par les tests,
 /// sans réseau ni disque.
 /// </summary>
-public class ToolCatalogTrustTests
+public sealed class ToolCatalogTrustTests : IDisposable
 {
+    /// <summary>Un dossier par test (xUnit crée une instance par test) : le plancher n'est jamais celui de l'app.</summary>
+    private readonly TempDirectory _floor = new();
+
+    public void Dispose() => _floor.Dispose();
+
+    private ToolCatalogStore Store(ECDsa key, byte[] embedded)
+        => new(ToolCatalog.All, PublicKeyOf(key), embedded, floorFile: _floor.File("plancher"));
+
     private const string Context = ToolCatalogTrust.SignatureContext;
 
     private static readonly byte[] Content = Encoding.UTF8.GetBytes("""{ "format": 1, "sequence": 2, "tools": [] }""");
@@ -99,7 +107,7 @@ public class ToolCatalogTrustTests
     public void Un_catalogue_signe_et_plus_recent_remplace_la_copie_integree()
     {
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5));
+        var store = Store(key, Catalog(5));
         byte[] newer = Catalog(6, "3.02");
 
         CatalogComparison? result = store.Accept(newer, CatalogSignature.Sign(newer, Context, key), ToolCatalogOrigin.Online, out _);
@@ -114,7 +122,7 @@ public class ToolCatalogTrustTests
     public void Un_catalogue_signe_mais_plus_ancien_est_refuse()
     {
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5));
+        var store = Store(key, Catalog(5));
         byte[] older = Catalog(4, "2.99");
 
         CatalogComparison? result = store.Accept(older, CatalogSignature.Sign(older, Context, key), ToolCatalogOrigin.Online, out _);
@@ -128,7 +136,7 @@ public class ToolCatalogTrustTests
     public void Le_meme_numero_avec_un_autre_contenu_est_refuse()
     {
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5));
+        var store = Store(key, Catalog(5));
         byte[] same = Catalog(5);
         byte[] conflicting = Catalog(5, "3.99");
 
@@ -143,7 +151,7 @@ public class ToolCatalogTrustTests
     {
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using ECDsa attacker = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5));
+        var store = Store(key, Catalog(5));
         byte[] forged = Catalog(99, "6.66");
 
         CatalogComparison? result = store.Accept(forged, CatalogSignature.Sign(forged, Context, attacker), ToolCatalogOrigin.Online, out string? why);
@@ -170,12 +178,170 @@ public class ToolCatalogTrustTests
     public void Une_copie_integree_illisible_laisse_la_place_a_tout_catalogue_signe()
     {
         using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Encoding.UTF8.GetBytes("abîmé"));
+        var store = Store(key, Encoding.UTF8.GetBytes("abîmé"));
         byte[] online = Catalog(1);
 
         Assert.Equal(0, store.Status.Document.Sequence);
         Assert.NotEmpty(store.Status.Document.Rejected);
         Assert.Equal(CatalogComparison.Newer, store.Accept(online, CatalogSignature.Sign(online, Context, key), ToolCatalogOrigin.Online, out _));
+    }
+
+    // Cache et plancher sur disque, dans un dossier de test : jamais ceux de l'app.
+
+    private sealed class Disk : IDisposable
+    {
+        private readonly TempDirectory _temp = new();
+
+        public Disk()
+        {
+            Paths = new PCPerfSuite.Core.SystemInfo.AppDataPaths(Path.Combine(_temp.Root, "donnees"));
+            Directory.CreateDirectory(Paths.Root);
+            FloorFile = Path.Combine(_temp.Root, "plancher");
+        }
+
+        public PCPerfSuite.Core.SystemInfo.AppDataPaths Paths { get; }
+        public string FloorFile { get; }
+
+        public void WriteCache(byte[] json, string signature)
+        {
+            File.WriteAllBytes(Paths.ToolCatalogCacheFile, json);
+            File.WriteAllText(Paths.ToolCatalogCacheSignatureFile, signature);
+        }
+
+        public void Dispose() => _temp.Dispose();
+    }
+
+    [Fact]
+    public void Un_cache_signe_et_plus_recent_que_la_copie_integree_sert_au_lancement()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] cached = Catalog(8, "3.02");
+        disk.WriteCache(cached, CatalogSignature.Sign(cached, Context, key));
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+
+        store.LoadCache();
+
+        Assert.Equal(ToolCatalogOrigin.Cache, store.Status.Origin);
+        Assert.Equal(8, store.Status.Document.Sequence);
+        Assert.Equal("8", File.ReadAllText(disk.FloorFile));
+    }
+
+    [Fact]
+    public void Un_cache_mal_signe_ou_incoherent_est_ignore()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] cached = Catalog(8, "3.02");
+        disk.WriteCache(cached, CatalogSignature.Sign(Catalog(9), Context, key));
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+
+        store.LoadCache();
+
+        Assert.Equal(ToolCatalogOrigin.Embedded, store.Status.Origin);
+        Assert.Equal(5, store.Status.Document.Sequence);
+    }
+
+    [Fact]
+    public void Un_ancien_catalogue_signe_remis_dans_le_cache_ne_passe_pas_le_plancher()
+    {
+        // Le cache est dans le dossier de l'utilisateur : un programme non élevé peut y remettre un ancien catalogue
+        // signé. Le plancher, réservé aux administrateurs, se souvient du n° 12 déjà accepté.
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        File.WriteAllText(disk.FloorFile, "12");
+        byte[] old = Catalog(8, "2.99");
+        disk.WriteCache(old, CatalogSignature.Sign(old, Context, key));
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile);
+
+        store.LoadCache();
+
+        Assert.Equal(5, store.Status.Document.Sequence);
+        Assert.True(store.Status.OnlineRefusalIsSuspicious);
+        Assert.Contains("plus ancienne", store.Status.OnlineMessage);
+    }
+
+    private const string Revision = "0123456789abcdef0123456789abcdef01234567";
+
+    private static FakeHttp Server(byte[] json, string signature, bool resolveRevision = true)
+        => new(uri =>
+        {
+            if (uri.Host == "api.github.com")
+            {
+                return resolveRevision
+                    ? FakeHttp.Ok(Encoding.UTF8.GetBytes($$"""{ "ref": "refs/heads/main", "object": { "sha": "{{Revision}}", "type": "commit" } }"""))
+                    : FakeHttp.Status(System.Net.HttpStatusCode.Forbidden);
+            }
+
+            return uri.AbsolutePath.EndsWith(".sig", StringComparison.Ordinal)
+                ? FakeHttp.Ok(Encoding.ASCII.GetBytes(signature))
+                : FakeHttp.Ok(json);
+        });
+
+    [Fact]
+    public async Task Le_catalogue_en_ligne_et_sa_signature_se_lisent_a_la_meme_revision()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] online = Catalog(9, "3.03");
+        FakeHttp server = Server(online, CatalogSignature.Sign(online, Context, key));
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+
+        ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
+
+        Assert.Equal(ToolCatalogOrigin.Online, status.Origin);
+        Assert.Equal(9, status.Document.Sequence);
+        Assert.All(server.Requests.Where(u => u.Host == "raw.githubusercontent.com"), u => Assert.Contains($"/{Revision}/", u.AbsolutePath));
+        Assert.True(File.Exists(disk.Paths.ToolCatalogCacheFile));
+        Assert.Equal("9", File.ReadAllText(disk.FloorFile));
+    }
+
+    [Fact]
+    public async Task Sans_revision_lisible_la_branche_sert_encore()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] online = Catalog(9);
+        FakeHttp server = Server(online, CatalogSignature.Sign(online, Context, key), resolveRevision: false);
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+
+        ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
+
+        Assert.Equal(9, status.Document.Sequence);
+        Assert.Contains(server.Requests, u => u.AbsolutePath.Contains("/main/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Un_catalogue_en_ligne_mal_signe_est_refuse_et_signale()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using ECDsa attacker = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        byte[] forged = Catalog(50, "6.66");
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile,
+            Server(forged, CatalogSignature.Sign(forged, Context, attacker)).Client());
+
+        ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
+
+        Assert.Equal(5, status.Document.Sequence);
+        Assert.True(status.OnlineRefusalIsSuspicious);
+        Assert.False(File.Exists(disk.Paths.ToolCatalogCacheFile));
+        Assert.False(File.Exists(disk.FloorFile));
+    }
+
+    [Fact]
+    public async Task Un_catalogue_en_ligne_injoignable_n_est_pas_un_probleme_de_securite()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var disk = new Disk();
+        var server = new FakeHttp(_ => FakeHttp.Status(System.Net.HttpStatusCode.NotFound));
+        var store = new ToolCatalogStore(ToolCatalog.All, PublicKeyOf(key), Catalog(5), disk.Paths, disk.FloorFile, server.Client());
+
+        ToolCatalogStatus status = await store.RefreshOnlineAsync(CancellationToken.None);
+
+        Assert.Equal(ToolCatalogOrigin.Embedded, status.Origin);
+        Assert.False(status.OnlineRefusalIsSuspicious);
+        Assert.Contains("injoignable", status.OnlineMessage);
     }
 
     [Fact]

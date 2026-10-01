@@ -24,23 +24,56 @@ public static class ToolDetection
         @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
     };
 
-    public static ToolInstallState Detect(ToolDefinition tool)
+    /// <summary>Une inscription de « Applications installées », lue une fois par passage pour tous les outils.</summary>
+    internal sealed record UninstallEntry(string KeyName, string? DisplayName, string? DisplayVersion, string? InstallLocation, string? DisplayIcon);
+
+    public static ToolInstallState Detect(ToolDefinition tool) => DetectAll(new[] { tool })[0];
+
+    /// <summary>État de chaque outil, dans l'ordre. Les clés Uninstall et le dossier sécurisé ne sont lus qu'une fois
+    /// pour tous.</summary>
+    public static IReadOnlyList<ToolInstallState> DetectAll(IReadOnlyList<ToolDefinition> tools)
     {
-        try
+        IReadOnlyList<UninstallEntry>? uninstall = null;
+        string? toolsRoot = tools.Any(t => t.Detection == ToolDetectionKind.PortableFolder)
+            ? SafeGet(() => ProgramDataFolder.TryGetExisting(ProgramDataFolder.ToolsFolderName))
+            : null;
+
+        var states = new ToolInstallState[tools.Count];
+        for (int i = 0; i < tools.Count; i++)
         {
-            return tool.Detection switch
+            ToolDefinition tool = tools[i];
+            try
             {
-                ToolDetectionKind.PortableFolder => DetectPortable(tool, ProgramDataFolder.TryGetExisting(ProgramDataFolder.ToolsFolderName, tool.Id)),
-                ToolDetectionKind.UninstallEntry => DetectUninstallEntry(tool),
-                ToolDetectionKind.PawnIo => DetectPawnIo(),
-                ToolDetectionKind.Rtss => DetectRtss(),
-                _ => tool.Delivery == ToolDelivery.BuiltIn ? DetectBuiltIn(tool) : ToolInstallState.Absent,
-            };
+                states[i] = tool.Detection switch
+                {
+                    ToolDetectionKind.PortableFolder => DetectPortable(tool, ToolFolder(toolsRoot, tool.Id)),
+                    ToolDetectionKind.UninstallEntry => DetectUninstallEntry(tool, uninstall ??= ReadUninstallEntries()),
+                    ToolDetectionKind.PawnIo => DetectPawnIo(),
+                    ToolDetectionKind.Rtss => DetectRtss(),
+                    _ => tool.Delivery == ToolDelivery.BuiltIn ? DetectBuiltIn(tool) : ToolInstallState.Absent,
+                };
+            }
+            catch
+            {
+                states[i] = ToolInstallState.Absent;
+            }
         }
-        catch
-        {
-            return ToolInstallState.Absent;
-        }
+
+        return states;
+    }
+
+    /// <summary>Dossier de l'outil sous Tools, s'il existe et n'est pas un lien.</summary>
+    private static string? ToolFolder(string? toolsRoot, string id)
+    {
+        if (toolsRoot is null || !ProgramDataFolder.IsPlainName(id)) return null;
+        string folder = Path.Combine(toolsRoot, id);
+        return Directory.Exists(folder) && !ProgramDataFolder.IsLink(folder) ? folder : null;
+    }
+
+    private static string? SafeGet(Func<string?> read)
+    {
+        try { return read(); }
+        catch { return null; }
     }
 
     /// <summary>Version la plus récente présente dans le dossier de l'outil (<c>Tools\&lt;id&gt;\&lt;version&gt;</c>) dont
@@ -71,34 +104,59 @@ public static class ToolDetection
         return bestVersion is null ? ToolInstallState.Absent : new ToolInstallState(true, bestVersion, bestPath, true, bestFolder);
     }
 
-    private static ToolInstallState DetectUninstallEntry(ToolDefinition tool)
+    internal static ToolInstallState DetectUninstallEntry(ToolDefinition tool, IReadOnlyList<UninstallEntry> entries)
     {
+        foreach (UninstallEntry entry in entries)
+        {
+            bool matches = (tool.UninstallKeyName is { } key && entry.KeyName.Equals(key, StringComparison.OrdinalIgnoreCase))
+                           || (tool.UninstallDisplayName is { } prefix
+                               && entry.DisplayName?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true);
+            if (!matches) continue;
+
+            string? executable = InstalledExecutable(tool, entry.InstallLocation, entry.DisplayIcon);
+            return new ToolInstallState(true, string.IsNullOrWhiteSpace(entry.DisplayVersion) ? null : entry.DisplayVersion.Trim(), executable, false);
+        }
+
+        return ToolInstallState.Absent;
+    }
+
+    /// <summary>Toutes les inscriptions des quatre racines Uninstall (machine, utilisateur, 64 et 32 bits). Une clé
+    /// illisible est sautée.</summary>
+    private static IReadOnlyList<UninstallEntry> ReadUninstallEntries()
+    {
+        var entries = new List<UninstallEntry>();
         foreach (RegistryKey hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
         {
             foreach (string root in UninstallRoots)
             {
-                using RegistryKey? uninstall = hive.OpenSubKey(root);
-                if (uninstall is null) continue;
-
-                foreach (string name in uninstall.GetSubKeyNames())
+                try
                 {
-                    using RegistryKey? entry = uninstall.OpenSubKey(name);
-                    if (entry is null) continue;
+                    using RegistryKey? uninstall = hive.OpenSubKey(root);
+                    if (uninstall is null) continue;
 
-                    string? displayName = entry.GetValue("DisplayName") as string;
-                    bool matches = (tool.UninstallKeyName is { } key && name.Equals(key, StringComparison.OrdinalIgnoreCase))
-                                   || (tool.UninstallDisplayName is { } prefix
-                                       && displayName?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true);
-                    if (!matches) continue;
-
-                    string? version = entry.GetValue("DisplayVersion") as string;
-                    string? executable = InstalledExecutable(tool, entry.GetValue("InstallLocation") as string, entry.GetValue("DisplayIcon") as string);
-                    return new ToolInstallState(true, string.IsNullOrWhiteSpace(version) ? null : version.Trim(), executable, false);
+                    foreach (string name in uninstall.GetSubKeyNames())
+                    {
+                        try
+                        {
+                            using RegistryKey? entry = uninstall.OpenSubKey(name);
+                            if (entry is null) continue;
+                            entries.Add(new UninstallEntry(name, entry.GetValue("DisplayName") as string, entry.GetValue("DisplayVersion") as string,
+                                entry.GetValue("InstallLocation") as string, entry.GetValue("DisplayIcon") as string));
+                        }
+                        catch
+                        {
+                            // Inscription illisible : les autres restent.
+                        }
+                    }
+                }
+                catch
+                {
+                    // Racine illisible : les autres restent.
                 }
             }
         }
 
-        return ToolInstallState.Absent;
+        return entries;
     }
 
     /// <summary>L'exe de l'outil installé : d'après l'icône inscrite (« "C:\…\outil.exe",0 ») si c'est bien lui, sinon

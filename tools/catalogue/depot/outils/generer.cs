@@ -23,7 +23,8 @@ string cataloguePath = Option("--catalogue") ?? "catalogue-outils.json";
 string sourcesPath = Option("--sources") ?? "sources.json";
 string? summaryPath = Option("--resume");
 
-using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+// Redirections suivies à la main, pour contrôler l'hôte de chaque étape comme le fait l'app.
+using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(30) };
 http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCPerfSuite-catalogue", "1.0"));
 string? token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
 
@@ -52,6 +53,10 @@ foreach (JsonElement source in sources.RootElement.GetProperty("tools").Enumerat
         Candidate candidate = await FindLatestAsync(source);
         answered++;
         RequireHost(candidate.Url, source);
+        if (!SafeVersion().IsMatch(candidate.Version) || candidate.Version.Contains("..", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"numéro de version « {candidate.Version} » refusé (il sert de nom de dossier dans l'app)");
+        }
 
         if (old is not null && old.Url == candidate.Url && (candidate.Sha256 is null || candidate.Sha256.Equals(old.Sha256, StringComparison.OrdinalIgnoreCase)))
         {
@@ -60,7 +65,7 @@ foreach (JsonElement source in sources.RootElement.GetProperty("tools").Enumerat
         }
 
         Console.WriteLine($"{id} : téléchargement de {candidate.Url}");
-        (string sha, long size) = await HashAsync(candidate.Url);
+        (string sha, long size) = await HashAsync(candidate.Url, source);
         if (candidate.Sha256 is not null && !candidate.Sha256.Equals(sha, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"le fichier ne correspond pas à l'empreinte de sa source ({candidate.Sha256[..12]}… annoncé, {sha[..12]}… reçu)");
@@ -200,9 +205,26 @@ async Task<string> GitHubApiAsync(string path)
     return await response.Content.ReadAsStringAsync();
 }
 
-async Task<(string Sha, long Size)> HashAsync(string url)
+async Task<(string Sha, long Size)> HashAsync(string url, JsonElement source)
 {
-    using HttpResponseMessage response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+    var current = new Uri(url);
+    HttpResponseMessage response;
+    for (int hop = 0; ; hop++)
+    {
+        RequireHost(current.AbsoluteUri, source);
+        response = await http.GetAsync(current, HttpCompletionOption.ResponseHeadersRead);
+        if ((int)response.StatusCode is >= 300 and < 400 && response.Headers.Location is { } location)
+        {
+            response.Dispose();
+            if (hop >= 5) throw new InvalidOperationException("trop de redirections");
+            current = location.IsAbsoluteUri ? location : new Uri(current, location);
+            continue;
+        }
+
+        break;
+    }
+
+    using var _ = response;
     response.EnsureSuccessStatusCode();
     await using Stream input = await response.Content.ReadAsStreamAsync();
 
@@ -224,7 +246,10 @@ void RequireHost(string url, JsonElement source)
     var uri = new Uri(url);
     if (uri.Scheme != Uri.UriSchemeHttps) throw new InvalidOperationException($"adresse pas en HTTPS : {url}");
     string[] hosts = source.GetProperty("hosts").EnumerateArray().Select(h => h.GetString()!).ToArray();
-    if (!hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
+    bool allowed = hosts.Any(h => h.StartsWith("*.", StringComparison.Ordinal)
+        ? uri.Host.EndsWith(h[1..], StringComparison.OrdinalIgnoreCase)
+        : uri.Host.Equals(h, StringComparison.OrdinalIgnoreCase));
+    if (!allowed)
     {
         throw new InvalidOperationException($"« {uri.Host} » n'est pas un hôte autorisé pour cet outil ({string.Join(", ", hosts)})");
     }
@@ -296,6 +321,9 @@ string? Option(string name)
     int index = Array.IndexOf(args, name);
     return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
 }
+
+/// <summary>Mêmes règles que ToolCatalogParser.IsSafeVersion de l'app.</summary>
+static Regex SafeVersion() => new(@"^[A-Za-z0-9](?:[A-Za-z0-9._+-]{0,30}[A-Za-z0-9])?$");
 
 record Entry(string Id, string Version, string Url, string Sha256, long Size);
 

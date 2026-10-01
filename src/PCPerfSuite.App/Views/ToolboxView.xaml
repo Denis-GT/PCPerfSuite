@@ -123,7 +123,7 @@
                                                                 Visibility="{Binding CanRemove, Converter={StaticResource BoolToVisibility}}"/>
                                                         <Button Content="Annuler" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
                                                                 Command="{Binding CancelCommand}"
-                                                                Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}"/>
+                                                                Visibility="{Binding CanCancel, Converter={StaticResource BoolToVisibility}}"/>
                                                     </WrapPanel>
 
                                                     <TextBox Text="{Binding Message}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
@@ -151,7 +151,7 @@
             <!-- Ce que PCPerfSuite vérifie, une fois pour toutes. -->
             <Border Style="{StaticResource Card}" Padding="20,14">
                 <TextBox Style="{StaticResource SelectableCaption}" TextWrapping="Wrap"
-                         Text="Chaque fichier vient de la source officielle de l'éditeur, en HTTPS, et n'est gardé que si son empreinte SHA-256 est celle du catalogue signé. Un programme n'est lancé que s'il porte la signature de son éditeur, relevée d'avance. Un outil non signé est seulement déposé dans tes Téléchargements. Les outils portables vont dans %ProgramData%\PCPerfSuite\Tools, que seuls les administrateurs peuvent modifier, et se lancent avec tes droits habituels : s'ils ont besoin d'être administrateur, Windows le demande. Rien n'est installé sans ton clic. Les pilotes graphiques ne sont pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
+                         Text="Chaque fichier vient de la source officielle de l'éditeur, en HTTPS, et n'est gardé que si son empreinte SHA-256 est celle du catalogue (la liste livrée avec l'app, ou le catalogue en ligne s'il porte la signature de PCPerfSuite). Un programme n'est lancé que s'il porte la signature de son éditeur, relevée d'avance. Un outil non signé est seulement déposé dans tes Téléchargements. Les outils portables vont dans %ProgramData%\PCPerfSuite\Tools, que seuls les administrateurs peuvent modifier, et se lancent avec tes droits habituels : s'ils ont besoin d'être administrateur, Windows le demande. Rien n'est installé sans ton clic. Les pilotes graphiques ne sont pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
             </Border>
         </StackPanel>
     </ScrollViewer>

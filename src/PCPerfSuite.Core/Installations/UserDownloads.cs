@@ -34,6 +34,49 @@ public static class UserDownloads
         return path is null ? null : new DownloadsFolder(path, otherProfile);
     }
 
+    /// <summary>
+    /// Pourquoi l'app élevée refuse d'écrire dans <paramref name="folder"/>, null si elle peut. L'emplacement des
+    /// Téléchargements se règle dans le profil, sans droits : un programme non élevé pourrait le faire pointer vers
+    /// C:\Windows ou Program Files pour y faire déposer un fichier par l'app administrateur. Un dossier système, ou un
+    /// chemin qui passe par une jonction, est donc refusé ; tout autre dossier (D:\Téléchargements…) reste accepté.
+    /// </summary>
+    public static string? RefusalReason(string folder)
+    {
+        try
+        {
+            string full = System.IO.Path.GetFullPath(folder).TrimEnd('\\');
+            foreach (Environment.SpecialFolder system in new[]
+                     {
+                         Environment.SpecialFolder.Windows, Environment.SpecialFolder.ProgramFiles,
+                         Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.CommonApplicationData,
+                     })
+            {
+                string root = Environment.GetFolderPath(system).TrimEnd('\\');
+                if (root.Length > 0 && (full.Equals(root, StringComparison.OrdinalIgnoreCase)
+                                        || full.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return $"le dossier Téléchargements pointe vers un dossier de Windows ({full})";
+                }
+            }
+
+            // LinkTarget : jonction ou lien symbolique seulement. Les dossiers de OneDrive portent aussi un point
+            // d'analyse (fichiers à la demande), qui ne mène pas ailleurs : ils restent acceptés.
+            for (DirectoryInfo? current = new(full); current is not null; current = current.Parent)
+            {
+                if (current.Exists && current.LinkTarget is not null)
+                {
+                    return $"le chemin du dossier Téléchargements passe par un lien ({current.FullName})";
+                }
+            }
+
+            return Directory.Exists(full) ? null : $"le dossier Téléchargements n'existe pas ({full})";
+        }
+        catch (Exception ex)
+        {
+            return $"le dossier Téléchargements est illisible ({ex.Message})";
+        }
+    }
+
     /// <summary>Chemin libre pour <paramref name="fileName"/> dans <paramref name="folder"/> : « outil.zip », sinon
     /// « outil (2).zip », « outil (3).zip »… comme le fait un navigateur. Jamais un fichier existant.</summary>
     public static string UniquePath(string folder, string fileName)

@@ -13,8 +13,8 @@ public sealed record RtssStatus(bool IsInstalled, string? Version, string? Execu
 ///
 /// RTSS n'a pas de lien stable vers sa DERNIÈRE version : guru3d.com sert le fichier par des pages à jeton, et son
 /// nom change à chaque version. Le miroir officiel de Guru3D (ftp.nluug.nl) sert en revanche un zip par version, au
-/// nom versionné : la Boîte à outils l'installe d'après son catalogue, régénéré chaque jour, qui en donne l'adresse et
-/// l'empreinte (<see cref="Installations.ToolCatalog"/>). Ici, Paramètres › Installations ouvre la page officielle
+/// nom versionné : la Boîte à outils l'installe d'après son catalogue (copie livrée avec l'app, puis catalogue en ligne
+/// signé une fois activé), qui en donne l'adresse et l'empreinte (<see cref="Installations.ToolCatalog"/>). Ici, Paramètres › Installations ouvre la page officielle
 /// (<see cref="DownloadPageUrl"/>) et renvoie vers la Boîte à outils.
 ///
 /// « Installé » et « lancé » sont deux états distincts : les FPS ne sont lus que si RTSS tourne, mais l'app doit

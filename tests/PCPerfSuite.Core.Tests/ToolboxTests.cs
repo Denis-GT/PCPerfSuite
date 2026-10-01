@@ -91,9 +91,36 @@ public class ToolboxTests
     }
 
     [Fact]
-    public void La_detection_de_chaque_outil_ne_leve_jamais()
+    public void Le_diagnostic_de_memoire_de_Windows_est_trouve_dans_System32()
     {
-        foreach (ToolDefinition tool in ToolCatalog.All) Assert.NotNull(ToolDetection.Detect(tool));
+        ToolInstallState state = ToolDetection.Detect(ToolCatalog.Find("mdsched")!);
+
+        Assert.True(state.IsPresent);
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, "MdSched.exe"), state.ExecutablePath, ignoreCase: true);
+    }
+
+    [Fact]
+    public void Une_inscription_d_applications_installees_est_reconnue_par_sa_cle_ou_son_nom()
+    {
+        var entries = new[]
+        {
+            new ToolDetection.UninstallEntry("{1234}", "Autre logiciel", "1.0", null, null),
+            new ToolDetection.UninstallEntry("Afterburner", "MSI Afterburner 4.6.6", "4.6.6", null, null),
+            new ToolDetection.UninstallEntry("Display Driver Uninstaller", "Display Driver Uninstaller", " 18.1.5.2 ", null, null),
+        };
+
+        Assert.Equal("4.6.6", ToolDetection.DetectUninstallEntry(ToolCatalog.Find("afterburner")!, entries).Version);
+        Assert.Equal("18.1.5.2", ToolDetection.DetectUninstallEntry(Ddu, entries).Version);
+        Assert.False(ToolDetection.DetectUninstallEntry(ToolCatalog.Find("openrgb")!, entries).IsPresent);
+    }
+
+    [Fact]
+    public void La_detection_groupee_rend_un_etat_par_outil_dans_l_ordre()
+    {
+        IReadOnlyList<ToolInstallState> states = ToolDetection.DetectAll(ToolCatalog.All);
+
+        Assert.Equal(ToolCatalog.All.Count, states.Count);
+        Assert.True(states[ToolCatalog.All.ToList().FindIndex(t => t.Id == "mdsched")].IsPresent);
     }
 
     [Fact]
@@ -129,9 +156,128 @@ public class ToolboxTests
     [Fact]
     public void Winget_n_est_jamais_propose_pour_un_outil_non_signe()
     {
-        ToolActionOutcome outcome = WingetFallback.Install(ToolCatalog.Find("7-zip")!);
+        // Identifiant inventé : même si le garde-fou régressait, winget n'installerait rien.
+        ToolDefinition unsigned = ToolCatalog.Find("7-zip")! with { WingetId = "PCPerfSuite.Test.Inexistant" };
+
+        ToolActionOutcome outcome = WingetFallback.Install(unsigned);
 
         Assert.False(outcome.Succeeded);
+        Assert.Equal("winget n'est pas proposé pour cet outil.", outcome.Message);
+    }
+
+    // Garde-fous de ToolboxActions, sans réseau : chacun refuse avant tout téléchargement.
+
+    private static ToolRelease ReleaseOf(string id) => new ToolCatalogStore(ToolCatalog.All).ReleaseOf(id)!;
+
+    [Fact]
+    public void Un_outil_non_signe_ne_se_lance_jamais_meme_installe()
+    {
+        ToolActionOutcome outcome = ToolboxActions.Launch(ToolCatalog.Find("openrgb")!,
+            new ToolInstallState(true, "1.0", @"C:\chemin\inexistant\OpenRGB.exe", false));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains("n'est pas signé", outcome.Message);
+    }
+
+    [Fact]
+    public void Un_outil_portable_dont_l_exe_n_a_plus_sa_signature_ne_se_lance_pas()
+    {
+        using var temp = new TempDirectory();
+        string exe = temp.File("cpuz_x64.exe");
+        File.WriteAllBytes(exe, "MZ"u8.ToArray().Concat(new byte[2048]).ToArray());
+
+        ToolActionOutcome outcome = ToolboxActions.Launch(CpuZ, new ToolInstallState(true, "3.01", exe, true, temp.Root));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(DownloadFailureKind.Mismatch, outcome.Failure);
+        Assert.Contains("réinstalle", outcome.Message);
+    }
+
+    [Fact]
+    public async Task Chaque_action_refuse_un_outil_qui_n_est_pas_du_bon_type()
+    {
+        ToolDefinition prime95 = ToolCatalog.Find("prime95")!;
+
+        ToolActionOutcome install = await ToolboxActions.RunInstallerAsync(prime95, ReleaseOf("prime95"), null, CancellationToken.None);
+        ToolActionOutcome portable = await ToolboxActions.InstallPortableAsync(Ddu, ReleaseOf("ddu"), null, CancellationToken.None);
+
+        Assert.False(install.Succeeded);
+        Assert.Contains("ne s'installe pas", install.Message);
+        Assert.False(portable.Succeeded);
+        Assert.Contains("portable", portable.Message);
+    }
+
+    [Fact]
+    public async Task Sans_version_verifiee_rien_n_est_telecharge_et_la_page_officielle_est_proposee()
+    {
+        ToolActionOutcome none = await ToolboxActions.RunInstallerAsync(Ddu, null, null, CancellationToken.None);
+        ToolActionOutcome other = await ToolboxActions.DownloadForUserAsync(Ddu, ReleaseOf("cpu-z"), null, CancellationToken.None);
+        ToolActionOutcome portable = await ToolboxActions.InstallPortableAsync(CpuZ, null, null, CancellationToken.None);
+
+        Assert.All(new[] { none, other, portable }, outcome =>
+        {
+            Assert.False(outcome.Succeeded);
+            Assert.Equal(DownloadFailureKind.LinkUnavailable, outcome.Failure);
+            Assert.Contains("page officielle", outcome.Message);
+        });
+    }
+
+    [Fact]
+    public void Le_message_ne_promet_une_signature_que_si_elle_a_ete_verifiee()
+    {
+        Assert.Equal("empreinte et signature de Wagnardsoft vérifiées", ToolboxActions.VerifiedDescription(Ddu));
+        Assert.Equal("empreinte vérifiée", ToolboxActions.VerifiedDescription(CpuZ));
+        Assert.Equal("empreinte vérifiée", ToolboxActions.VerifiedDescription(ToolCatalog.Find("rtss")!));
+        Assert.Equal("empreinte vérifiée", ToolboxActions.VerifiedDescription(ToolCatalog.Find("prime95")!));
+    }
+
+    [Fact]
+    public void La_mise_a_jour_reprend_les_reglages_mais_jamais_les_programmes()
+    {
+        using var temp = new TempDirectory();
+        string old = Path.Combine(temp.Root, "9.9.2");
+        string fresh = Path.Combine(temp.Root, "9.9.3");
+        Directory.CreateDirectory(Path.Combine(old, "Smart", "disque1"));
+        Directory.CreateDirectory(fresh);
+        File.WriteAllText(Path.Combine(old, "DiskInfo.ini"), "mes réglages");
+        File.WriteAllText(Path.Combine(old, "Smart", "disque1", "historique.csv"), "températures");
+        File.WriteAllText(Path.Combine(old, "DiskInfo64.exe"), "ancien programme");
+        File.WriteAllText(Path.Combine(old, "ancienne.dll"), "ancienne bibliothèque");
+        File.WriteAllText(Path.Combine(old, "LisezMoi.txt"), "ancien texte");
+        File.WriteAllText(Path.Combine(fresh, "LisezMoi.txt"), "nouveau texte");
+
+        int kept = ToolboxActions.CarryOverSettings(old, fresh);
+
+        Assert.Equal(2, kept);
+        Assert.Equal("mes réglages", File.ReadAllText(Path.Combine(fresh, "DiskInfo.ini")));
+        Assert.True(File.Exists(Path.Combine(fresh, "Smart", "disque1", "historique.csv")));
+        Assert.False(File.Exists(Path.Combine(fresh, "DiskInfo64.exe")));
+        Assert.False(File.Exists(Path.Combine(fresh, "ancienne.dll")));
+        Assert.Equal("nouveau texte", File.ReadAllText(Path.Combine(fresh, "LisezMoi.txt")));
+    }
+
+    [Fact]
+    public void Un_fichier_absent_n_est_jamais_lance_ni_ouvert()
+    {
+        Assert.False(UnelevatedLauncher.TryLaunch(@"C:\chemin\inexistant\outil.exe", "", out string? error));
+        Assert.Contains("introuvable", error);
+    }
+
+    [Fact]
+    public void L_app_elevee_ne_depose_rien_dans_un_dossier_de_Windows_ni_par_une_jonction()
+    {
+        using var temp = new TempDirectory();
+
+        Assert.NotNull(UserDownloads.RefusalReason(Environment.SystemDirectory));
+        Assert.NotNull(UserDownloads.RefusalReason(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+        Assert.NotNull(UserDownloads.RefusalReason(Path.Combine(temp.Root, "absent")));
+        Assert.Null(UserDownloads.RefusalReason(temp.Root));
+
+        string target = Path.Combine(temp.Root, "cible");
+        Directory.CreateDirectory(target);
+        string link = Path.Combine(temp.Root, "lien");
+        Assert.True(Junctions.TryCreate(link, target), "mklink /J ne demande aucun droit particulier : la jonction doit exister.");
+        Assert.Contains("lien", UserDownloads.RefusalReason(link));
     }
 
     // Registre des modifications

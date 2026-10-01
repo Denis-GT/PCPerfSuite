@@ -22,8 +22,10 @@ public static class SafeZipExtractor
     public const int DefaultMaxEntries = 20_000;
     private const int BufferSize = 81920;
 
-    /// <summary>Extrait toute l'archive dans <paramref name="destination"/>, qui doit exister.</summary>
-    public static ZipExtractionResult ExtractAll(string zipPath, string destination, long maxTotalBytes, int maxEntries = DefaultMaxEntries)
+    /// <summary>Extrait toute l'archive dans <paramref name="destination"/>, qui doit exister. Annulable entre deux blocs ;
+    /// <paramref name="progress"/> reçoit « Extraction… 1 200 / 3 300 fichiers », au plus quelques fois par seconde.</summary>
+    public static ZipExtractionResult ExtractAll(string zipPath, string destination, long maxTotalBytes, int maxEntries = DefaultMaxEntries,
+        IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -46,8 +48,13 @@ public static class SafeZipExtractor
             }
 
             long written = 0;
+            int done = 0;
+            int files = targets.Count(t => !t.IsFolder);
+            long lastReport = 0;
+            byte[] buffer = new byte[BufferSize];
             foreach ((ZipArchiveEntry entry, string target, bool isFolder) in targets)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (isFolder)
                 {
                     Directory.CreateDirectory(target);
@@ -55,7 +62,14 @@ public static class SafeZipExtractor
                 }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                written = CopyEntry(entry, target, written, maxTotalBytes);
+                written = CopyEntry(entry, target, written, maxTotalBytes, buffer, cancellationToken);
+
+                done++;
+                if (progress is not null && (Environment.TickCount64 - lastReport > 250 || done == files))
+                {
+                    lastReport = Environment.TickCount64;
+                    progress.Report($"Extraction… {done} / {files} fichiers");
+                }
             }
 
             return new ZipExtractionResult(true, null, root);
@@ -63,6 +77,10 @@ public static class SafeZipExtractor
         catch (ZipLimitException ex)
         {
             return Fail(ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            return Fail("Extraction annulée.");
         }
         catch (InvalidDataException ex)
         {
@@ -77,7 +95,8 @@ public static class SafeZipExtractor
     /// <summary>Extrait la seule entrée dont le nom de fichier (sans son dossier) correspond à <paramref name="pattern"/>
     /// (« RTSSSetup*.exe », casse ignorée), dans <paramref name="destination"/>. Aucune, ou plusieurs : refus, l'archive
     /// n'a pas la forme connue.</summary>
-    public static ZipExtractionResult ExtractSingle(string zipPath, string pattern, string destination, long maxBytes)
+    public static ZipExtractionResult ExtractSingle(string zipPath, string pattern, string destination, long maxBytes,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -98,12 +117,16 @@ public static class SafeZipExtractor
             if (TargetPath(root, name) is not { } target) return Fail(UnsafeEntryMessage(entry.FullName));
             if (entry.Length > maxBytes) return Fail(TooLargeMessage(maxBytes));
 
-            CopyEntry(entry, target, 0, maxBytes);
+            CopyEntry(entry, target, 0, maxBytes, new byte[BufferSize], cancellationToken);
             return new ZipExtractionResult(true, null, target);
         }
         catch (ZipLimitException ex)
         {
             return Fail(ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            return Fail("Extraction annulée.");
         }
         catch (InvalidDataException ex)
         {
@@ -161,16 +184,18 @@ public static class SafeZipExtractor
 
     /// <summary>Copie une entrée en comptant ce qui sort vraiment du décompresseur : une archive qui ment sur ses
     /// tailles est arrêtée au plafond. Renvoie le total écrit depuis le début de l'extraction.</summary>
-    private static long CopyEntry(ZipArchiveEntry entry, string target, long writtenSoFar, long maxTotalBytes)
+    private static long CopyEntry(ZipArchiveEntry entry, string target, long writtenSoFar, long maxTotalBytes, byte[] buffer,
+        CancellationToken cancellationToken)
     {
         using Stream input = entry.Open();
-        using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize);
+        // Tampon d'écriture minimal : les écritures se font déjà par blocs de la taille du tampon de lecture.
+        using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 1);
 
-        byte[] buffer = new byte[BufferSize];
         long written = writtenSoFar;
         int read;
         while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             written += read;
             if (written > maxTotalBytes) throw new ZipLimitException(TooLargeMessage(maxTotalBytes));
             output.Write(buffer, 0, read);

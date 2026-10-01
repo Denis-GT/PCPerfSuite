@@ -54,8 +54,11 @@ public sealed record OfficialInstallerSource(
 
 /// <summary>Issue d'une installation, avec un message prêt à afficher. Un échec n'est jamais une exception.
 /// <paramref name="ExitCode"/> est le code rendu par l'installeur, null s'il n'a pas été lancé ou pas attendu jusqu'au
-/// bout : chaque installeur a ses propres codes, c'est à l'appelant, qui le connaît, de les interpréter.</summary>
-public readonly record struct InstallOutcome(bool Succeeded, string Message, int? ExitCode = null);
+/// bout : chaque installeur a ses propres codes, c'est à l'appelant, qui le connaît, de les interpréter.
+/// <paramref name="Failure"/> : nature d'un échec survenu avant le lancement (lien mort, fichier différent…), pour
+/// proposer la bonne suite.</summary>
+public readonly record struct InstallOutcome(bool Succeeded, string Message, int? ExitCode = null,
+    DownloadFailureKind Failure = DownloadFailureKind.None);
 
 /// <summary>Pourquoi un téléchargement a échoué : de quoi proposer la bonne suite (page officielle, winget, réessayer).</summary>
 public enum DownloadFailureKind
@@ -122,6 +125,9 @@ public static class OfficialInstaller
 
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
 
+    /// <summary>Progression annoncée au lancement de l'installeur : à partir de là, plus rien ne s'annule depuis l'app.</summary>
+    public const string InstallingMessage = "Installation en cours…";
+
     /// <summary>Lire la dernière version n'est qu'un raccourci : passé ce délai, on télécharge sans savoir.</summary>
     private static readonly TimeSpan VersionCheckTimeout = TimeSpan.FromSeconds(10);
 
@@ -148,7 +154,8 @@ public static class OfficialInstaller
 
             if (source.Kind == InstallerFileKind.Zip) throw new InstallFailure("Une archive zip ne se lance pas : elle doit d'abord être extraite.");
 
-            folder = CreateWorkFolder();
+            // Hors du thread appelant : la création du dossier lance icacls et peut attendre quelques secondes.
+            folder = await Task.Run(CreateWorkFolder, cancellationToken).ConfigureAwait(false);
             string path = Path.Combine(folder, source.FileName);
 
             progress?.Report("Téléchargement…");
@@ -173,8 +180,13 @@ public static class OfficialInstaller
     /// En cas d'échec, le fichier partiel est supprimé. À l'appelant de choisir un dossier à la hauteur de ce qu'il fera
     /// du fichier : un dossier que seuls les administrateurs peuvent modifier si le fichier doit être lancé ensuite.
     /// </summary>
-    public static async Task<DownloadOutcome> DownloadToFileAsync(
+    public static Task<DownloadOutcome> DownloadToFileAsync(
         OfficialInstallerSource source, string destinationPath, IProgress<string>? progress, CancellationToken cancellationToken)
+        => DownloadToFileAsync(source, destinationPath, progress, cancellationToken, Http);
+
+    /// <summary>Même chose avec un client HTTP donné : la couture des tests, qui simulent redirections et réponses.</summary>
+    internal static async Task<DownloadOutcome> DownloadToFileAsync(
+        OfficialInstallerSource source, string destinationPath, IProgress<string>? progress, CancellationToken cancellationToken, HttpClient client)
     {
         bool created = false;
         try
@@ -185,7 +197,7 @@ public static class OfficialInstaller
             if (File.Exists(destinationPath)) throw new InstallFailure("Un fichier du même nom existe déjà à cet endroit.", DownloadFailureKind.Other);
             progress?.Report("Téléchargement…");
             created = true;
-            await DownloadAsync(source, destinationPath, progress, cancellationToken).ConfigureAwait(false);
+            await DownloadAsync(source, destinationPath, progress, cancellationToken, client).ConfigureAwait(false);
 
             progress?.Report("Vérification du fichier…");
             using (var stream = new FileStream(destinationPath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -232,8 +244,8 @@ public static class OfficialInstaller
                 throw;
             }
 
-            progress?.Report("Installation en cours…");
-            return await LaunchAsync(locked, path, kind, arguments, cancellationToken).ConfigureAwait(false);
+            progress?.Report(InstallingMessage);
+            return await LaunchAsync(locked, path, kind, arguments).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -265,20 +277,70 @@ public static class OfficialInstaller
         }
     }
 
-    /// <summary>Dossier de travail neuf sous %TEMP%\PCPerfSuite\Installations, réservé aux processus élevés (voir
-    /// <see cref="RestrictToElevatedProcesses"/>). À effacer par <see cref="DeleteWorkFolder"/>.</summary>
+    /// <summary>
+    /// Dossier de travail neuf, d'où un installeur sera lancé en administrateur. App élevée (le cas normal) : sous
+    /// %ProgramData%\PCPerfSuite\Installations (<see cref="ProgramDataFolder"/>), dont toute la chaîne n'est modifiable
+    /// que par les administrateurs, créée d'emblée avec sa liste d'accès : aucun instant où un programme non élevé de la
+    /// session pourrait y glisser une DLL à côté de l'installeur. Un dossier refusé (créé par un autre compte, jonction)
+    /// fait échouer l'opération, jamais revenir à un dossier moins sûr.
+    ///
+    /// App non élevée (cas d'exception) : l'installeur passe par l'invite de Windows, et il n'y a pas de frontière de
+    /// droits à défendre contre un autre programme de la même session ; le dossier va alors sous %TEMP%\PCPerfSuite,
+    /// relevé au niveau d'intégrité « Élevé » (<see cref="RestrictToElevatedProcesses"/>). À effacer par
+    /// <see cref="DeleteWorkFolder"/>. Lève <see cref="InstallFailure"/> si le dossier sûr est refusé.
+    /// </summary>
     public static string CreateWorkFolder()
     {
-        string folder = Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(folder);
-        RestrictToElevatedProcesses(folder);
-        return folder;
+        string name = Guid.NewGuid().ToString("N");
+        if (ElevationHelper.IsAdministrator())
+        {
+            SecureFolderResult folder = ProgramDataFolder.TryEnsure(ProgramDataFolder.WorkFolderName, name);
+            return folder.Path ?? throw new InstallFailure($"Dossier de travail sécurisé refusé : {folder.Error}.", DownloadFailureKind.Other);
+        }
+
+        string fallback = Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations", name);
+        Directory.CreateDirectory(fallback);
+        RestrictToElevatedProcesses(fallback);
+        return fallback;
     }
 
     public static void DeleteWorkFolder(string folder)
     {
         try { Directory.Delete(folder, recursive: true); }
-        catch { /* best-effort : un dossier temporaire oublié ne gêne personne, et Windows nettoie %TEMP% */ }
+        catch { /* best-effort : un dossier de travail oublié n'est jamais relancé, et PurgeStaleWorkFolders le reprend */ }
+    }
+
+    /// <summary>Efface les dossiers de travail de plus de <paramref name="olderThan"/> laissés par une opération
+    /// interrompue (app fermée pendant un téléchargement, extraction coupée). Best-effort, à appeler hors du thread
+    /// d'interface.</summary>
+    public static void PurgeStaleWorkFolders(TimeSpan olderThan)
+    {
+        foreach (string? root in new[]
+                 {
+                     ProgramDataFolder.TryGetExisting(ProgramDataFolder.WorkFolderName),
+                     Path.Combine(Path.GetTempPath(), "PCPerfSuite", "Installations"),
+                 })
+        {
+            PurgeStaleChildren(root, olderThan);
+        }
+    }
+
+    /// <summary>Sous-dossiers de <paramref name="root"/> plus anciens que <paramref name="olderThan"/>, effacés.</summary>
+    internal static void PurgeStaleChildren(string? root, TimeSpan olderThan)
+    {
+        try
+        {
+            if (root is null || !Directory.Exists(root)) return;
+            DateTime limit = DateTime.UtcNow - olderThan;
+            foreach (string child in Directory.EnumerateDirectories(root))
+            {
+                if (Directory.GetCreationTimeUtc(child) < limit) DeleteWorkFolder(child);
+            }
+        }
+        catch
+        {
+            // best-effort : un dossier oublié sera repris la fois suivante.
+        }
     }
 
     /// <summary>Contrôles faits avant tout accès réseau. Lève <see cref="InstallFailure"/>.</summary>
@@ -319,14 +381,15 @@ public static class OfficialInstaller
     /// le fichier en bornant sa taille et en calculant son empreinte au passage. Lève <see cref="InstallFailure"/> ou
     /// une exception réseau ou de disque.</summary>
     internal static async Task DownloadAsync(
-        OfficialInstallerSource source, string destination, IProgress<string>? progress, CancellationToken cancellationToken)
+        OfficialInstallerSource source, string destination, IProgress<string>? progress, CancellationToken cancellationToken,
+        HttpClient? client = null)
     {
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(source.DownloadTimeout);
 
         try
         {
-            using HttpResponseMessage response = await GetFollowingRedirectsAsync(source.Url, source.AllowedHosts, timeout.Token)
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(client ?? Http, source.Url, source.AllowedHosts, timeout.Token)
                 .ConfigureAwait(false);
             await SaveAsync(response, destination, source, progress, timeout.Token).ConfigureAwait(false);
         }
@@ -340,14 +403,16 @@ public static class OfficialInstaller
 
     /// <summary>Petit fichier (catalogue, signature) lu en mémoire, avec les mêmes garde-fous que les installeurs.</summary>
     internal static async Task<byte[]> DownloadBytesAsync(
-        Uri url, IReadOnlyList<string> allowedHosts, long maxBytes, TimeSpan timeoutDelay, CancellationToken cancellationToken)
+        Uri url, IReadOnlyList<string> allowedHosts, long maxBytes, TimeSpan timeoutDelay, CancellationToken cancellationToken,
+        HttpClient? client = null)
     {
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(timeoutDelay);
 
         try
         {
-            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, allowedHosts, timeout.Token).ConfigureAwait(false);
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(client ?? Http, url, allowedHosts, timeout.Token)
+                .ConfigureAwait(false);
             if (response.Content.Headers.ContentLength > maxBytes) throw new InstallFailure("Le fichier annoncé est anormalement gros.");
 
             await using Stream input = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
@@ -371,14 +436,14 @@ public static class OfficialInstaller
     /// <summary>Réponse de la première adresse qui n'est pas une redirection. Chaque étape passe par
     /// <see cref="RequireAllowed"/>. Lève <see cref="InstallFailure"/> pour un refus ou une erreur HTTP.</summary>
     private static async Task<HttpResponseMessage> GetFollowingRedirectsAsync(
-        Uri url, IReadOnlyList<string> allowedHosts, CancellationToken cancellationToken)
+        HttpClient client, Uri url, IReadOnlyList<string> allowedHosts, CancellationToken cancellationToken)
     {
         Uri current = url;
         for (int hop = 0; ; hop++)
         {
             RequireAllowed(current, allowedHosts);
 
-            HttpResponseMessage response = await Http
+            HttpResponseMessage response = await client
                 .GetAsync(current, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
             if (response.StatusCode is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.RedirectMethod
@@ -519,9 +584,12 @@ public static class OfficialInstaller
 
     /// <summary>Lance l'installeur et attend sa fin. Pour un exe, le verrou est levé une fois le processus démarré :
     /// Windows protège ensuite lui-même le fichier de l'exécutable en cours. Un .msi, lui, n'est lu par msiexec qu'après
-    /// son démarrage : le verrou est gardé jusqu'à la fin.</summary>
-    private static async Task<InstallOutcome> LaunchAsync(
-        FileStream locked, string path, InstallerFileKind kind, string arguments, CancellationToken cancellationToken)
+    /// son démarrage : le verrou est gardé jusqu'à la fin.
+    ///
+    /// Une fois l'installeur lancé, plus rien ne l'interrompt depuis PCPerfSuite : ni le bouton « Annuler », ni la
+    /// fermeture de l'app. L'attente n'est bornée que par <see cref="InstallTimeout"/>, pour ne pas annoncer « annulé »
+    /// une installation qui continue, ni effacer son dossier sous elle.</summary>
+    private static async Task<InstallOutcome> LaunchAsync(FileStream locked, string path, InstallerFileKind kind, string arguments)
     {
         // msiexec par son chemin complet : une association de fichier .msi détournée dans le profil n'a pas de prise.
         ProcessStartInfo start = kind == InstallerFileKind.Msi
@@ -560,17 +628,17 @@ public static class OfficialInstaller
 
             using (process)
             {
-                using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(InstallTimeout);
+                using var timeout = new CancellationTokenSource(InstallTimeout);
 
                 try
                 {
                     await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException)
                 {
                     return new InstallOutcome(false,
-                        $"L'installeur tourne encore après {InstallTimeout.TotalMinutes:0} minutes. Laisse-le finir, puis clique sur « Vérifier à nouveau ».");
+                        $"L'installeur tourne encore après {InstallTimeout.TotalMinutes:0} minutes. Laisse-le finir, puis reviens dans " +
+                        "PCPerfSuite : l'état se relit au retour de la fenêtre.");
                 }
 
                 int exitCode = process.ExitCode;
@@ -685,9 +753,9 @@ public static class OfficialInstaller
 
     private static InstallOutcome ToInstallOutcome(Exception ex) => ex switch
     {
-        InstallFailure or HttpRequestException => new InstallOutcome(false, Describe(ex).Message),
-        OperationCanceledException => new InstallOutcome(false, "Installation annulée."),
-        _ => new InstallOutcome(false, $"Installation impossible ({ex.Message})."),
+        InstallFailure or HttpRequestException => new InstallOutcome(false, Describe(ex).Message, Failure: Describe(ex).Kind),
+        OperationCanceledException => new InstallOutcome(false, "Installation annulée.", Failure: DownloadFailureKind.Other),
+        _ => new InstallOutcome(false, $"Installation impossible ({ex.Message}).", Failure: DownloadFailureKind.Other),
     };
 
     /// <summary>Message prêt à afficher et nature de l'échec, pour toute exception d'un téléchargement.</summary>

@@ -17,18 +17,29 @@ numéro dépasse celui qu'elle connaît déjà. Même signé, un catalogue ne pe
 empreintes et tailles : les hôtes autorisés et l'éditeur Authenticode de chaque outil sont figés dans l'app.
 
 La clé privée ne quitte jamais le poste de Denis (ni secret de dépôt, ni CI). Une Action compromise peut
-ouvrir une PR, pas publier un catalogue que l'app accepterait.
+ouvrir une PR, pas publier un catalogue que l'app accepterait. Pour que cela tienne, la génération tourne
+sans droit d'écriture ni identifiants git, la publication refuse un commit qui toucherait autre chose que le
+catalogue, et Denis ne lance jamais de code de la branche de la PR (voir « Chaque jour »).
 
 ## Chaque jour
 
 1. L'Action `Catalogue d'outils` régénère le catalogue. Pour chaque nouveau fichier, elle le télécharge et le
    hache elle-même. Si l'empreinte de sa source ne correspond pas au fichier réel, elle garde l'ancienne entrée.
 2. S'il a changé, elle ouvre ou met à jour la PR `maj-catalogue`, sans signature.
-3. Denis relit la PR (versions, adresses), puis signe en local :
+3. Denis relit la PR (versions, adresses), puis signe en local. La branche `maj-catalogue` est écrite par
+   l'Action : il n'y exécute **rien**. Il vérifie qu'elle ne touche que le catalogue, et signe avec le
+   signataire de son clone de PCPerfSuite (`tools/catalogue/depot/outils/signer.cs`, à un commit qu'il a relu),
+   jamais avec celui de la branche :
+
+   ```
+   git fetch origin && git diff --name-only origin/main...origin/maj-catalogue
+   ```
+
+   doit lister `catalogue-outils.json` (et la `.sig` retirée), rien d'autre. Puis :
 
    ```
    git switch maj-catalogue && git pull
-   dotnet run outils/signer.cs -- signer catalogue-outils.json <dossier de la clé>/cle-privee-catalogue.pem
+   dotnet run <clone de PCPerfSuite>/tools/catalogue/depot/outils/signer.cs -- signer catalogue-outils.json <dossier de la clé>/cle-privee-catalogue.pem
    git add catalogue-outils.json.sig && git commit -m "Signe le catalogue" && git push
    ```
 

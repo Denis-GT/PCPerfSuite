@@ -35,6 +35,14 @@ public static class ProgramDataFolder
     /// <summary>Sous-dossier des outils portables de la Boîte à outils.</summary>
     public const string ToolsFolderName = "Tools";
 
+    /// <summary>Sous-dossier des dossiers de travail d'OfficialInstaller (installeurs téléchargés avant leur lancement,
+    /// fichiers vérifiés avant d'être remis à l'utilisateur).</summary>
+    public const string WorkFolderName = "Installations";
+
+    /// <summary>Plus haut numéro de catalogue d'outils accepté (plancher contre un retour en arrière), ici parce que
+    /// seuls les administrateurs peuvent le modifier.</summary>
+    public const string CatalogFloorFileName = "catalogue-outils.plancher";
+
     /// <summary>SYSTEM et Administrateurs : contrôle total ; Utilisateurs : lecture et exécution (0x1200a9). Protégée :
     /// rien n'est hérité de %ProgramData%, qui laisse les utilisateurs créer des fichiers.</summary>
     internal const string SecureSddl = "O:BAG:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
@@ -168,7 +176,7 @@ public static class ProgramDataFolder
     internal static string? DescribeUntrusted(DirectorySecurity security)
     {
         if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner) return "n'a pas de propriétaire lisible";
-        if (!IsTrusted(owner)) return $"appartient à un autre compte que les administrateurs ({Name(owner)})";
+        if (!IsTrusted(owner)) return $"appartient à un autre compte que les administrateurs ({PublicName(owner)})";
 
         foreach (FileSystemAccessRule rule in security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)))
         {
@@ -176,7 +184,7 @@ public static class ProgramDataFolder
             if (rule.IdentityReference is not SecurityIdentifier sid || IsTrusted(sid)) continue;
 
             bool canWrite = (rule.FileSystemRights & WriteRights) != 0 || ((int)rule.FileSystemRights & GenericAllOrWrite) != 0;
-            if (canWrite) return $"laisse {Name(sid)} le modifier";
+            if (canWrite) return $"laisse {PublicName(sid)} le modifier";
         }
 
         return null;
@@ -192,8 +200,12 @@ public static class ProgramDataFolder
 
     private static bool IsTrusted(SecurityIdentifier sid) => sid == LocalSystem || sid == Administrators || sid == TrustedInstaller;
 
-    private static string Name(SecurityIdentifier sid)
+    /// <summary>Nom d'un groupe intégré (« BUILTIN\Utilisateurs », « Tout le monde ») ; un compte local ou de domaine reste
+    /// anonyme : ce texte part dans le rapport de compatibilité, souvent collé dans un espace public.</summary>
+    private static string PublicName(SecurityIdentifier sid)
     {
+        if (sid.AccountDomainSid is not null) return "un compte utilisateur";
+
         try { return sid.Translate(typeof(NTAccount)).Value; }
         catch { return sid.Value; }
     }

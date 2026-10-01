@@ -29,11 +29,12 @@ Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings
 (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
 des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU AMD
 (`adlx-plantage.temoin`) et le journal de session (`journal-session.jsonl` : opérations risquées en
-cours, reprises au lancement suivant, gardées 30 jours). La Boîte à outils y garde son dernier
-catalogue en ligne (`catalogue-outils.json` et sa signature) et ses téléchargements en cours
-(`telechargements\`). Seuls les installeurs téléchargés passent par un dossier temporaire
-(`%TEMP%\PCPerfSuite`), et les outils portables vont dans `%ProgramData%\PCPerfSuite\Tools`, que
-seuls les administrateurs peuvent modifier.
+cours, reprises au lancement suivant, gardées 30 jours). La Boîte à outils y gardera son dernier
+catalogue en ligne (`catalogue-outils.json` et sa signature). Ce qui est téléchargé passe par
+`%ProgramData%\PCPerfSuite`, que seuls les administrateurs peuvent modifier : `Installations\` pour un
+fichier en cours de vérification, `Tools\` pour les outils portables, et le plus haut numéro de
+catalogue accepté (`catalogue-outils.plancher`). Lancée sans droits administrateur, l'app se replie
+sur `%TEMP%\PCPerfSuite` pour ses installeurs.
 
 Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
 page sont dans `docs/navigation.md` ; les décisions transverses et les briques partagées dans
@@ -421,13 +422,15 @@ l'usage commercial, celui d'un technicien qui facture son intervention : HWiNFO,
 y-cruncher, Cinebench R23. CPU-Z, GPU-Z, Prime95, CrystalDiskInfo et CrystalDiskMark (MIT), DDU (MIT),
 7-Zip, OpenRGB, PawnIO et MemTest86 Free l'autorisent.
 
-**Catalogue.** La liste des versions (adresse, SHA-256, taille) vient d'un catalogue publié sur un
-dépôt GitHub public. Une GitHub Action le régénère chaque jour depuis winget et les versions GitHub,
-et Denis le signe en local, avec une clé qui n'entre jamais dans la CI (ECDSA P-256). L'app ne le prend
-que si sa signature est valide et si son numéro dépasse celui déjà connu : un ancien catalogue servi de
-nouveau est refusé. Sans réseau, elle utilise la copie livrée avec elle. Même signé, le catalogue ne
-peut changer ni les hôtes ni les éditeurs, figés dans l'app. Outils de génération et de signature :
-`tools/catalogue/`.
+**Catalogue.** La liste des versions (adresse, SHA-256, taille) vient pour l'instant de la copie
+livrée avec l'app (catalogue n° 1, relevé le 01/10/2026). Le catalogue en ligne est prêt mais **pas
+encore activé** : son dépôt GitHub public reste à créer et sa clé publique à inscrire dans l'app
+(`tools/catalogue/LISEZMOI.md`), ce que la page et le diagnostic disent. Une fois activé, une GitHub
+Action le régénère chaque jour depuis winget et les versions GitHub, et Denis le signe en local, avec
+une clé qui n'entre jamais dans la CI (ECDSA P-256). L'app ne le prendra que si sa signature est
+valide et si son numéro dépasse le plus haut déjà accepté : un ancien catalogue servi de nouveau est
+refusé. Sans réseau, elle utilise sa dernière liste connue. Même signé, le catalogue ne peut changer
+ni les hôtes ni les éditeurs, figés dans l'app.
 
 Tout est **expérimental** tant que chaque parcours n'a pas été essayé sur une vraie machine. La ligne
 « Boîte à outils » de Paramètres › Compatibilité de ce PC donne l'origine du catalogue, l'état du

@@ -82,6 +82,31 @@ public class SafeZipExtractorTests
     }
 
     [Fact]
+    public void L_extraction_dit_ou_elle_en_est_et_s_arrete_quand_on_l_annule()
+    {
+        using var temp = new TempDirectory();
+        string zip = MakeZip(temp, Enumerable.Range(0, 5).Select(i => ($"f{i}.txt", "x")).ToArray());
+        var reports = new List<string>();
+
+        ZipExtractionResult done = SafeZipExtractor.ExtractAll(zip, Folder(temp, "a"), 1024 * 1024, progress: new SynchronousProgress(reports.Add));
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        ZipExtractionResult stopped = SafeZipExtractor.ExtractAll(zip, Folder(temp, "b"), 1024 * 1024, cancellationToken: cancelled.Token);
+
+        Assert.True(done.Succeeded);
+        Assert.Equal("Extraction… 5 / 5 fichiers", reports[^1]);
+        Assert.False(stopped.Succeeded);
+        Assert.Contains("annulée", stopped.Error);
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(temp.Root, "b")));
+    }
+
+    /// <summary>Progression rappelée tout de suite, sur le même fil (la classe Progress de .NET passerait par le pool).</summary>
+    private sealed class SynchronousProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
+    }
+
+    [Fact]
     public void Une_archive_qui_depasse_la_taille_annoncee_est_refusee()
     {
         using var temp = new TempDirectory();

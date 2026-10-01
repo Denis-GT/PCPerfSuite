@@ -37,17 +37,15 @@ public static partial class WingetFallback
     /// <summary>Arguments passés à winget pour cet outil.</summary>
     public static string ArgumentsFor(string wingetId) => $"install --id {wingetId} --exact --source winget";
 
+    /// <summary>Lance winget pour cet outil. Passe par le shell (appel COM hors processus) : hors du thread d'interface.</summary>
     public static ToolActionOutcome Install(ToolDefinition tool)
     {
         if (!tool.IsSigned || !IsValidId(tool.WingetId)) return new ToolActionOutcome(false, "winget n'est pas proposé pour cet outil.");
         if (FindExecutable() is not { } winget) return new ToolActionOutcome(false, "winget n'est pas disponible sur ce compte.");
 
-        return UnelevatedLauncher.Launch(winget, ArgumentsFor(tool.WingetId!), out string? error, showInExplorerOnFailure: false) switch
-        {
-            UnelevatedLaunchResult.Launched => new ToolActionOutcome(true,
-                "winget est lancé dans sa propre fenêtre : suis ses questions, puis reviens ici, l'état se met à jour."),
-            _ => new ToolActionOutcome(false, error ?? "winget n'a pas pu être lancé."),
-        };
+        return UnelevatedLauncher.TryLaunch(winget, ArgumentsFor(tool.WingetId!), out string? error)
+            ? new ToolActionOutcome(true, "winget est lancé dans sa propre fenêtre : suis ses questions, puis reviens ici, l'état se met à jour.")
+            : new ToolActionOutcome(false, error ?? "winget n'a pas pu être lancé.");
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9.+_\-]*$")]

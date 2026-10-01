@@ -28,13 +28,16 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
     private readonly ToolCatalogStore _catalog;
     private readonly CancellationTokenSource _shutdown = new();
     private Task? _refreshTask;
+    private Task? _statesTask;
     private bool _refreshAgain;
     private bool _loadRequested;
+
+    /// <summary>Dossiers de travail plus vieux que ça (opération interrompue) : effacés à la première ouverture.</summary>
+    private static readonly TimeSpan StaleWorkFolderAge = TimeSpan.FromHours(6);
 
     public ToolboxViewModel(ToolCatalogStore catalog)
     {
         _catalog = catalog;
-        Actions = new ToolboxActions(catalog);
         Items = ToolCatalog.All.Select(tool => new ToolItemViewModel(tool, this)).ToList();
         Groups = Items
             .GroupBy(item => item.Definition.Category)
@@ -42,8 +45,6 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
             .Select(group => new ToolGroupViewModel(ToolCatalog.CategoryTitle(group.Key), group.ToList()))
             .ToList();
     }
-
-    public ToolboxActions Actions { get; }
 
     /// <summary>Annulé à la fermeture de l'app : les téléchargements en cours s'arrêtent (un installeur lancé, jamais).</summary>
     public CancellationToken ShutdownToken => _shutdown.Token;
@@ -71,7 +72,8 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
     /// Téléchargements publics, et la page le dit d'avance.</summary>
     public string? OtherProfileMessage => SessionUser.IsOtherProfile
         ? $"PCPerfSuite tourne sous le compte {SessionUser.ProcessAccount}, pas sous {SessionUser.InteractiveAccount} : les " +
-          "fichiers téléchargés vont dans les Téléchargements publics (C:\\Users\\Public\\Downloads), visibles de tous les comptes."
+          $"fichiers téléchargés vont dans les Téléchargements publics{(UserDownloads.Choose() is { } folder ? $" ({folder.Path})" : "")}, " +
+          "visibles de tous les comptes."
         : null;
 
     /// <summary>Première ouverture : lecture du catalogue et de l'état des outils, jamais dans le constructeur.</summary>
@@ -109,7 +111,11 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
                 _refreshAgain = false;
                 CatalogText = "Catalogue : lecture…";
 
-                await Task.Run(_catalog.LoadCache);
+                await Task.Run(() =>
+                {
+                    _catalog.LoadCache();
+                    OfficialInstaller.PurgeStaleWorkFolders(StaleWorkFolderAge);
+                });
                 ApplyCatalog(_catalog.Status, checkingOnline: true);
                 await RefreshStatesAsync();
 
@@ -128,7 +134,8 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
     /// relu, sans réseau.</summary>
     public void OnWindowActivated()
     {
-        if (_loadRequested && IsPageShown && !IsRefreshing) _ = RefreshStatesAsync();
+        // Une boîte de confirmation qui se ferme réactive aussi la fenêtre : une relecture déjà en cours suffit.
+        if (_loadRequested && IsPageShown && !IsRefreshing && _statesTask is not { IsCompleted: false }) _statesTask = RefreshStatesAsync();
     }
 
     /// <summary>État d'un seul outil, après une action.</summary>
@@ -141,11 +148,17 @@ public sealed partial class ToolboxViewModel : ObservableObject, IPageLifecycle,
 
     private async Task RefreshStatesAsync()
     {
-        (ToolInstallState[] states, SecureFolderResult folder, bool winget) = await Task.Run(() =>
-            (Items.Select(item => ToolDetection.Detect(item.Definition)).ToArray(), ProgramDataFolder.Inspect(), WingetFallback.FindExecutable() is not null));
+        List<ToolDefinition> tools = Items.Select(item => item.Definition).ToList();
+        (IReadOnlyList<ToolInstallState> states, SecureFolderResult folder, bool winget) = await Task.Run(() =>
+            (ToolDetection.DetectAll(tools), ProgramDataFolder.Inspect(), WingetFallback.FindExecutable() is not null));
 
         HasWinget = winget;
-        for (int i = 0; i < Items.Count; i++) Items[i].State = states[i];
+        for (int i = 0; i < Items.Count; i++)
+        {
+            Items[i].State = states[i];
+            Items[i].IsChecked = true;
+        }
+
         UpdateFolderWarning(folder);
     }
 

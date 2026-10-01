@@ -8,7 +8,8 @@ namespace PCPerfSuite.App.ViewModels;
 /// <summary>
 /// Une ligne de la Boîte à outils : un outil, sa version du catalogue, ce qui est sur ce PC, et les boutons qui ont du
 /// sens dans cet état. Le bouton principal change selon l'état (Installer, Lancer, Télécharger, Page officielle) ; les
-/// autres n'apparaissent que s'ils servent.
+/// autres n'apparaissent que s'ils servent. Tant que l'état n'est pas lu, la ligne dit « Vérification… » et ne propose
+/// rien : jamais un faux état.
 ///
 /// Ces lignes ne nourrissent jamais le clignotement du bouton Paramètres (<see cref="InstallationsViewModel.HasMissing"/>) :
 /// aucun de ces outils n'est requis par l'app.
@@ -36,11 +37,11 @@ public sealed partial class ToolItemViewModel : ObservableObject
         PrimaryCommand = new AsyncRelayCommand(RunPrimaryAsync, () => !IsBusy && PrimaryLabel is not null);
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => !IsBusy && CanDownload);
         UpdateCommand = new AsyncRelayCommand(UpdateAsync, () => !IsBusy && CanUpdate);
-        RemoveCommand = new RelayCommand(Remove, () => !IsBusy && CanRemove);
-        WingetCommand = new RelayCommand(UseWinget, () => !IsBusy && CanUseWinget);
+        RemoveCommand = new AsyncRelayCommand(RemoveAsync, () => !IsBusy && CanRemove);
+        WingetCommand = new AsyncRelayCommand(UseWingetAsync, () => !IsBusy && CanUseWinget);
         OpenPageCommand = new RelayCommand(OpenPage, () => Definition.OfficialPage is not null);
         CopyLinkCommand = new RelayCommand(CopyLink, () => DirectLink is not null);
-        CancelCommand = new RelayCommand(() => _operation?.Cancel(), () => IsBusy);
+        CancelCommand = new RelayCommand(() => _operation?.Cancel(), () => IsBusy && CanCancel);
         RefreshState();
     }
 
@@ -49,8 +50,8 @@ public sealed partial class ToolItemViewModel : ObservableObject
     public IAsyncRelayCommand PrimaryCommand { get; }
     public IAsyncRelayCommand DownloadCommand { get; }
     public IAsyncRelayCommand UpdateCommand { get; }
-    public IRelayCommand RemoveCommand { get; }
-    public IRelayCommand WingetCommand { get; }
+    public IAsyncRelayCommand RemoveCommand { get; }
+    public IAsyncRelayCommand WingetCommand { get; }
     public IRelayCommand OpenPageCommand { get; }
     public IRelayCommand CopyLinkCommand { get; }
     public IRelayCommand CancelCommand { get; }
@@ -87,10 +88,13 @@ public sealed partial class ToolItemViewModel : ObservableObject
         }
     }
 
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(VersionText), nameof(DirectLink))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(VersionText), nameof(DirectLink)), NotifyCanExecuteChangedFor(nameof(CopyLinkCommand))]
     private ToolRelease? release;
 
     [ObservableProperty] private ToolInstallState state = ToolInstallState.Absent;
+
+    /// <summary>Faux tant que l'état de l'outil n'a pas été lu sur ce PC : posé par la page après sa première relecture.</summary>
+    [ObservableProperty] private bool isChecked;
 
     [ObservableProperty] private string statusText = "Vérification…";
 
@@ -120,6 +124,11 @@ public sealed partial class ToolItemViewModel : ObservableObject
         nameof(WingetCommand), nameof(CancelCommand))]
     private bool isBusy;
 
+    /// <summary>« Annuler » a encore un effet : vrai pendant une opération, jusqu'au lancement d'un installeur, qui ne
+    /// s'interrompt plus depuis l'app.</summary>
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    private bool canCancel;
+
     /// <summary>Progression, puis résultat de la dernière action ; une relecture de l'état ne l'efface pas.</summary>
     [ObservableProperty] private string? message;
 
@@ -135,9 +144,20 @@ public sealed partial class ToolItemViewModel : ObservableObject
 
     partial void OnStateChanged(ToolInstallState value) => RefreshState();
 
+    partial void OnIsCheckedChanged(bool value) => RefreshState();
+
     /// <summary>Recalcule l'état affiché et les boutons, d'après la version du catalogue et ce qui est sur le PC.</summary>
     private void RefreshState()
     {
+        if (!IsChecked)
+        {
+            StatusText = "Vérification…";
+            _primary = PrimaryAction.None;
+            PrimaryLabel = null;
+            IsPresent = CanDownload = CanRemove = CanUpdate = CanUseWinget = false;
+            return;
+        }
+
         ToolDelivery delivery = Definition.Delivery;
         bool present = State.IsPresent;
         string version = State.Version is { Length: > 0 } v ? $" ({v})" : "";
@@ -181,28 +201,43 @@ public sealed partial class ToolItemViewModel : ObservableObject
     {
         switch (_primary)
         {
-            case PrimaryAction.InstallPortable: return RunBusyAsync(InstallPortableAsync);
+            case PrimaryAction.InstallPortable: return RunBusyAsync(token => InstallPortableAsync(Release, token));
             case PrimaryAction.RunInstaller: return RunBusyAsync(RunInstallerAsync);
             case PrimaryAction.Download: return DownloadAsync();
-            case PrimaryAction.Launch: Launch(); break;
+            case PrimaryAction.Launch: return LaunchAsync();
             case PrimaryAction.OpenPage: OpenPage(); break;
         }
 
         return Task.CompletedTask;
     }
 
-    private Task UpdateAsync() => Definition.IsPortable ? RunBusyAsync(InstallPortableAsync) : RunBusyAsync(RunInstallerAsync);
-
-    private Task DownloadAsync() => RunBusyAsync(async token =>
+    private Task UpdateAsync()
     {
-        ToolActionOutcome outcome = await _owner.Actions.DownloadForUserAsync(Definition, Progress(), token);
-        ShowOutcome(outcome);
-        if (outcome.Succeeded && outcome.Path is { } path) UnelevatedLauncher.TryShowInExplorer(path, out _);
-    });
+        if (!Definition.IsPortable) return RunBusyAsync(RunInstallerAsync);
 
-    private async Task InstallPortableAsync(CancellationToken token)
+        if (Release is not { } r) return Task.CompletedTask;
+        bool confirmed = _owner.Confirm(
+            $"Mettre à jour {Definition.Name} de la version {State.Version} à la {r.Version} ?\n\n" +
+            "Les fichiers de l'outil sont remplacés par ceux de la nouvelle version, et l'ancienne version est effacée. Les " +
+            "réglages et l'historique que l'outil a enregistrés à part (fichiers absents de la nouvelle version) sont repris ; " +
+            "un fichier de réglages livré avec l'outil revient à son contenu d'origine.");
+        return confirmed ? RunBusyAsync(token => InstallPortableAsync(r, token)) : Task.CompletedTask;
+    }
+
+    private Task DownloadAsync()
     {
-        ToolActionOutcome outcome = await _owner.Actions.InstallPortableAsync(Definition, Progress(), token);
+        ToolRelease? confirmed = Release;
+        return RunBusyAsync(async token =>
+        {
+            ToolActionOutcome outcome = await ToolboxActions.DownloadForUserAsync(Definition, confirmed, Progress(), token);
+            ShowOutcome(outcome);
+            if (outcome.Succeeded && outcome.Path is { } path) await Task.Run(() => UnelevatedLauncher.TryShowInExplorer(path, out _));
+        });
+    }
+
+    private async Task InstallPortableAsync(ToolRelease? confirmed, CancellationToken token)
+    {
+        ToolActionOutcome outcome = await ToolboxActions.InstallPortableAsync(Definition, confirmed, Progress(), token);
         ShowOutcome(outcome);
         await _owner.RefreshItemAsync(this);
     }
@@ -211,48 +246,58 @@ public sealed partial class ToolItemViewModel : ObservableObject
     {
         if (Release is not { } r) return;
 
-        string from = r.Url.Host;
         bool confirmed = _owner.Confirm(
             $"Installer {Definition.Name} {r.Version} ?\n\n" +
-            $"L'installeur officiel, signé par {Definition.ExpectedPublisher}, va être téléchargé depuis {from} ({ByteFormatter.Format(r.Size)}), " +
+            $"L'installeur officiel, signé par {Definition.ExpectedPublisher}, va être téléchargé depuis {r.Url.Host} ({ByteFormatter.Format(r.Size)}), " +
             "puis vérifié (empreinte et signature) avant d'être lancé. PCPerfSuite tourne en administrateur : l'installeur " +
             "s'ouvrira avec ces droits, sans nouvelle invite de Windows.\n\n" +
             "Une installation ne s'annule pas depuis PCPerfSuite : elle se désinstalle depuis Paramètres Windows › Applications.");
         if (!confirmed) return;
 
-        ToolActionOutcome outcome = await _owner.Actions.RunInstallerAsync(Definition, Progress(), token);
+        // La version confirmée, pas celle que le catalogue aurait pu prendre pendant que la question était ouverte.
+        ToolActionOutcome outcome = await ToolboxActions.RunInstallerAsync(Definition, r, Progress(), token);
         ShowOutcome(outcome);
         await _owner.RefreshItemAsync(this);
     }
 
-    private void Launch()
+    private Task LaunchAsync()
     {
-        ToolActionOutcome outcome = ToolboxActions.Launch(Definition, State);
-        Message = outcome.Message;
+        ToolInstallState state = State;
+        return RunBusyAsync(async _ =>
+        {
+            Message = "Vérification…";
+            ToolActionOutcome outcome = await Task.Run(() => ToolboxActions.Launch(Definition, state));
+            Message = outcome.Message;
+        });
     }
 
-    private void Remove()
+    private Task RemoveAsync()
     {
         bool confirmed = _owner.Confirm(
             $"Supprimer {Definition.Name}{(State.Version is { } v ? $" {v}" : "")} ?\n\n" +
             $"Son dossier ({State.Location ?? ProgramDataFolder.RootPath}) est effacé, avec les réglages que l'outil y a enregistrés. " +
             "Il se réinstalle d'un clic.");
-        if (!confirmed) return;
+        if (!confirmed) return Task.CompletedTask;
 
-        Message = ToolboxActions.RemovePortable(Definition).Message;
-        _ = _owner.RefreshItemAsync(this);
+        return RunBusyAsync(async _ =>
+        {
+            Message = "Suppression…";
+            ToolActionOutcome outcome = await Task.Run(() => ToolboxActions.RemovePortable(Definition));
+            Message = outcome.Message;
+            await _owner.RefreshItemAsync(this);
+        });
     }
 
-    private void UseWinget()
+    private Task UseWingetAsync()
     {
         bool confirmed = _owner.Confirm(
             $"Installer {Definition.Name} avec winget ?\n\n" +
             $"winget, le gestionnaire de paquets de Windows, va installer « {Definition.WingetId} » depuis sa propre source. " +
             "Il vérifie l'empreinte de son manifeste, mais PCPerfSuite ne contrôle pas ce fichier comme les siens. " +
             "winget s'ouvre dans sa propre fenêtre et peut te demander d'accepter des conditions.");
-        if (!confirmed) return;
+        if (!confirmed) return Task.CompletedTask;
 
-        Message = WingetFallback.Install(Definition).Message;
+        return RunBusyAsync(async _ => Message = (await Task.Run(() => WingetFallback.Install(Definition))).Message);
     }
 
     private void OpenPage()
@@ -280,7 +325,12 @@ public sealed partial class ToolItemViewModel : ObservableObject
         if (CanUseWinget) Message += " Ou essaie avec winget.";
     }
 
-    private Progress<string> Progress() => new(text => Message = text);
+    /// <summary>Progression affichée ; à l'annonce du lancement de l'installeur, « Annuler » disparaît.</summary>
+    private Progress<string> Progress() => new(text =>
+    {
+        Message = text;
+        if (text == OfficialInstaller.InstallingMessage) CanCancel = false;
+    });
 
     private async Task RunBusyAsync(Func<CancellationToken, Task> action)
     {
@@ -288,6 +338,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
         _operation = new CancellationTokenSource();
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(_operation.Token, _owner.ShutdownToken);
         IsBusy = true;
+        CanCancel = true;
         Message = null;
         try
         {
@@ -301,6 +352,7 @@ public sealed partial class ToolItemViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            CanCancel = false;
         }
     }
 }

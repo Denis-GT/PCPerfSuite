@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Security.AccessControl;
 using PCPerfSuite.Core.Installations;
 
@@ -36,6 +35,20 @@ public class ProgramDataFolderTests
     {
         // Propriétaire : Utilisateurs (BU), comme un dossier créé dans %ProgramData% par n'importe quelle session.
         Assert.Contains("appartient", Judge("O:BUG:BUD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"));
+    }
+
+    [Fact]
+    public void Un_compte_utilisateur_n_est_jamais_nomme_dans_le_refus()
+    {
+        // Le refus part dans le rapport de compatibilité, souvent collé en public : ni nom de compte ni SID personnel.
+        const string user = "S-1-5-21-1111111111-2222222222-3333333333-1001";
+
+        string? owner = Judge($"O:{user}G:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
+        string? writer = Judge($"O:BAG:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{user})");
+
+        Assert.Contains("un compte utilisateur", owner);
+        Assert.Contains("un compte utilisateur", writer);
+        Assert.DoesNotContain(user, owner + writer);
     }
 
     [Theory]
@@ -95,7 +108,7 @@ public class ProgramDataFolderTests
         string target = Path.Combine(temp.Root, "ailleurs");
         Directory.CreateDirectory(target);
         string root = Path.Combine(temp.Root, "PCPerfSuite");
-        if (!TryCreateJunction(root, target)) return;
+        Assert.True(Junctions.TryCreate(root, target), "mklink /J ne demande aucun droit particulier : la jonction doit exister.");
 
         SecureFolderResult result = ProgramDataFolder.TryEnsure(root, new[] { "Tools" });
 
@@ -109,11 +122,30 @@ public class ProgramDataFolderTests
     {
         using var temp = new TempDirectory();
 
-        // Sans élévation, le propriétaire « Administrateurs » ne peut pas être posé : refus, avec sa raison, jamais une
-        // exception. Élevé, le dossier est créé et vérifié.
-        SecureFolderResult result = ProgramDataFolder.TryEnsure(Path.Combine(temp.Root, "PCPerfSuite"), new[] { "Tools", "cpu-z" });
+        string root = Path.Combine(temp.Root, "PCPerfSuite");
 
-        Assert.True(result.IsReady || !string.IsNullOrEmpty(result.Error));
+        SecureFolderResult result = ProgramDataFolder.TryEnsure(root, new[] { "Tools", "cpu-z" });
+
+        if (PCPerfSuite.Core.SystemInfo.ElevationHelper.IsAdministrator())
+        {
+            // Élevé : la racine et le sous-dossier portent la liste d'accès sûre, protégée de tout héritage.
+            Assert.True(result.IsReady, result.Error);
+            foreach (string folder in new[] { root, result.Path! })
+            {
+                DirectorySecurity security = new DirectoryInfo(folder).GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access);
+                Assert.Null(ProgramDataFolder.DescribeUntrusted(security));
+            }
+
+            Assert.True(new DirectoryInfo(root).GetAccessControl().AreAccessRulesProtected);
+        }
+        else
+        {
+            // Sans élévation, le propriétaire « Administrateurs » ne peut pas être posé : refus avec sa raison, et rien
+            // de créé à moitié.
+            Assert.False(result.IsReady);
+            Assert.False(string.IsNullOrEmpty(result.Error));
+            Assert.False(Directory.Exists(root));
+        }
     }
 
     [Fact]
@@ -125,26 +157,5 @@ public class ProgramDataFolderTests
 
         Assert.Equal(existed, Directory.Exists(ProgramDataFolder.RootPath));
         if (!existed) Assert.True(result.IsAbsent);
-    }
-
-    /// <summary>Une jonction se crée sans droits particuliers (mklink /J) ; si cmd échoue, le test n'a rien à vérifier.</summary>
-    private static bool TryCreateJunction(string link, string target)
-    {
-        try
-        {
-            using Process? process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            });
-            process?.WaitForExit(10_000);
-            return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 }

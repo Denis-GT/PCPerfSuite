@@ -143,12 +143,17 @@ public class OfficialInstallerTests
     }
 
     private const string ValidSha = "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032";
-    private const string GitHubAsset = "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe";
+    // Hôte qui ne se résout pas (.invalid, RFC 2606) : si un garde-fou régressait, la requête échouerait aussitôt, sans
+    // jamais télécharger un vrai installeur.
+    private const string TestAsset = "https://pcperfsuite-tests.invalid/outils/setup.exe";
+    private static readonly string[] TestHosts = { "pcperfsuite-tests.invalid" };
+
+    private static OfficialInstallerSource TestSource() => new(new Uri(TestAsset), TestHosts, "setup.exe", "", "Éditeur de test");
 
     [Fact]
     public async Task Un_fichier_non_signe_n_est_jamais_lance_meme_avec_son_empreinte()
     {
-        var source = new OfficialInstallerSource(new Uri(GitHubAsset), OfficialInstaller.GitHubHosts, "setup.exe", "", ExpectedPublisher: null)
+        var source = new OfficialInstallerSource(new Uri(TestAsset), TestHosts, "setup.exe", "", ExpectedPublisher: null)
         {
             ExpectedSha256 = ValidSha,
         };
@@ -162,7 +167,7 @@ public class OfficialInstallerTests
     [Fact]
     public async Task Une_archive_ne_se_lance_pas()
     {
-        InstallOutcome outcome = await Run(Source(GitHubAsset) with { Kind = InstallerFileKind.Zip });
+        InstallOutcome outcome = await Run(TestSource() with { Kind = InstallerFileKind.Zip });
 
         Assert.False(outcome.Succeeded);
         Assert.Contains("zip", outcome.Message);
@@ -171,7 +176,7 @@ public class OfficialInstallerTests
     [Fact]
     public void Une_source_ni_signee_ni_accompagnee_de_son_empreinte_est_refusee()
     {
-        var source = new OfficialInstallerSource(new Uri(GitHubAsset), OfficialInstaller.GitHubHosts, "a.exe", "", ExpectedPublisher: null);
+        var source = new OfficialInstallerSource(new Uri(TestAsset), TestHosts, "a.exe", "", ExpectedPublisher: null);
 
         Exception error = Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(source));
         Assert.Contains("empreinte", error.Message);
@@ -183,15 +188,15 @@ public class OfficialInstallerTests
     [InlineData(OfficialInstaller.MaxAllowedBytes + 1)]
     public void Une_taille_maximale_hors_limites_est_refusee(long maxBytes)
     {
-        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { MaxBytes = maxBytes }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(TestSource() with { MaxBytes = maxBytes }));
     }
 
     [Fact]
     public void Une_taille_attendue_au_dela_de_la_limite_ou_une_empreinte_mal_formee_sont_refusees()
     {
-        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { ExpectedSize = OfficialInstaller.DefaultMaxBytes + 1 }));
-        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { ExpectedSha256 = "abc" }));
-        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(Source(GitHubAsset) with { DownloadTimeout = TimeSpan.FromHours(3) }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(TestSource() with { ExpectedSize = OfficialInstaller.DefaultMaxBytes + 1 }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(TestSource() with { ExpectedSha256 = "abc" }));
+        Assert.ThrowsAny<Exception>(() => OfficialInstaller.ValidateSource(TestSource() with { DownloadTimeout = TimeSpan.FromHours(3) }));
     }
 
     [Fact]
@@ -214,7 +219,7 @@ public class OfficialInstallerTests
         string destination = temp.File("a.exe");
         File.WriteAllText(destination, "à moi");
 
-        DownloadOutcome outcome = await OfficialInstaller.DownloadToFileAsync(Source(GitHubAsset), destination, null, CancellationToken.None);
+        DownloadOutcome outcome = await OfficialInstaller.DownloadToFileAsync(TestSource(), destination, null, CancellationToken.None);
 
         Assert.False(outcome.Succeeded);
         Assert.Equal("à moi", File.ReadAllText(destination));
@@ -231,7 +236,7 @@ public class OfficialInstallerTests
         byte[] body = "MZ contenu de l'installeur"u8.ToArray();
         string destination = temp.File("ok.exe");
 
-        await OfficialInstaller.SaveAsync(Response(body), destination, Source(GitHubAsset) with { ExpectedSha256 = Sha256Of(body).ToLowerInvariant(), ExpectedSize = body.Length },
+        await OfficialInstaller.SaveAsync(Response(body), destination, TestSource() with { ExpectedSha256 = Sha256Of(body).ToLowerInvariant(), ExpectedSize = body.Length },
             null, CancellationToken.None);
 
         Assert.Equal(body, File.ReadAllBytes(destination));
@@ -244,7 +249,7 @@ public class OfficialInstallerTests
         byte[] body = "MZ contenu remplacé"u8.ToArray();
 
         Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(body), temp.File("ko.exe"),
-            Source(GitHubAsset) with { ExpectedSha256 = ValidSha }, null, CancellationToken.None));
+            TestSource() with { ExpectedSha256 = ValidSha }, null, CancellationToken.None));
 
         Assert.Contains("SHA-256", error.Message);
     }
@@ -257,7 +262,7 @@ public class OfficialInstallerTests
         string destination = temp.File("taille.exe");
 
         Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(body), destination,
-            Source(GitHubAsset) with { ExpectedSha256 = ValidSha, ExpectedSize = 99 }, null, CancellationToken.None));
+            TestSource() with { ExpectedSha256 = ValidSha, ExpectedSize = 99 }, null, CancellationToken.None));
 
         Assert.Contains("attendus", error.Message);
         Assert.False(File.Exists(destination));
@@ -269,7 +274,7 @@ public class OfficialInstallerTests
         using var temp = new TempDirectory();
 
         Exception error = await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.SaveAsync(Response(new byte[2048]), temp.File("gros.exe"),
-            Source(GitHubAsset) with { MaxBytes = 1024 }, null, CancellationToken.None));
+            TestSource() with { MaxBytes = 1024 }, null, CancellationToken.None));
 
         Assert.Contains("gros", error.Message);
     }
@@ -306,13 +311,184 @@ public class OfficialInstallerTests
     [Fact]
     public void Un_exe_signe_n_est_accepte_que_pour_son_editeur()
     {
-        // dotnet.exe, signé par Microsoft, est là partout où ces tests tournent.
-        string dotnet = Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet.exe"));
-        if (!File.Exists(dotnet)) return;
+        string dotnet = SignedDotnetExe();
 
         Assert.True(OfficialInstaller.TryVerifySignedFile(dotnet, InstallerFileKind.Exe, "Microsoft Corporation", out string? error), error);
         Assert.False(OfficialInstaller.TryVerifySignedFile(dotnet, InstallerFileKind.Exe, "OCBASE", out string? wrong));
         Assert.Contains("Microsoft Corporation", wrong);
+    }
+
+    /// <summary>dotnet.exe, signé par Microsoft : c'est lui qui fait tourner ces tests, il est donc là.</summary>
+    private static string SignedDotnetExe()
+    {
+        string[] candidates =
+        {
+            Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet.exe")),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe"),
+        };
+
+        string? found = candidates.FirstOrDefault(File.Exists);
+        Assert.True(found is not null, "dotnet.exe introuvable : le test ne vérifierait rien.");
+        return found!;
+    }
+
+    [Fact]
+    public void Un_programme_non_signe_est_refuse_par_la_verification_de_signature()
+    {
+        using var temp = new TempDirectory();
+        string unsigned = temp.File("non-signe.exe");
+        File.WriteAllBytes(unsigned, "MZ"u8.ToArray().Concat(new byte[4096]).ToArray());
+
+        Assert.False(OfficialInstaller.TryVerifySignedFile(unsigned, InstallerFileKind.Exe, "Microsoft Corporation", out string? error));
+        Assert.StartsWith("Fichier refusé", error);
+    }
+
+    [Fact]
+    public void Un_programme_modifie_apres_sa_signature_est_refuse()
+    {
+        using var temp = new TempDirectory();
+        string copy = temp.File("dotnet-modifie.exe");
+        File.Copy(SignedDotnetExe(), copy);
+
+        // Un octet du milieu du fichier (code, loin de la table des certificats, à la fin) : l'empreinte signée ne
+        // correspond plus.
+        byte[] bytes = File.ReadAllBytes(copy);
+        bytes[bytes.Length / 3] ^= 0xFF;
+        File.WriteAllBytes(copy, bytes);
+
+        Assert.False(OfficialInstaller.TryVerifySignedFile(copy, InstallerFileKind.Exe, "Microsoft Corporation", out string? error));
+        Assert.StartsWith("Fichier refusé", error);
+    }
+
+    [Fact]
+    public async Task Un_echec_avant_le_lancement_garde_sa_nature()
+    {
+        InstallOutcome outcome = await Run(TestSource() with { Kind = InstallerFileKind.Zip });
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(DownloadFailureKind.Refused, outcome.Failure);
+    }
+
+    // Téléchargement sur un serveur simulé : chaque redirection est jugée avant d'être suivie.
+
+    private static readonly byte[] Body = "MZ installeur de test"u8.ToArray();
+
+    private static OfficialInstallerSource ServedSource(byte[]? body = null)
+        => TestSource() with
+        {
+            ExpectedSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(body ?? Body)),
+            ExpectedPublisher = null,
+        };
+
+    private static async Task<(DownloadOutcome Outcome, FakeHttp Server, bool FileLeft)> Download(OfficialInstallerSource source,
+        Func<Uri, HttpResponseMessage> respond)
+    {
+        using var temp = new TempDirectory();
+        var server = new FakeHttp(respond);
+        string destination = temp.File("setup.exe");
+        DownloadOutcome outcome = await OfficialInstaller.DownloadToFileAsync(source, destination, null, CancellationToken.None, server.Client());
+        return (outcome, server, File.Exists(destination));
+    }
+
+    [Fact]
+    public async Task Une_redirection_vers_un_hote_autorise_est_suivie_et_le_fichier_verifie_est_garde()
+    {
+        (DownloadOutcome outcome, FakeHttp server, bool left) = await Download(ServedSource(), uri =>
+            uri.AbsolutePath == "/outils/setup.exe" ? FakeHttp.Redirect("/stockage/setup.exe") : FakeHttp.Ok(Body));
+
+        Assert.True(outcome.Succeeded, outcome.Message);
+        Assert.True(left);
+        Assert.Equal(2, server.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("https://evil.example/setup.exe", "source officielle")]
+    [InlineData("http://pcperfsuite-tests.invalid/setup.exe", "HTTPS")]
+    public async Task Une_redirection_hors_des_hotes_autorises_n_est_jamais_suivie(string location, string reason)
+    {
+        (DownloadOutcome outcome, FakeHttp server, bool left) = await Download(ServedSource(), _ => FakeHttp.Redirect(location));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Contains(reason, outcome.Message);
+        Assert.Single(server.Requests);
+        Assert.False(left);
+    }
+
+    [Fact]
+    public async Task Trop_de_redirections_ou_une_redirection_sans_destination_sont_refusees()
+    {
+        (DownloadOutcome loop, FakeHttp server, _) = await Download(ServedSource(), uri => FakeHttp.Redirect(uri.AbsoluteUri + "x"));
+        var empty = new HttpResponseMessage(System.Net.HttpStatusCode.Found) { Content = new ByteArrayContent(Array.Empty<byte>()) };
+        (DownloadOutcome noLocation, _, _) = await Download(ServedSource(), _ => empty);
+
+        Assert.Equal(DownloadFailureKind.LinkUnavailable, loop.Failure);
+        Assert.Equal(6, server.Requests.Count);
+        Assert.Equal(DownloadFailureKind.LinkUnavailable, noLocation.Failure);
+    }
+
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.NotFound)]
+    [InlineData(System.Net.HttpStatusCode.Gone)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden)]
+    public async Task Un_lien_mort_est_signale_comme_tel(System.Net.HttpStatusCode status)
+    {
+        (DownloadOutcome outcome, _, bool left) = await Download(ServedSource(), _ => FakeHttp.Status(status));
+
+        Assert.Equal(DownloadFailureKind.LinkUnavailable, outcome.Failure);
+        Assert.Contains(((int)status).ToString(), outcome.Message);
+        Assert.False(left);
+    }
+
+    [Fact]
+    public async Task Un_fichier_servi_qui_n_est_pas_celui_du_catalogue_est_refuse_et_supprime()
+    {
+        (DownloadOutcome outcome, _, bool left) = await Download(ServedSource(), _ => FakeHttp.Ok("MZ autre fichier"u8.ToArray()));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(DownloadFailureKind.Mismatch, outcome.Failure);
+        Assert.False(left);
+    }
+
+    [Fact]
+    public async Task Un_fichier_a_la_bonne_empreinte_mais_au_mauvais_en_tete_est_refuse_et_supprime()
+    {
+        byte[] page = "<html>page d'erreur</html>"u8.ToArray();
+
+        (DownloadOutcome outcome, _, bool left) = await Download(ServedSource(page), _ => FakeHttp.Ok(page));
+
+        Assert.Equal(DownloadFailureKind.Mismatch, outcome.Failure);
+        Assert.Contains("programme Windows", outcome.Message);
+        Assert.False(left);
+    }
+
+    [Fact]
+    public async Task Un_petit_fichier_suit_les_memes_regles_que_les_installeurs()
+    {
+        var server = new FakeHttp(_ => FakeHttp.Redirect("https://evil.example/catalogue.json"));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.DownloadBytesAsync(new Uri(TestAsset), TestHosts, 1024,
+            TimeSpan.FromSeconds(5), CancellationToken.None, server.Client()));
+        Assert.Single(server.Requests);
+
+        var big = new FakeHttp(_ => FakeHttp.Ok(new byte[2048]));
+        await Assert.ThrowsAnyAsync<Exception>(() => OfficialInstaller.DownloadBytesAsync(new Uri(TestAsset), TestHosts, 1024,
+            TimeSpan.FromSeconds(5), CancellationToken.None, big.Client()));
+    }
+
+    [Fact]
+    public void Les_dossiers_de_travail_abandonnes_sont_effaces_et_les_recents_gardes()
+    {
+        using var temp = new TempDirectory();
+        string old = Path.Combine(temp.Root, "ancien");
+        string recent = Path.Combine(temp.Root, "recent");
+        Directory.CreateDirectory(old);
+        Directory.CreateDirectory(recent);
+        Directory.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+
+        OfficialInstaller.PurgeStaleChildren(temp.Root, TimeSpan.FromHours(6));
+
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(recent));
     }
 
     [Fact]
