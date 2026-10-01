@@ -335,8 +335,15 @@ public sealed class CoreParkingService : ISystemChangeOwner
     private void DropStaleLegacyOrigins()
     {
         if (_legacyChecked) return;
+        if (_origins.Scheme is not null)
+        {
+            _legacyChecked = true;
+            return;
+        }
+
+        // Plan actif illisible pour l'instant : on réessaiera au prochain appel.
+        if (_plan.ActiveScheme() is not { } scheme) return;
         _legacyChecked = true;
-        if (_origins.Scheme is not null || _plan.ActiveScheme() is not { } scheme) return;
 
         IReadOnlyDictionary<string, uint> values = _origins.Values;
         CoreParkingSetting min = CoreParkingCatalog.MinCores;

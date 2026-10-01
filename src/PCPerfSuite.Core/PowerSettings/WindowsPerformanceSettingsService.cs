@@ -119,7 +119,9 @@ public sealed class WindowsPerformanceSettingsService
         // 100 % (« Performances ultimes ») : l'interrupteur ne doit pas se croire décoché.
         if (GetCoreParkingState() == TweakState.Enabled)
         {
-            throw new InvalidOperationException("Le plan d'alimentation actif garde tous ses cœurs actifs : PCPerfSuite n'a pas d'origine à lui rendre (un autre plan a, lui, retrouvé ses valeurs). Règle-le dans Processeur › Cœurs.");
+            string other = restored.Status == SystemRestoreStatus.Restored ? " (un autre plan a, lui, retrouvé ses valeurs)" : "";
+            throw new InvalidOperationException(
+                $"Le plan d'alimentation actif garde tous ses cœurs actifs : PCPerfSuite n'a pas d'origine à lui rendre{other}. Règle-le dans Processeur › Cœurs.");
         }
     }
 
