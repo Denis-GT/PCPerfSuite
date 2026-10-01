@@ -11,6 +11,7 @@ using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Installations;
 using PCPerfSuite.Core.PowerSettings.Animations;
+using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
@@ -75,6 +76,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public CpuControlViewModel Cpu => _cpu;
     public OverlayViewModel Overlay => _overlay;
 
+    /// <summary>Bail de réglage : un seul pilote automatique des réglages CPU, GPU et ventilation à la fois (groupes de
+    /// profils, bascule automatique, bench, recherche d'OC). Partagé par les trois onglets et la page Profils.</summary>
+    private readonly TuningLease _tuningLease = new();
+
+    /// <summary>Bannière « Réglages pilotés par… » des onglets Processeur, GPU et Ventilateurs.</summary>
+    public TuningStatusViewModel Tuning { get; }
+
     /// <summary>Entrées de la barre latérale, dans l'ordre de <see cref="NavigationMenu.Pages"/> : MainWindow les
     /// range sous leurs en-têtes de section.</summary>
     public ObservableCollection<NavEntry> NavItems { get; }
@@ -111,6 +119,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(StartupRecoveryReport startupRecovery)
     {
         StartupRecovery = startupRecovery;
+        Tuning = new TuningStatusViewModel(_tuningLease);
         _monitoring = new MonitoringViewModel(_hardware);
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
@@ -118,7 +127,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         CpuPlatform platform = _cpuControl.Platform;
         _coreParking = new CoreParkingService(platform.IsHybrid, platform.HasBattery);
         SystemChanges.Register(_coreParking);
-        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform));
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform), Tuning);
+        SystemChanges.Register(_cpu.GroupPlanChanges);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
@@ -252,6 +262,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DisposeSafely(_gpu.Dispose, nameof(_gpu));
         DisposeSafely(_cpu.Dispose, nameof(_cpu));
         DisposeSafely(_overlay.Dispose, nameof(_overlay));
+        DisposeSafely(Tuning.Dispose, nameof(Tuning));
         DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
         DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
         DisposeSafely(_hardware.Dispose, nameof(_hardware));

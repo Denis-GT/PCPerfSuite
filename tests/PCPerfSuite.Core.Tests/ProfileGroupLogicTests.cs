@@ -55,7 +55,7 @@ public class ProfileGroupLogicTests
 
         Assert.Equal("cpu", Assert.Single(plan.Entries).FanId);
         Assert.Contains("« Boîtier avant » non réglé (absent de ce PC (sys))", Texts(plan));
-        Assert.Contains("pas dans ce groupe, laissés tels quels : « GPU »", Texts(plan));
+        Assert.Contains("non concernés, laissés tels quels : « GPU »", Texts(plan));
     }
 
     [Fact]

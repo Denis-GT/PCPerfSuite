@@ -85,11 +85,17 @@ public sealed record DimensionReport(
     };
 
     /// <summary>« Processeur : 3 réglages du plan appliqués, watts ignorés : avertissement non accepté. »</summary>
-    public string Describe()
+    public string Describe() => $"{Title(Dimension)} : {Body}.";
+
+    /// <summary>Le rapport sans le nom de la dimension, pour le statut d'un onglet.</summary>
+    public string Body
     {
-        var parts = Items.Select(i => i.Text).Where(t => t.Length > 0).ToList();
-        parts.AddRange(Notes.Where(n => n.Length > 0));
-        return parts.Count == 0 ? $"{Title(Dimension)} : rien à changer." : $"{Title(Dimension)} : {string.Join(" ; ", parts)}.";
+        get
+        {
+            var parts = Items.Select(i => i.Text).Where(t => t.Length > 0).ToList();
+            parts.AddRange(Notes.Where(n => n.Length > 0));
+            return parts.Count == 0 ? "rien à changer" : string.Join(" ; ", parts);
+        }
     }
 }
 

@@ -17,16 +17,39 @@ public sealed record GpuGroupPlan(
     IReadOnlyList<ReportItem> Items,
     IReadOnlyList<string> Notes,
     PowerTrend Trend,
-    bool Raises)
+    bool Raises,
+    GpuTouched? Touched = null)
 {
     public bool HasWork => Request is not null || RestoreOrigin;
+
+    /// <summary>Les réglages relus, réduits à ce que le groupe règle : l'état « retenu » à comparer ensuite.</summary>
+    public GpuRetainedValues Retain(GpuRetainedValues readBack)
+    {
+        GpuTouched touched = Touched ?? GpuTouched.None;
+        return new GpuRetainedValues
+        {
+            CoreOffsetMhz = touched.Core ? readBack.CoreOffsetMhz : null,
+            MemoryOffsetMhz = touched.Memory ? readBack.MemoryOffsetMhz : null,
+            PowerLimitPercent = touched.Power ? readBack.PowerLimitPercent : null,
+            TemperatureLimitC = touched.Temperature ? readBack.TemperatureLimitC : null,
+            Voltage = touched.Voltage ? readBack.Voltage : null,
+        };
+    }
 
     public static GpuGroupPlan Nothing(ProfilePartKind kind, params ReportItem[] items)
         => new(kind, null, false, items, [], PowerTrend.Same, false);
 
     /// <summary>Le même plan sans sa demande (ligne du journal impossible à écrire, par exemple).</summary>
     public GpuGroupPlan WithoutRequest(ReportItem reason)
-        => this with { Request = null, Raises = false, Items = [.. Items, reason], Trend = PowerTrend.Same };
+        => this with { Request = null, Raises = false, Touched = GpuTouched.None, Items = [.. Items, reason], Trend = PowerTrend.Same };
+}
+
+/// <summary>Les réglages de la carte qu'un groupe règle (posés ou déjà en place).</summary>
+public sealed record GpuTouched(bool Core, bool Memory, bool Power, bool Temperature, bool Voltage)
+{
+    public static GpuTouched None { get; } = new(false, false, false, false, false);
+
+    public static GpuTouched All { get; } = new(true, true, true, true, true);
 }
 
 /// <summary>
@@ -41,7 +64,9 @@ public static class GpuGroupPlanner
     private const double OffsetTolerance = 0.5;
     private const double PowerTolerance = 0.5;
 
-    public static GpuGroupPlan Plan(ProfileGroupGpuPart part, GpuTargetState state, bool isManual)
+    /// <param name="checkIdentity">Faux pour un profil de l'onglet GPU, qui ne porte pas d'identité et a toujours été posé tel
+    /// quel sur cette carte.</param>
+    public static GpuGroupPlan Plan(ProfileGroupGpuPart part, GpuTargetState state, bool isManual, bool checkIdentity = true)
     {
         string title = DimensionReport.Title(ProfileDimension.Gpu);
         switch (part.ParsedKind)
@@ -67,7 +92,7 @@ public static class GpuGroupPlanner
                 ReportItem.Ignored(title, "réglages ignorés : la renonciation de garantie Intel n'a pas été acceptée dans l'onglet GPU"));
         }
 
-        if (!GpuIdentity.IsSameCard(part.CapturedOn, state.Identity))
+        if (checkIdentity && !GpuIdentity.IsSameCard(part.CapturedOn, state.Identity))
         {
             string where = part.CapturedOn is null ? "une carte non identifiée" : $"une autre carte ({part.CapturedOn.Describe()})";
             return GpuGroupPlan.Nothing(ProfilePartKind.Values,
@@ -143,6 +168,8 @@ public static class GpuGroupPlanner
 
         if (unsupported.Count > 0) notes.Add($"N/D sur cette carte, non posé : {string.Join(", ", unsupported)}");
 
+        var touched = new GpuTouched(core is not null, memory is not null, power is not null, temperature is not null, voltage is not null);
+
         // Ce qui est déjà en place n'est pas réécrit : la bascule automatique repasse souvent par les mêmes valeurs.
         var inPlace = new List<string>();
         if (core == now.CoreOffsetMhz && now.CoreOffsetSupported) { core = null; inPlace.Add("cœur"); }
@@ -163,7 +190,7 @@ public static class GpuGroupPlanner
         };
 
         bool hasRequest = core is not null || memory is not null || power is not null || temperature is not null || voltage is not null;
-        if (!hasRequest) return new GpuGroupPlan(ProfilePartKind.Values, null, false, items, notes, PowerTrend.Same, false);
+        if (!hasRequest) return new GpuGroupPlan(ProfilePartKind.Values, null, false, items, notes, PowerTrend.Same, false, touched);
 
         PowerTrend trend = ApplyDirection.Combine([
             ApplyDirection.Of(power, state.Power?.PowerLimitPercent, PowerTolerance),
@@ -181,7 +208,7 @@ public static class GpuGroupPlanner
             return new GpuGroupPlan(ProfilePartKind.Values, null, false, items, notes, PowerTrend.Same, false);
         }
 
-        return new GpuGroupPlan(ProfilePartKind.Values, request, false, items, notes, trend, raises);
+        return new GpuGroupPlan(ProfilePartKind.Values, request, false, items, notes, trend, raises, touched);
     }
 
     private static GpuGroupPlan PlanOrigin(GpuTargetState state)
@@ -196,7 +223,7 @@ public static class GpuGroupPlanner
             now is { VoltageSupported: true } ? ApplyDirection.Of(now.VoltageDefault, now.Voltage, OffsetTolerance) : PowerTrend.Same,
         ]);
 
-        return new GpuGroupPlan(ProfilePartKind.Origin, null, RestoreOrigin: true, [], [], trend, false);
+        return new GpuGroupPlan(ProfilePartKind.Origin, null, RestoreOrigin: true, [], [], trend, false, GpuTouched.All);
     }
 
     /// <summary>Borne une valeur à la plage de la carte, et dit quand elle a été ramenée.</summary>

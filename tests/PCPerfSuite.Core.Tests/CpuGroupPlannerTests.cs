@@ -31,6 +31,16 @@ public class CpuGroupPlannerTests
     }
 
     [Fact]
+    public void Ce_que_le_groupe_regle_est_retenu_meme_deja_en_place()
+    {
+        CpuGroupPlan plan = CpuGroupPlanner.Plan(CpuPart(Values(boost: 1, epp: 80, sustained: 125, burst: 181)), Cpu(boost: 1, epp: 50), isManual: true);
+
+        Assert.Equal(["boost", "epp"], plan.TouchedSettings!.Select(s => s.Id).Order());
+        Assert.True(plan.TouchesWatts);
+        Assert.Null(plan.Watts);
+    }
+
+    [Fact]
     public void Un_reglage_venu_d_un_autre_pc_est_ignore_et_compte()
     {
         CpuProfile values = Values(epp: 80);

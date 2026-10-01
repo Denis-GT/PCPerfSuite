@@ -8,13 +8,15 @@ namespace PCPerfSuite.Core.Profiles;
 public sealed record FanPlanEntry(string FanId, string Name, FanCurveConfig Config, IReadOnlyList<string> SanitizeNotes);
 
 /// <summary>Ce que la partie ventilation d'un groupe demande à l'onglet Ventilateurs. <see cref="RestoreAuto"/> :
-/// l'origine, tous les ventilateurs rendus au BIOS (leurs courbes sont gardées).</summary>
+/// l'origine, tous les ventilateurs rendus au BIOS (leurs courbes sont gardées). <see cref="TouchedFanIds"/> : les
+/// ventilateurs que le groupe règle, posés ou déjà en place, ceux qu'on relira pour dire s'il est encore « conforme ».</summary>
 public sealed record FanGroupPlan(
     ProfilePartKind Kind,
     IReadOnlyList<FanPlanEntry> Entries,
     bool RestoreAuto,
     IReadOnlyList<ReportItem> Items,
-    IReadOnlyList<string> Notes)
+    IReadOnlyList<string> Notes,
+    IReadOnlyList<string>? TouchedFanIds = null)
 {
     public bool HasWork => Entries.Count > 0 || RestoreAuto;
 
@@ -59,7 +61,7 @@ public static class FanGroupPlanner
             return FanGroupPlan.Nothing(part.ParsedKind, notes, ReportItem.Ignored(title, $"aucun ventilateur pilotable : {state.NoFansReason}"));
         }
 
-        if (part.ParsedKind == ProfilePartKind.Origin) return new FanGroupPlan(ProfilePartKind.Origin, [], true, [], notes);
+        if (part.ParsedKind == ProfilePartKind.Origin) return new FanGroupPlan(ProfilePartKind.Origin, [], true, [], notes, state.Fans.Select(f => f.FanId).ToList());
 
         FanProfile values = part.Values!;
         FanProfileMatch match = FanProfileMatcher.Match(values, state.Fans.Select(f => f.FanId).ToList());
@@ -67,6 +69,7 @@ public static class FanGroupPlanner
         var entries = new List<FanPlanEntry>();
         var items = new List<ReportItem>();
         var inPlace = new List<string>();
+        var touched = new List<string>();
 
         foreach (FanCurveConfig entry in match.Applicable)
         {
@@ -78,6 +81,7 @@ public static class FanGroupPlanner
                 continue;
             }
 
+            touched.Add(fan.FanId);
             FanCurveConfig? current = state.Current.Fans.FirstOrDefault(c => c.ControlSensorId == fan.FanId);
             if (sanitized.Notes.Count == 0 && current is not null && FanConfigs.SameSettings(current, config))
             {
@@ -102,10 +106,10 @@ public static class FanGroupPlanner
         if (match.NotInProfile.Count > 0)
         {
             IEnumerable<string> names = match.NotInProfile.Select(id => $"« {state.Fans.First(f => f.FanId == id).Name} »");
-            allNotes.Add($"pas dans ce groupe, laissés tels quels : {string.Join(", ", names)}");
+            allNotes.Add($"non concernés, laissés tels quels : {string.Join(", ", names)}");
         }
 
-        return new FanGroupPlan(ProfilePartKind.Values, entries, false, items, allNotes);
+        return new FanGroupPlan(ProfilePartKind.Values, entries, false, items, allNotes, touched);
     }
 }
 

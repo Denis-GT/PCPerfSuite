@@ -125,6 +125,19 @@ public class GpuGroupPlannerTests
     }
 
     [Fact]
+    public void L_etat_retenu_ne_garde_que_ce_que_le_groupe_regle()
+    {
+        GpuGroupPlan plan = GpuGroupPlanner.Plan(GpuPart(Oc(core: 150, memory: 0)), Gpu(), isManual: true);
+
+        GpuRetainedValues retained = plan.Retain(new GpuRetainedValues { CoreOffsetMhz = 150, MemoryOffsetMhz = 0, PowerLimitPercent = 100, TemperatureLimitC = 83 });
+
+        Assert.Equal(150, retained.CoreOffsetMhz);
+        Assert.Equal(0, retained.MemoryOffsetMhz);
+        Assert.Null(retained.PowerLimitPercent);
+        Assert.Null(retained.TemperatureLimitC);
+    }
+
+    [Fact]
     public void Un_overclock_est_une_montee_risquee()
     {
         GpuGroupPlan plan = GpuGroupPlanner.Plan(GpuPart(Oc(core: 150)), Gpu(), isManual: true);

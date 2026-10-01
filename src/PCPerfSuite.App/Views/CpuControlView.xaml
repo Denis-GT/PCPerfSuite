@@ -13,7 +13,13 @@
             <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
                      DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
-            <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=settings}">
+            <views:TuningBanner DataContext="{Binding Tuning}"
+                                Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=settings}"/>
+
+            <!-- Grisé tant qu'un autre tient le bail de réglage (bench, recherche d'OC…) : à part de CanEditLimits, qui
+                 sert aussi au démarrage et au réveil. Les sous-onglets restent utilisables. -->
+            <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=settings}"
+                        IsEnabled="{Binding Tuning.IsManualTuningAllowed}">
                 <!-- ============ Compatibilité ============ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                     <StackPanel>

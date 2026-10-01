@@ -1,0 +1,33 @@
+<UserControl x:Class="PCPerfSuite.App.Views.TuningBanner"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- En tête des onglets Processeur, GPU et Ventilateurs (DataContext : TuningStatusViewModel). Le bail de réglage
+         tenu par un autre (les commandes de l'onglet sont alors grisées), puis le réglage d'un groupe en cours depuis
+         la page Profils. -->
+    <StackPanel Visibility="{Binding ShowBanner, Converter={StaticResource BoolToVisibility}}" Margin="0,0,0,16">
+        <Border Style="{StaticResource CalloutWarn}"
+                Visibility="{Binding LeaseText, Converter={StaticResource NullToVisibility}}">
+            <StackPanel>
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                         Text="{Binding LeaseText, Mode=OneWay}"/>
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                         Text="Les modifications à la main sont refusées tant qu'il les pilote. Les sécurités thermiques, elles, agissent toujours."/>
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource InsetTile}" Margin="0,8,0,0"
+                Visibility="{Binding GroupTuningText, Converter={StaticResource NullToVisibility}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Style="{StaticResource SelectableBody}" TextWrapping="Wrap" VerticalAlignment="Center"
+                         Text="{Binding GroupTuningText, Mode=OneWay}"/>
+                <Button Grid.Column="1" Content="Mettre à jour le groupe" Style="{StaticResource AccentButton}" Margin="12,0,0,0"
+                        VerticalAlignment="Center" Command="{Binding UpdateGroupCommand}"/>
+            </Grid>
+        </Border>
+    </StackPanel>
+</UserControl>

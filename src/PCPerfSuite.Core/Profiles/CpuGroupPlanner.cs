@@ -13,6 +13,8 @@ public sealed record CpuWattsTarget(float Sustained, float? Burst);
 /// Ce que la partie processeur d'un groupe demande à l'onglet, déjà décidé : les écritures du plan (seulement les
 /// valeurs qui changent), les watts à poser, ou le retour à l'origine, et ce qui a été écarté avec sa raison
 /// (<see cref="Items"/>). <see cref="RaisesWatts"/> : des watts au-dessus de l'origine, donc une période probatoire.
+/// <see cref="TouchedSettings"/> et <see cref="TouchesWatts"/> : ce que le groupe règle, écrit ou déjà en place, et donc
+/// ce qu'on relira pour dire s'il est encore « conforme ».
 /// </summary>
 public sealed record CpuGroupPlan(
     ProfilePartKind Kind,
@@ -23,7 +25,9 @@ public sealed record CpuGroupPlan(
     IReadOnlyList<ReportItem> Items,
     IReadOnlyList<string> Notes,
     PowerTrend Trend,
-    bool RaisesWatts)
+    bool RaisesWatts,
+    IReadOnlyList<CpuPowerSetting>? TouchedSettings = null,
+    bool TouchesWatts = false)
 {
     public bool HasWork => PlanWrites.Count > 0 || Watts is not null || RestorePlanOrigin || RestoreWatts;
 
@@ -36,7 +40,7 @@ public sealed record CpuGroupPlan(
 
     /// <summary>Le même plan, sans ses watts (ligne du journal impossible à écrire, par exemple).</summary>
     public CpuGroupPlan WithoutWatts(ReportItem reason)
-        => this with { Watts = null, RaisesWatts = false, Items = [.. Items, reason], Trend = PowerTrend.Same };
+        => this with { Watts = null, RaisesWatts = false, TouchesWatts = false, Items = [.. Items, reason], Trend = PowerTrend.Same };
 }
 
 /// <summary>
@@ -57,7 +61,9 @@ public static class CpuGroupPlanner
     /// <summary>Écart en dessous duquel des watts sont tenus pour égaux (même seuil que la sécurité thermique).</summary>
     private const float WattsTolerance = 1f;
 
-    public static CpuGroupPlan Plan(ProfileGroupCpuPart part, CpuTargetState state, bool isManual)
+    /// <param name="checkIdentity">Faux pour un profil de l'onglet Processeur, qui ne porte pas d'identité et a toujours
+    /// été posé tel quel sur ce PC.</param>
+    public static CpuGroupPlan Plan(ProfileGroupCpuPart part, CpuTargetState state, bool isManual, bool checkIdentity = true)
     {
         switch (part.ParsedKind)
         {
@@ -74,6 +80,7 @@ public static class CpuGroupPlanner
         CpuProfile values = part.Values!;
         var items = new List<ReportItem>();
         var writes = new List<CpuPlanWrite>();
+        var touched = new List<CpuPowerSetting>();
         int unknown = 0;
         int inPlace = 0;
 
@@ -101,6 +108,7 @@ public static class CpuGroupPlanner
                 continue;
             }
 
+            touched.Add(setting);
             if (ac == reading.Ac && dc == reading.Dc)
             {
                 inPlace++;
@@ -123,16 +131,18 @@ public static class CpuGroupPlanner
                 : "1 réglage du plan absent de ce PC, ignoré"));
         }
 
-        CpuWattsTarget? watts = PlanWatts(values, part.CapturedOn, state, isManual, items, out PowerTrend trend, out bool raises);
-        return new CpuGroupPlan(ProfilePartKind.Values, writes, watts, false, false, items, [], trend, raises);
+        CpuWattsTarget? watts = PlanWatts(values, checkIdentity ? part.CapturedOn : state.Identity, state, isManual, items,
+            out PowerTrend trend, out bool raises, out bool touchesWatts, checkIdentity);
+        return new CpuGroupPlan(ProfilePartKind.Values, writes, watts, false, false, items, [], trend, raises, touched, touchesWatts);
     }
 
     private static CpuWattsTarget? PlanWatts(
         CpuProfile values, CpuIdentity? capturedOn, CpuTargetState state, bool isManual, List<ReportItem> items,
-        out PowerTrend trend, out bool raises)
+        out PowerTrend trend, out bool raises, out bool touches, bool checkIdentity)
     {
         trend = PowerTrend.Same;
         raises = false;
+        touches = false;
         if (values.SustainedWatts is not { } sustained) return null;
 
         if (state.Watts is not { } now)
@@ -153,7 +163,7 @@ public static class CpuGroupPlanner
             return null;
         }
 
-        if (!CpuIdentity.Matches(capturedOn, state.Identity))
+        if (checkIdentity && !CpuIdentity.Matches(capturedOn, state.Identity))
         {
             string where = capturedOn is null ? "un processeur non identifié" : $"un autre processeur ({capturedOn.Describe()})";
             items.Add(ReportItem.Ignored(WattsLabel, $"limites en watts ignorées : relevées sur {where}, elles ne se transposent pas"));
@@ -191,6 +201,7 @@ public static class CpuGroupPlanner
         {
             items.Add(ReportItem.Applied(WattsLabel, $"limites déjà à {Watts(now.Sustained)}"));
             trend = PowerTrend.Same;
+            touches = true;
             return null;
         }
 
@@ -204,6 +215,7 @@ public static class CpuGroupPlanner
         }
 
         raises = wouldRaise;
+        touches = true;
         return new CpuWattsTarget(target, burst);
     }
 
@@ -227,7 +239,8 @@ public static class CpuGroupPlanner
                 $"limites d'origine non reposées : {state.WattsUnavailableReason ?? "ce PC ne permet pas de les modifier"}"));
         }
 
-        return new CpuGroupPlan(ProfilePartKind.Origin, [], null, RestorePlanOrigin: true, restoreWatts, items, [], trend, false);
+        return new CpuGroupPlan(ProfilePartKind.Origin, [], null, RestorePlanOrigin: true, restoreWatts, items, [], trend, false,
+            TouchesWatts: restoreWatts);
     }
 
     private static float Clamp(float value, float min, float max) => max < min ? value : Math.Clamp(value, min, max);
