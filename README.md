@@ -15,12 +15,12 @@ sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles
 | **Surveiller** | Monitoring, Processus, Overlay |
 | **Régler** | Processeur, GPU, Ventilateurs, Profils *(bientôt disponible)*, OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
 | **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
-| **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils *(bientôt disponible)*, Mémoire *(bientôt disponible)* |
+| **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils, Mémoire *(bientôt disponible)* |
 
 **Paramètres** est en bas de la barre. Une page qui grossit reçoit des sous-onglets en pastilles
 (comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes) plutôt qu'une entrée de
-plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, et le diagnostic de
-Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
+plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, Boîte à outils, et le
+diagnostic de Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
 tourne que tant que sa page est affichée : l'app démarre plus vite, même lancée dans la zone de
 notification. Le relevé des capteurs (Monitoring, overlay, ventilateurs, limites) tourne, lui, dès
 le lancement.
@@ -29,8 +29,11 @@ Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings
 (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
 des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU AMD
 (`adlx-plantage.temoin`) et le journal de session (`journal-session.jsonl` : opérations risquées en
-cours, reprises au lancement suivant, gardées 30 jours). Seuls les installeurs téléchargés passent par un dossier temporaire
-(`%TEMP%\PCPerfSuite`).
+cours, reprises au lancement suivant, gardées 30 jours). La Boîte à outils y garde son dernier
+catalogue en ligne (`catalogue-outils.json` et sa signature) et ses téléchargements en cours
+(`telechargements\`). Seuls les installeurs téléchargés passent par un dossier temporaire
+(`%TEMP%\PCPerfSuite`), et les outils portables vont dans `%ProgramData%\PCPerfSuite\Tools`, que
+seuls les administrateurs peuvent modifier.
 
 Pour les développeurs : l'emplacement de chaque fonction à venir et la recette pour ajouter une
 page sont dans `docs/navigation.md` ; les décisions transverses et les briques partagées dans
@@ -107,8 +110,8 @@ Deux canaux, cumulables, qui affichent exactement les mêmes lignes :
    PCPerfSuite écrit le texte dans la mémoire partagée `RTSSSharedMemoryV2` que RTSS relit
    et dessine lui-même à l'intérieur du jeu — aucune injection de notre côté. C'est le seul
    canal qui fonctionne en **plein écran exclusif**. RTSS doit être installé et lancé
-   (gratuit, guru3d.com ; Paramètres › Installations ouvre sa page officielle et le lance une
-   fois installé). Les couleurs et la taille du texte lui sont transmises via ses
+   (gratuit, guru3d.com ; Outils › Boîte à outils l'installe depuis le miroir officiel de Guru3D,
+   Paramètres › Installations ouvre sa page officielle et le lance une fois installé). Les couleurs et la taille du texte lui sont transmises via ses
    balises de mise en forme (`<C=AARRGGBB>`, `<S=nnn>`) ; la police, elle, reste celle
    configurée dans RTSS. Si une version trop ancienne de RTSS affichait les balises en
    clair, l'envoi des couleurs se désactive d'un interrupteur.
@@ -359,6 +362,79 @@ commande les pilote tous) ; si un ventilateur sans fil de vitesse est présent o
 nom, si un connecteur porte une pompe. Paramètres › Compatibilité de ce PC détaille ce qui a été
 détecté sur ta machine.
 
+## Boîte à outils
+
+Outils › Boîte à outils réunit les outils tiers utiles au diagnostic et au réglage. Chacun a son rôle,
+son éditeur, sa licence, la version proposée, sa taille, son état sur ce PC, et ses boutons :
+**Installer** ou **Lancer**, **Télécharger** (le lien direct est affiché et copiable), **Page
+officielle**.
+
+| Rubrique | Outil | Ce que fait la Boîte à outils |
+|---|---|---|
+| Diagnostic | CPU-Z, CrystalDiskInfo | portable, signé (CPUID, CrystalMark Inc.) |
+| | GPU-Z, HWiNFO | page officielle : TechPowerUp n'a que des liens qui expirent en 24 h, HWiNFO refuse ce qui n'est pas un navigateur |
+| Stress et bench | OCCT, Cinebench R23, CrystalDiskMark | portable, signé (OCBASE, MAXON Computer GmbH, CrystalMark Inc.) |
+| | Prime95, FurMark 2, y-cruncher | non signés : téléchargés dans tes Téléchargements, jamais lancés |
+| GPU et pilotes | DDU | installeur signé (Wagnardsoft) |
+| | RTSS, MSI Afterburner | installeur signé (MSI), extrait du zip du miroir officiel de Guru3D |
+| | NVCleanstall | page officielle (TechPowerUp) |
+| Divers | PawnIO | installeur signé (namazso) |
+| | 7-Zip, OpenRGB | non signés : téléchargés, jamais lancés |
+| | ISLC | archive auto-extractible signée (Wagnardsoft), déposée dans tes Téléchargements |
+| | MemTest86 | page officielle : il démarre depuis une clé USB |
+| | Diagnostic de mémoire Windows | lancé directement (mdsched.exe, fourni par Windows) |
+
+Cinebench R23 est l'ancienne version : Maxon ne propose plus que Cinebench 2026 (2,7 Go, sans
+adresse versionnée), sur sa page officielle.
+
+**Ce qui est vérifié.** Les adresses de téléchargement sont versionnées : seuls PawnIO et OCCT ont
+un lien « dernière version » stable, qui ne pourrait pas être accompagné d'une empreinte. Pour chaque
+fichier :
+
+- HTTPS à chaque étape, redirections comprises, vers les seuls hôtes de l'éditeur figés dans l'app ;
+- taille bornée par outil (jusqu'à 400 Mo pour OCCT et Cinebench) ;
+- empreinte SHA-256 du catalogue obligatoire : un fichier différent, même au même nom, est supprimé ;
+- pour un programme, signature Authenticode valide et éditeur attendu, relevé sur le vrai fichier ;
+- une archive est extraite sans que rien ne puisse sortir de son dossier (« zip-slip » refusé), puis
+  son exe principal est vérifié.
+
+En avril 2026, des installeurs piégés ont été servis quelques heures depuis le site d'un éditeur
+d'outils de diagnostic : c'est ce que l'empreinte et la signature arrêtent. Un lien mort ou une
+empreinte qui a changé affichent la raison et renvoient vers la page officielle, sans jamais contourner
+une page à jeton. Pour un installeur signé, l'app propose aussi `winget install --id … --exact` si
+winget est présent (il manque dans Windows Sandbox et avant la première ouverture de session).
+
+**Où vont les outils.** Les outils portables vont dans `%ProgramData%\PCPerfSuite\Tools\<outil>\<version>`.
+Ce dossier est créé avec une liste d'accès protégée (administrateurs et SYSTEM en écriture, utilisateurs
+en lecture) et le niveau d'intégrité « Élevé ». Un dossier déjà créé par un autre compte, ou une
+jonction, est refusé. « Supprimer » efface l'outil. Un installeur s'ouvre après confirmation
+(« Non » par défaut) : l'app est administrateur, il n'y aura pas d'autre invite. Les fichiers
+téléchargés seuls arrivent vérifiés dans tes Téléchargements, marqués comme venus d'Internet. Si l'app
+tourne sous un autre compte que le tien, ils vont dans les Téléchargements publics.
+
+**Lancer.** Un outil est lancé par le shell du bureau, avec tes droits habituels et non ceux,
+administrateur, de PCPerfSuite. S'il a besoin d'être administrateur, Windows te le demande. Un
+outil portable est revérifié avant chaque lancement.
+
+**Licences.** Le badge « licence pro requise » signale les outils dont la version gratuite interdit
+l'usage commercial, celui d'un technicien qui facture son intervention : HWiNFO, OCCT, FurMark,
+y-cruncher, Cinebench R23. CPU-Z, GPU-Z, Prime95, CrystalDiskInfo et CrystalDiskMark (MIT), DDU (MIT),
+7-Zip, OpenRGB, PawnIO et MemTest86 Free l'autorisent.
+
+**Catalogue.** La liste des versions (adresse, SHA-256, taille) vient d'un catalogue publié sur un
+dépôt GitHub public. Une GitHub Action le régénère chaque jour depuis winget et les versions GitHub,
+et Denis le signe en local, avec une clé qui n'entre jamais dans la CI (ECDSA P-256). L'app ne le prend
+que si sa signature est valide et si son numéro dépasse celui déjà connu : un ancien catalogue servi de
+nouveau est refusé. Sans réseau, elle utilise la copie livrée avec elle. Même signé, le catalogue ne
+peut changer ni les hôtes ni les éditeurs, figés dans l'app. Outils de génération et de signature :
+`tools/catalogue/`.
+
+Tout est **expérimental** tant que chaque parcours n'a pas été essayé sur une vraie machine. La ligne
+« Boîte à outils » de Paramètres › Compatibilité de ce PC donne l'origine du catalogue, l'état du
+dossier sécurisé, la présence de winget et les outils portables déposés. « Tout rétablir » (registre des
+modifications) supprime les outils portables. Un outil posé par son propre installeur ne se
+désinstalle pas d'office : il se retire depuis Paramètres Windows › Applications, et l'app le dit.
+
 ## Compatibilité et capteurs non disponibles
 
 Tous les PC n'exposent pas les mêmes capteurs : cela dépend du CPU, du GPU, de la carte mère,
@@ -391,9 +467,11 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
     la page « releases/latest », sans rien télécharger) et ne lance rien si PawnIO est déjà à jour ;
     l'installeur, lui, refuse de réinstaller une version déjà en place (code 183), ce que l'app
     explique au lieu de l'afficher comme une panne.
-  - **RTSS** : Guru3D ne propose aucun lien direct stable vers sa dernière version (pages à jeton,
-    nom de fichier différent à chaque version). Le bouton ouvre donc la page de téléchargement
-    officielle ; l'état se met à jour dès le retour dans l'app, et RTSS peut être lancé depuis là.
+  - **RTSS** : Guru3D ne propose pas de lien stable vers sa *dernière* version (pages à jeton, nom
+    de fichier différent à chaque version). Son miroir officiel (ftp.nluug.nl) sert en revanche un zip
+    par version : la Boîte à outils l'installe d'après son catalogue, en vérifiant l'empreinte et la
+    signature (MSI). Ici, le bouton ouvre la page de téléchargement officielle ; l'état se met à jour
+    dès le retour dans l'app, et RTSS peut être lancé depuis là.
 
   L'état est aussi repris dans « Compatibilité de ce PC ». Rien n'est jamais installé sans action
   de ta part.

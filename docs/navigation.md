@@ -80,7 +80,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Carte de l'espace disque | Outils | Stockage (`storage`) | — | existant | livrée |
 | Gestionnaire de disques | Outils | Stockage (`storage`) | sous-onglet **Disques** | #19 | prévue |
 | Périphériques et pilotes | Outils | Périphériques (`devices`) | sous-onglets **Périphériques** et **Pilotes** | #18 | bientôt disponible |
-| Boîte à outils (téléchargements directs) | Outils | Boîte à outils (`toolbox`) | — | #7 | bientôt disponible |
+| Boîte à outils (téléchargements directs) | Outils | Boîte à outils (`toolbox`) | — | #7 | livrée (expérimental) |
 | RAM : répartition, fichier d'échange, mémoire du GPU intégré | Outils | Mémoire (`memory`) | — | #20 | bientôt disponible |
 | Réglages de l'app, installations, diagnostic | pied | Paramètres (`settings`) | sous-onglets Général, Installations, Compatibilité de ce PC, Thèmes | existant | livrée |
 
