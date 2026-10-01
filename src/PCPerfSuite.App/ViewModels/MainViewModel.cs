@@ -123,7 +123,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _monitoring = new MonitoringViewModel(_hardware);
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
-        _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
+        _gpu = new GpuControlViewModel(_gpuControl, _monitoring, Tuning);
         CpuPlatform platform = _cpuControl.Platform;
         _coreParking = new CoreParkingService(platform.IsHybrid, platform.HasBattery);
         SystemChanges.Register(_coreParking);

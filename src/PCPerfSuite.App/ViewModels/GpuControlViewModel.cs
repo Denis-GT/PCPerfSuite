@@ -6,6 +6,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -228,16 +229,17 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     public ObservableCollection<GpuProfileViewModel> Profiles { get; } = new();
     [ObservableProperty] private string newProfileName = "";
 
-    public GpuControlViewModel(GpuControlService gpuControl, MonitoringViewModel monitoring)
+    public GpuControlViewModel(GpuControlService gpuControl, MonitoringViewModel monitoring, TuningStatusViewModel tuning)
     {
         _gpuControl = gpuControl;
         _monitoring = monitoring;
+        Tuning = tuning;
         AppSettings settings = AppSettingsStore.Load();
 
         applyOverclockAtStartup = settings.Gpu.ApplyOverclockAtStartup;
 
         IsAvailable = _gpuControl.TryInitialize();
-        _gpuControl.KeepOverclockOnExit = applyOverclockAtStartup;
+        UpdateKeepOverclockOnExit();
 
         foreach (GpuOverclockProfile profile in settings.Gpu.OverclockProfiles)
         {
@@ -477,6 +479,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(PowerLimitKey, () =>
         {
+            if (RefuseManualWrite()) return;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { PowerLimitPercent = (float)PowerLimitPercent });
             OverclockStatus = report.AnyRefused
                 ? "Le pilote a refusé la limite de puissance."
@@ -496,6 +499,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(TemperatureLimitKey, () =>
         {
+            if (RefuseManualWrite()) return;
             double limit = TemperatureLimitC;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { TemperatureLimitC = (int)Math.Round(limit) });
             OverclockStatus = report.AnyRefused
@@ -515,6 +519,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(VoltageKey, () =>
         {
+            if (RefuseManualWrite()) return;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(
                 new GpuOverclockRequest { Voltage = (int)Math.Round(VoltageValue), VoltageUnit = _voltageUnit });
             OverclockStatus = report.AnyRefused
@@ -527,7 +532,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
     partial void OnApplyOverclockAtStartupChanged(bool value)
     {
-        _gpuControl.KeepOverclockOnExit = value;
+        UpdateKeepOverclockOnExit();
 
         // Recocher la case après un déclenchement de la sécurité, c'est redemander l'overclock : le réveil le réapplique.
         if (value && !_suppressApply) _emergencyThisSession = false;
@@ -543,6 +548,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     private void ApplyClockOffsetsNow()
     {
         if (!IsAvailable || _suppressApply || !IsClockOffsetSupported) return;
+        if (RefuseManualWrite()) return;
 
         int core = (int)Math.Round(CoreOffsetMhz);
         int memory = (int)Math.Round(MemoryOffsetMhz);
@@ -583,6 +589,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     private void ResetOverclock()
     {
         CancelPendingApplies();
+        if (RefuseManualWrite()) return;
 
         _suppressApply = true;
         CoreOffsetMhz = 0;
@@ -637,38 +644,8 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
             return;
         }
 
-        GpuOverclockProfile model = profile.Model;
-        int? voltage = model.GetVoltage() is { } v && v.Unit == _voltageUnit ? v.Value : null;
-
-        // Une consigne de curseur encore en attente écraserait le profil juste après.
-        CancelPendingApplies();
-
-        _suppressApply = true;
-        if (IsCoreOffsetSupported) CoreOffsetMhz = ClampTo(model.CoreClockOffsetMhz, CoreOffsetMin, CoreOffsetMax);
-        if (IsMemoryOffsetSupported) MemoryOffsetMhz = ClampTo(model.MemoryClockOffsetMhz, MemoryOffsetMin, MemoryOffsetMax);
-        if (IsPowerLimitSupported && model.PowerLimitPercent is { } power)
-            PowerLimitPercent = ClampTo(power, PowerLimitMin, PowerLimitMax);
-        if (IsTemperatureLimitSupported && model.TemperatureLimitC is { } temp)
-            TemperatureLimitC = ClampTo(temp, TemperatureLimitMin, TemperatureLimitMax);
-        if (IsVoltageSupported && voltage is { } volts)
-            VoltageValue = ClampTo(volts, VoltageMin, VoltageMax);
-        _suppressApply = false;
-
-        // Les limites de puissance et de température sont reposées même absentes du profil, comme avant : ce sont alors
-        // les valeurs affichées.
-        GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest
-        {
-            CoreOffsetMhz = IsCoreOffsetSupported ? (int)Math.Round(CoreOffsetMhz) : null,
-            MemoryOffsetMhz = IsMemoryOffsetSupported ? (int)Math.Round(MemoryOffsetMhz) : null,
-            PowerLimitPercent = IsPowerLimitSupported ? (float)PowerLimitPercent : null,
-            TemperatureLimitC = IsTemperatureLimitSupported ? (int)Math.Round(TemperatureLimitC) : null,
-            Voltage = IsVoltageSupported && voltage is not null ? (int)Math.Round(VoltageValue) : null,
-            VoltageUnit = _voltageUnit,
-        });
-
-        OverclockStatus = Summarize(report, $"Profil « {profile.Name} » appliqué.");
-        AppliedOffsetsText = report.Describe();
-        Persist();
+        // Même chemin qu'un groupe de profils (bornes, tension dans la même unité, relecture), sans contrôle d'identité.
+        OverclockStatus = $"Profil « {profile.Name} » : {ApplyTabProfile(profile.Model)}.";
     }
 
     [RelayCommand]
@@ -768,6 +745,10 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
         GpuVendor? vendor = _gpuControl.Vendor;
         GpuIdentity? identity = _gpuControl.Identity;
 
+        // Un groupe appliqué sans en faire l'état de démarrage (bascule automatique) : les réglages enregistrés restent
+        // ceux d'avant.
+        bool writeValues = available && !_overclockTransient;
+
         AppSettingsStore.Update(settings =>
         {
             GpuControlSettings gpu = settings.Gpu;
@@ -776,7 +757,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
             // Sans carte pilotable, on ne touche pas aux réglages d'overclock enregistrés : ils restent
             // valables pour la carte sur laquelle ils ont été faits.
-            if (!available) return;
+            if (!writeValues) return;
 
             gpu.PowerLimitPercent = power;
             gpu.CoreClockOffsetMhz = core;

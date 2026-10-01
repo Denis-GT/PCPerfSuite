@@ -129,6 +129,7 @@ public sealed partial class GpuControlViewModel
 
         OverclockStatus = message;
         UpdateThermalSafetyText();
+        RaiseHardwareResynced();
     }
 
     private void CancelPendingApplies()
@@ -178,7 +179,14 @@ public sealed partial class GpuControlViewModel
         GpuControlSettings saved = AppSettingsStore.Load().Gpu;
         switch (TuningResume.Decide(ApplyOverclockAtStartup, SettingsMatchCurrentGpu(saved), CanOverclock, _emergencyThisSession))
         {
+            // Sous le bail d'un autre (bench, recherche d'OC), c'est à lui de reposer ce qu'il veut : on relit seulement.
+            case ResumeAction.Reapply when Tuning.ManualWriteRefusal() is { } refusal:
+                OverclockStatus = $"Réveil de veille : réglages relus sur la carte. Réapplication différée : {refusal}";
+                break;
             case ResumeAction.Reapply:
+                // L'état de démarrage revient : un groupe appliqué sans l'être n'est plus en place.
+                _overclockTransient = false;
+                UpdateKeepOverclockOnExit();
                 ReapplySaved(saved, "Réveil de veille : réglages enregistrés réappliqués.");
                 break;
             case ResumeAction.SkipAfterEmergency:
@@ -191,6 +199,7 @@ public sealed partial class GpuControlViewModel
         }
 
         UpdateThermalSafetyText();
+        RaiseHardwareResynced();
     }
 
     private void RestartSafetyAfterSleep()
