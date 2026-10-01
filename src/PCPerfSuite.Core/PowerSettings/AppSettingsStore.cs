@@ -439,6 +439,18 @@ public static class AppSettingsStore
         }
     }
 
+    /// <summary>Comme <see cref="Update"/>, en disant si l'enregistrement a réussi : <see cref="LastError"/> est lu
+    /// sous le même verrou, avant qu'un autre enregistrement ne le remette à null. Pour ce qui ne doit pas continuer
+    /// sans trace sur le disque (une valeur d'origine avant de modifier Windows).</summary>
+    public static bool TryUpdate(Action<AppSettings> mutate)
+    {
+        lock (Gate)
+        {
+            Update(mutate);
+            return LastError is null;
+        }
+    }
+
     /// <summary>Renomme le fichier illisible en .corrupt pour qu'il survive à l'enregistrement suivant.</summary>
     private static void TryBackupUnreadableFile(string path)
     {

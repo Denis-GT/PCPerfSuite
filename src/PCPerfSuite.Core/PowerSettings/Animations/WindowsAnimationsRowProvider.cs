@@ -62,7 +62,8 @@ public sealed class WindowsAnimationsRowProvider : ICompatibilityRowProvider
         var detail = new List<string> { $"Valeurs lues : {values}." };
         if (snapshot.UiEffectsOff) detail.Add("L'interrupteur général des effets est coupé : les effets qui en dépendent ne jouent pas.");
         if (unreadable > 0) detail.Add($"{unreadable} réglage(s) illisible(s) : une stratégie de groupe les verrouille peut-être.");
-        if (snapshot.UnavailableReason is { } reason) detail.Add(reason);
+        // La raison nomme les deux comptes : elle va dans la ligne « compte visé », masquée dans le rapport copié.
+        if (snapshot.UnavailableReason is not null) detail.Add($"{WindowsAnimationSettings.OtherAccountNote} Voir « {AccountRowTitle} ».");
         detail.Add(Experimental);
 
         var rows = new List<CompatibilityRow>
@@ -78,7 +79,8 @@ public sealed class WindowsAnimationsRowProvider : ICompatibilityRowProvider
                     ? "c'est celui de la personne connectée"
                     : $"personne connectée : {interactiveAccount}";
             rows.Add(new CompatibilityRow(AccountRowTitle, processAccount,
-                $"Les effets visuels s'écrivent dans le profil de ce compte ({interactive}).",
+                $"Les effets visuels s'écrivent dans le profil de ce compte ({interactive})."
+                + (snapshot.UnavailableReason is { } reason ? $" {reason}" : ""),
                 snapshot.UnavailableReason is null, IsPersonal: true));
         }
 

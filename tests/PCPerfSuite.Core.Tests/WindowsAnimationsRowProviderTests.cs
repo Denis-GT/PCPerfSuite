@@ -51,7 +51,10 @@ public class WindowsAnimationsRowProviderTests
 
         Assert.False(rows[0].IsSupported);
         Assert.Equal("Grisé : autre compte", rows[0].Status);
-        Assert.Contains(@"PC\admin", rows[0].Detail);
+        // Les noms de compte ne vont que dans la ligne personnelle, masquée dans le rapport copié.
+        Assert.False(rows[0].IsPersonal);
+        Assert.DoesNotContain(@"PC\admin", rows[0].Detail);
+        Assert.DoesNotContain(@"PC\denis", rows[0].Detail);
         Assert.Contains(@"PC\denis", rows[1].Detail);
         Assert.True(rows[1].IsPersonal);
     }

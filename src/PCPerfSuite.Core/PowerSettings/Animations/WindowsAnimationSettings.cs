@@ -158,14 +158,18 @@ public sealed class WindowsAnimationSettings : ISystemChangeOwner
         AnimationSnapshot before = ReadUnlocked(reason);
         List<AnimationReading> changed = before.Readings.Where(r => r.IsChanged).ToList();
 
+        // Sous un autre compte, SPI rend l'état de la session affichée et settings.json est celui de l'administrateur :
+        // comparer les deux ne dit rien, on n'oublie aucune origine.
+        if (reason is not null)
+        {
+            return changed.Count == 0
+                ? SystemRestoreResult.Nothing
+                : new SystemRestoreResult(SystemRestoreStatus.Failed, changed.Select(r => ToChange(r, reason)).ToList(), reason);
+        }
+
         // Revenus à l'origine par un autre chemin (Paramètres de Windows) : il n'y a plus rien à rendre.
         ForgetRestored(before);
         if (changed.Count == 0) return SystemRestoreResult.Nothing;
-
-        if (reason is not null)
-        {
-            return new SystemRestoreResult(SystemRestoreStatus.Failed, changed.Select(r => ToChange(r, reason)).ToList(), reason);
-        }
 
         var outcomes = changed.Select(r => (r.Setting, r.Original!.Value, Write(r.Setting, r.Original.Value, rememberOrigin: false))).ToList();
         AnimationApplyResult result = Finish(outcomes, reason);
@@ -215,8 +219,11 @@ public sealed class WindowsAnimationSettings : ISystemChangeOwner
     private AnimationApplyResult Finish(IReadOnlyList<(AnimationSetting Setting, bool Requested, string? Error)> writes, string? reason)
     {
         AnimationSnapshot after = ReadUnlocked(reason);
-        ForgetRestored(after);
-        after = ReadUnlocked(reason);
+        if (reason is null)
+        {
+            ForgetRestored(after);
+            after = ReadUnlocked(reason);
+        }
 
         var outcomes = writes.Select(w =>
         {
@@ -260,11 +267,16 @@ public sealed class WindowsAnimationSettings : ISystemChangeOwner
         return false;
     }
 
+    /// <summary>Sans les noms de compte de <paramref name="reason"/> : ce texte peut finir dans un rapport copié.</summary>
     private static SystemChange ToChange(AnimationReading reading, string? reason)
         => new(reading.Setting.Name,
             $"Valeur d'origine : {OnOff(reading.Original)} ; actuelle : {OnOff(reading.Current)}."
-            + (reason is null ? "" : $" {reason}"),
+            + (reason is null ? "" : $" {OtherAccountNote}"),
             CanRestore: reason is null);
+
+    /// <summary>Raison de la carte grisée, sans nom de compte, pour les textes qui peuvent quitter le PC.</summary>
+    public const string OtherAccountNote =
+        "PCPerfSuite tourne sous un autre compte que la personne connectée : rien n'est modifié ni rétabli d'ici.";
 
     private static string NotTakenMessage(bool? actual)
         => actual is null

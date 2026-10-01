@@ -107,9 +107,11 @@ public sealed partial class WindowsAnimationsViewModel : ObservableObject, IPage
         foreach (AnimationSetting setting in settings.Settings) Items.Add(new AnimationItemViewModel(setting, this));
     }
 
+    /// <summary>Relu à chaque affichage (une lecture coûte quelques appels SPI) : Paramètres de Windows ou « Tout
+    /// rétablir » ont pu changer l'état entre-temps, et la carte ne doit pas montrer un faux état.</summary>
     partial void OnIsPageShownChanged(bool value)
     {
-        if (!value || _loadRequested) return;
+        if (!value || (_loadRequested && IsBusy)) return;
 
         _loadRequested = true;
         _ = RunAsync(() => _settings.Read(), snapshot => Show(snapshot, null), null);
@@ -171,6 +173,8 @@ public sealed partial class WindowsAnimationsViewModel : ObservableObject, IPage
         }
         catch (Exception ex)
         {
+            // Rien n'a été relu : chaque interrupteur revient au dernier état connu plutôt que de rester où on l'a mis.
+            foreach (AnimationItemViewModel item in Items) item.RevertToShown();
             SetStatus($"{actionName ?? "Lecture des effets visuels"} impossible : {ex.Message}", isError: true);
         }
         finally

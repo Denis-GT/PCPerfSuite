@@ -25,10 +25,10 @@ public sealed class AppSettingsAnimationOriginStore : IAnimationOriginStore
     public bool TryRemember(string key, bool original)
     {
         bool added = false;
-        AppSettingsStore.Update(settings => added = settings.OriginalAnimationValues.TryAdd(key, original));
+        bool saved = AppSettingsStore.TryUpdate(settings => added = settings.OriginalAnimationValues.TryAdd(key, original));
 
-        // Save() ne lève pas : il note son échec dans LastError. Une clé déjà là était enregistrée avant.
-        return !added || AppSettingsStore.LastError is null;
+        // Une clé déjà là était enregistrée avant.
+        return !added || saved;
     }
 
     public void Forget(IReadOnlyCollection<string> keys)

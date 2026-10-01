@@ -274,6 +274,25 @@ public class WindowsAnimationSettingsTests
     }
 
     [Fact]
+    public void Sous_un_autre_compte_aucune_origine_n_est_oubliee_ni_le_nom_des_comptes_repris()
+    {
+        const string reason = @"PCPerfSuite tourne sous le compte PC\admin, pas sous PC\denis.";
+        (WindowsAnimationSettings settings, FakeAccess access, MemoryOrigins origins) = Create(reason);
+        // Origine retenue dans la session de l'administrateur ; la session affichée a la même valeur.
+        origins.Values[Menu] = true;
+        origins.Values[Transparency] = true;
+        access.Values[Transparency] = false;
+
+        SystemRestoreResult restore = settings.RestoreAll();
+        settings.Apply(Target(Menu, false));
+
+        Assert.Equal(new[] { Menu, Transparency }, origins.Values.Keys.OrderBy(k => k));
+        Assert.Empty(access.Writes);
+        Assert.All(restore.NotRestored, c => Assert.DoesNotContain("admin", c.Detail));
+        Assert.All(settings.Describe(), c => Assert.DoesNotContain("admin", c.Detail));
+    }
+
+    [Fact]
     public void Une_cle_inconnue_du_catalogue_est_oubliee()
     {
         (WindowsAnimationSettings settings, _, MemoryOrigins origins) = Create();

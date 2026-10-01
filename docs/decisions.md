@@ -41,7 +41,9 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   **Hors de ce dossier, volontairement** : `%TEMP%\PCPerfSuite` (téléchargements d'OfficialInstaller) et
   `%ProgramData%\PCPerfSuite` (outils portables et fichiers de bench, dossier sécurisé de #7).
 - **Réglages** : toute lecture-modification-écriture passe par `AppSettingsStore.Update()`, avec seulement des
-  mutations dans le lambda (le verrou est tenu pendant). Pas de `Load()` puis `Save()`. Les nouveaux modèles
+  mutations dans le lambda (le verrou est tenu pendant). Pas de `Load()` puis `Save()`. Quand la suite ne doit pas
+  avoir lieu sans trace sur le disque (une valeur d'origine avant de modifier Windows), `AppSettingsStore.TryUpdate()`
+  dit si l'enregistrement a réussi. Les nouveaux modèles
   enregistrent leurs enums en chaînes. Reste en `Load()`/`Save()`, à convertir par son propriétaire :
   `WindowsPerformanceSettingsService.RememberOriginalValue` (#5, #6). Les onglets Processeur et GPU sont convertis (#2).
 - **Diagnostic « Compatibilité de ce PC »** : une nouvelle ligne est un **fournisseur**

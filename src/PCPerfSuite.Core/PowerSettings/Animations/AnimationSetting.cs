@@ -57,7 +57,12 @@ public sealed class AnimationSetting
 }
 
 /// <summary>Les réglages de la carte, dans l'ordre d'affichage. Codes vérifiés dans winuser.h et lus sur un PC sous
-/// Windows 11 23H2 (lecture seulement : l'effet de chaque écriture reste à vérifier).</summary>
+/// Windows 11 23H2 (lecture seulement : l'effet de chaque écriture reste à vérifier ; que « Effets d'animation » soit
+/// bien l'interrupteur de Paramètres › Accessibilité aussi).
+///
+/// Absents exprès : SPI_SETMENUFADE et SPI_SETTOOLTIPFADE choisissent entre fondu et glissement, ils n'allument ni
+/// n'éteignent rien (c'est SPI_SETMENUANIMATION et SPI_SETTOOLTIPANIMATION qui le font) ; le lissage des polices
+/// (SPI_SETFONTSMOOTHING), que le préréglage « Réactif » doit laisser.</summary>
 public static class WindowsAnimationCatalog
 {
     public const string UiEffectsKey = "ui-effects";
@@ -87,7 +92,7 @@ public static class WindowsAnimationCatalog
             Key = ClientAreaAnimationKey,
             Name = "Effets d'animation",
             Description = "Animations à l'intérieur des fenêtres et des applis modernes : c'est l'interrupteur de "
-                + "Paramètres › Accessibilité › Effets visuels (à confirmer). PCPerfSuite le suit aussi : ses volets "
+                + "Paramètres › Accessibilité › Effets visuels. PCPerfSuite le suit aussi : ses volets "
                 + "s'ouvriront sans animation.",
             Kind = AnimationSettingKind.SpiBool,
             GetAction = 0x1042,
