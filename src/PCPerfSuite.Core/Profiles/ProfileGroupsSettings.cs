@@ -113,7 +113,7 @@ public sealed class ProfileGroupActiveState
 
     public CpuProfile? Cpu { get; set; }
 
-    public GpuOverclockProfile? Gpu { get; set; }
+    public GpuRetainedValues? Gpu { get; set; }
 
     /// <summary>Les limites relevées (OC GPU, watts) au moment de l'application.</summary>
     public bool GpuRaised { get; set; }
@@ -121,6 +121,21 @@ public sealed class ProfileGroupActiveState
     public bool WattsRaised { get; set; }
 
     public FanProfile? Fans { get; set; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>Réglages de la carte graphique tels que relus, chacun null quand il n'est pas concerné : contrairement à
+/// <see cref="GpuOverclockProfile"/>, dont les décalages ne sont pas nullables, on sait ici ce que le groupe a touché.
+/// La tension est dans l'unité de la carte.</summary>
+public sealed class GpuRetainedValues
+{
+    public int? CoreOffsetMhz { get; set; }
+    public int? MemoryOffsetMhz { get; set; }
+    public float? PowerLimitPercent { get; set; }
+    public int? TemperatureLimitC { get; set; }
+    public int? Voltage { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

@@ -22,6 +22,24 @@ public sealed class CpuPowerSetting
 
     /// <summary>Ce que veut dire la valeur 0 quand elle est particulière ("Illimitée" pour une fréquence).</summary>
     public string? ZeroLabel { get; init; }
+
+    /// <summary>Ramène une valeur venue d'un profil dans ce que ce réglage accepte ici : une option de liste absente de
+    /// cette machine est refusée (null) plutôt que rabotée (un « mode boost 4 » ramené à 2 appliquerait un réglage que
+    /// personne n'a demandé), une valeur numérique est bornée.</summary>
+    public uint? Sanitize(uint value)
+    {
+        if (Choices is { } choices) return choices.Any(c => c.Value == value) ? value : null;
+        return Math.Clamp(value, Min, Max);
+    }
+
+    /// <summary>La valeur en clair : le libellé du choix, « Illimitée » pour un zéro particulier, ou le nombre et son
+    /// unité.</summary>
+    public string Describe(uint value)
+    {
+        if (Choices?.FirstOrDefault(c => c.Value == value) is { } choice) return choice.Label;
+        if (ZeroLabel is { } zero && value == 0) return zero;
+        return $"{value}{Unit}";
+    }
 }
 
 /// <summary>
@@ -55,6 +73,9 @@ public sealed class CpuPowerTuningService
     private readonly CpuPlatform _platform;
 
     public CpuPowerTuningService(CpuPlatform platform) => _platform = platform;
+
+    /// <summary>Sous-groupe des réglages de ce catalogue, pour qui les écrit par lot (groupes de profils).</summary>
+    public static Guid SubGroup => SubProcessor;
 
     /// <summary>Vrai si la machine a une batterie : l'interface propose alors les deux valeurs.</summary>
     public bool HasBattery => _platform.HasBattery;

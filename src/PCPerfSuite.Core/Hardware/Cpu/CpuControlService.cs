@@ -106,8 +106,12 @@ public sealed class CpuControlService : IDisposable
     /// </summary>
     public static bool IsRaised(CpuPowerLimitSnapshot? limits)
         => limits is not null
-           && (limits.SustainedWatts > limits.DefaultSustainedWatts + 1f
-               || (limits.BurstWatts is { } burst && limits.DefaultBurstWatts is { } defaultBurst && burst > defaultBurst + 1f));
+           && IsRaised(limits.SustainedWatts, limits.BurstWatts, limits.DefaultSustainedWatts, limits.DefaultBurstWatts);
+
+    /// <summary>Même règle, sur des valeurs : des limites visées (groupe de profils) comparées à celles d'origine.</summary>
+    public static bool IsRaised(float sustainedWatts, float? burstWatts, float defaultSustainedWatts, float? defaultBurstWatts)
+        => sustainedWatts > defaultSustainedWatts + 1f
+           || (burstWatts is { } burst && defaultBurstWatts is { } defaultBurst && burst > defaultBurst + 1f);
 
     /// <summary>Au réveil de veille : la veille ne compte pas comme chaleur tenue, et le firmware a pu reposer ses
     /// limites. L'armement ne tient plus que si les limites relues sont encore relevées.</summary>
