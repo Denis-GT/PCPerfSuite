@@ -61,14 +61,17 @@ internal sealed class FakeOriginStore : ICoreParkingOriginStore
 {
     public Dictionary<string, uint> Stored { get; } = new();
     public Guid? StoredScheme { get; set; }
+    public bool FailRemember { get; set; }
 
     public IReadOnlyDictionary<string, uint> Values => new Dictionary<string, uint>(Stored);
     public Guid? Scheme => StoredScheme;
 
-    public void Remember(Guid scheme, IReadOnlyDictionary<string, uint> values)
+    public bool Remember(Guid scheme, IReadOnlyDictionary<string, uint> values)
     {
+        if (FailRemember) return false;
         foreach ((string key, uint value) in values) Stored.TryAdd(key, value);
         StoredScheme ??= scheme;
+        return true;
     }
 
     public void Forget(IReadOnlyCollection<string> keys, bool forgetScheme)
@@ -118,6 +121,20 @@ public class CoreParkingServiceTests
         Assert.Equal(new CoreParkingValue(0, 0), service.Origin(MinPerf));
         Assert.Equal(FakePowerPlan.Balanced, origins.StoredScheme);
         Assert.True(service.HasChanges);
+    }
+
+    [Fact]
+    public void Sans_origine_enregistree_rien_n_est_ecrit()
+    {
+        FakePowerPlan plan = HybridPlan();
+        var service = new CoreParkingService(true, true, plan, new FakeOriginStore { FailRemember = true });
+
+        CoreParkingWriteResult result = service.Write([Target(Min, 100, 100)]);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("origine", result.Error);
+        Assert.Equal((4u, 4u), plan.Get(FakePowerPlan.Balanced, Min));
+        Assert.Equal(0, plan.WriteCalls);
     }
 
     [Fact]

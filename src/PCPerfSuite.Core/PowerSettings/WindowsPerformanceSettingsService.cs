@@ -60,11 +60,14 @@ public sealed class WindowsPerformanceSettingsService
         // origine notée entre-temps.
         if (_powerPlans.GetValueIndicesAsync(subGroup, setting).GetAwaiter().GetResult() is not { } current) return;
 
-        AppSettingsStore.Update(settings =>
+        bool saved = AppSettingsStore.TryUpdate(settings =>
         {
             if (!settings.OriginalPowerValues.TryAdd($"{key}/ac", current.Ac)) return;
             settings.OriginalPowerValues[$"{key}/dc"] = current.Dc;
         });
+
+        // Sans origine sur le disque, décocher ne pourrait plus rendre ce que le PC avait : on n'écrit rien.
+        if (!saved) throw new InvalidOperationException(AppSettingsStore.LastError ?? "Valeur d'origine non enregistrée.");
     }
 
     /// <summary>Mémorise le plan actif juste avant d'activer « Performances ultimes », et lui seul : une
@@ -178,28 +181,9 @@ public sealed class WindowsPerformanceSettingsService
                 },
                 // HKCU : le réglage appartient au profil de l'utilisateur, pas à la machine.
                 RequiresElevation = false,
+                TargetsUserProfile = true,
                 Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
                     @"Software\Microsoft\GameBar", "AutoGameModeEnabled", enable ? 1 : 0),
-            },
-
-            new()
-            {
-                Id = "visual-effects-performance",
-                Name = "Effets visuels : privilégier les performances",
-                Category = "Interface",
-                Description = "Équivalent de Panneau de configuration → Performances → \"Ajuster afin d'obtenir les meilleures performances\" : coupe animations, ombres et transparences.",
-                GetState = () =>
-                {
-                    int? value = RegistryHelper.ReadDword(RegistryHive.CurrentUser,
-                        @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting");
-                    // Valeur absente = réglage par défaut de Windows ("Laisser Windows choisir"), qui
-                    // n'active pas ce mode "performances" (équivalent à 0/1/3).
-                    return value == 2 ? TweakState.Enabled : TweakState.Disabled;
-                },
-                // HKCU, comme le Mode Jeu : aucune élévation nécessaire.
-                RequiresElevation = false,
-                Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
-                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting", enable ? 2 : 0),
             },
 
             new()

@@ -9,6 +9,7 @@ using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
 using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
+using PCPerfSuite.Core.PowerSettings.Animations;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
@@ -48,7 +49,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
 
     /// <summary>Fonctions qui modifient Windows durablement : chacune s'y inscrit à sa création, pour que « Tout
-    /// rétablir » (mode technicien) sache qui interroger. Le parking des cœurs est le premier inscrit.</summary>
+    /// rétablir » (mode technicien) sache qui interroger.</summary>
     public SystemChangeRegistry SystemChanges { get; } = new();
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
@@ -112,11 +113,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         CpuPlatform platform = _cpuControl.Platform;
         _coreParking = new CoreParkingService(platform.IsHybrid, platform.HasBattery);
         SystemChanges.Register(_coreParking);
-        Optimization = new OptimizationViewModel(_coreParking);
         _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform));
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
+
+        WindowsAnimationSettings animations = WindowsAnimationSettings.CreateDefault();
+        SystemChanges.Register(animations);
+        Optimization = new OptimizationViewModel(animations, _coreParking);
 
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
@@ -126,6 +130,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new CoreParkingRowProvider(_coreParking, platform));
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
+        _compatibilityRows.Add(new WindowsAnimationsRowProvider(animations));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),

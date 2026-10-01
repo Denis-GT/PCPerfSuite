@@ -72,6 +72,11 @@ public sealed class AppSettings
     /// garde l'origine pour ces réglages-là (GUID). Null tant que l'app n'a rien changé, ou pour une origine notée par
     /// une version qui ne le retenait pas : le plan actif fait alors foi.</summary>
     public string? CoreParkingOriginScheme { get; set; }
+
+    /// <summary>État d'origine des effets de la carte « Animations et effets », clé = <c>AnimationSetting.Key</c>
+    /// (« menu-animation »…), retenu juste avant la première écriture de l'app et retiré quand le réglage revient à
+    /// cette valeur. Une clé présente veut donc dire : modifié par PCPerfSuite.</summary>
+    public Dictionary<string, bool> OriginalAnimationValues { get; set; } = new();
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>
@@ -436,6 +441,18 @@ public static class AppSettingsStore
             AppSettings settings = Load();
             mutate(settings);
             Save(settings);
+        }
+    }
+
+    /// <summary>Comme <see cref="Update"/>, en disant si l'enregistrement a réussi : <see cref="LastError"/> est lu
+    /// sous le même verrou, avant qu'un autre enregistrement ne le remette à null. Pour ce qui ne doit pas continuer
+    /// sans trace sur le disque (une valeur d'origine avant de modifier Windows).</summary>
+    public static bool TryUpdate(Action<AppSettings> mutate)
+    {
+        lock (Gate)
+        {
+            Update(mutate);
+            return LastError is null;
         }
     }
 

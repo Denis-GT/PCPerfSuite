@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.PowerSettings.Animations;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.App.ViewModels;
@@ -12,15 +13,19 @@ public sealed partial class TweakItemViewModel : ObservableObject
     private bool _suppressApply;
 
     [ObservableProperty] private bool isOn;
-    [ObservableProperty] private bool isBusy;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanToggle))] private bool isBusy;
     [ObservableProperty] private bool isUnknownState;
     [ObservableProperty] private string? errorMessage;
+
+    /// <summary>Pourquoi l'interrupteur est grisé sur ce PC (réglage du profil, app sous un autre compte), ou null.</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanToggle))] private string? unavailableReason;
 
     public string Name => Tweak.Name;
     public string Description => Tweak.Description;
     public string Category => Tweak.Category;
     public bool RequiresRestart => Tweak.RequiresRestart;
     public bool IsRisky => Tweak.IsRisky;
+    public bool CanToggle => !IsBusy && UnavailableReason is null;
 
     public TweakItemViewModel(PerformanceTweak tweak) => Tweak = tweak;
 
@@ -29,7 +34,10 @@ public sealed partial class TweakItemViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            TweakState state = await Task.Run(() => Tweak.GetState());
+            // Le compte de la session se lit en parcourant les processus : hors du thread d'interface, lui aussi.
+            (TweakState state, string? reason) = await Task.Run(() =>
+                (Tweak.GetState(), Tweak.TargetsUserProfile ? SessionUser.OtherProfileSettingMessage : null));
+            UnavailableReason = reason;
             SetOnSilently(state == TweakState.Enabled);
             IsUnknownState = state == TweakState.Unknown;
             ErrorMessage = null;
@@ -60,6 +68,12 @@ public sealed partial class TweakItemViewModel : ObservableObject
 
     private async Task ApplyAsync(bool value)
     {
+        if (UnavailableReason is not null)
+        {
+            SetOnSilently(!value);
+            return;
+        }
+
         // Seuls les réglages qui écrivent dans HKLM ou dans le plan d'alimentation ont besoin de
         // l'élévation : ceux qui ne touchent qu'au profil de l'utilisateur marchent très bien sans.
         if (Tweak.RequiresElevation && !ElevationHelper.IsAdministrator())
@@ -92,13 +106,28 @@ public sealed partial class TweakItemViewModel : ObservableObject
 }
 
 /// <summary>Onglet "Optimisation Windows" : réglages de performance de Windows, y compris ceux masqués dans les
-/// menus standards. Les réglages de l'app elle-même sont dans <see cref="AppSettingsViewModel"/>.</summary>
+/// menus standards, et sous-onglet « Animations » (<see cref="WindowsAnimationsViewModel"/>). Les réglages de l'app
+/// elle-même sont dans <see cref="AppSettingsViewModel"/>.</summary>
 public sealed partial class OptimizationViewModel : ObservableObject, IPageLifecycle
 {
+    public const string TweaksSectionKey = "tweaks";
+    public const string AnimationsSectionKey = "animations";
+
     private readonly WindowsPerformanceSettingsService _service;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public ObservableCollectionEx<TweakItemViewModel> Tweaks { get; } = new();
+
+    /// <summary>Sous-onglet « Animations » : carte « Animations et effets ».</summary>
+    public WindowsAnimationsViewModel Animations { get; }
+
+    public IReadOnlyList<AppSettingsSection> Sections { get; } = new[]
+    {
+        new AppSettingsSection(TweaksSectionKey, "Réglages"),
+        new AppSettingsSection(AnimationsSectionKey, "Animations"),
+    };
+
+    [ObservableProperty] private AppSettingsSection? selectedSection;
 
     [ObservableProperty] private bool isLoading;
 
@@ -108,9 +137,12 @@ public sealed partial class OptimizationViewModel : ObservableObject, IPageLifec
     private bool _loadRequested;
 
     /// <param name="coreParking">Le tweak « core-parking » en est une façade (même origine, même registre des modifications).</param>
-    public OptimizationViewModel(CoreParkingService coreParking)
+    public OptimizationViewModel(WindowsAnimationSettings animations, CoreParkingService coreParking)
     {
         _service = new WindowsPerformanceSettingsService(coreParking);
+        Animations = new WindowsAnimationsViewModel(animations);
+        selectedSection = Sections[0];
+
         foreach (PerformanceTweak tweak in _service.GetTweaks())
         {
             Tweaks.Add(new TweakItemViewModel(tweak));
@@ -122,11 +154,19 @@ public sealed partial class OptimizationViewModel : ObservableObject, IPageLifec
     /// la zone de notification.</summary>
     partial void OnIsPageShownChanged(bool value)
     {
+        UpdateSectionShown();
         if (!value || _loadRequested) return;
 
         _loadRequested = true;
         _ = LoadCommand.ExecuteAsync(null);
     }
+
+    partial void OnSelectedSectionChanged(AppSettingsSection? value) => UpdateSectionShown();
+
+    /// <summary>Le sous-onglet Animations est affiché quand la page l'est ET qu'il est choisi. SelectedSection peut être
+    /// null : Ctrl+clic sur la pastille active la désélectionne.</summary>
+    private void UpdateSectionShown()
+        => Animations.IsPageShown = IsPageShown && SelectedSection?.Key == AnimationsSectionKey;
 
     [RelayCommand]
     private async Task LoadAsync()

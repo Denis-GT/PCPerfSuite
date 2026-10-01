@@ -14,8 +14,9 @@ public interface ICoreParkingOriginStore
     Guid? Scheme { get; }
 
     /// <summary>Ajoute les valeurs encore absentes, et seulement elles : réécrire une origine déjà notée retiendrait la
-    /// valeur que l'app vient de poser. Retient le plan s'il ne l'était pas.</summary>
-    void Remember(Guid scheme, IReadOnlyDictionary<string, uint> values);
+    /// valeur que l'app vient de poser. Retient le plan s'il ne l'était pas. False si l'enregistrement a échoué :
+    /// rien ne doit alors être écrit dans Windows.</summary>
+    bool Remember(Guid scheme, IReadOnlyDictionary<string, uint> values);
 
     /// <summary>Oublie ces clés ; <paramref name="forgetScheme"/> oublie aussi le plan (plus aucune origine notée).</summary>
     void Forget(IReadOnlyCollection<string> keys, bool forgetScheme);
@@ -29,8 +30,8 @@ public sealed class AppSettingsCoreParkingOriginStore : ICoreParkingOriginStore
 
     public Guid? Scheme => Guid.TryParse(AppSettingsStore.Load().CoreParkingOriginScheme, out Guid scheme) ? scheme : null;
 
-    public void Remember(Guid scheme, IReadOnlyDictionary<string, uint> values)
-        => AppSettingsStore.Update(settings =>
+    public bool Remember(Guid scheme, IReadOnlyDictionary<string, uint> values)
+        => AppSettingsStore.TryUpdate(settings =>
         {
             foreach ((string key, uint value) in values) settings.OriginalPowerValues.TryAdd(key, value);
             settings.CoreParkingOriginScheme ??= scheme.ToString("D");
@@ -176,7 +177,11 @@ public sealed class CoreParkingService : ISystemChangeOwner
             }
 
             // L'origine d'abord : une écriture faite sans elle ne pourrait plus être rendue.
-            if (toRemember.Count > 0) _origins.Remember(scheme, toRemember);
+            if (toRemember.Count > 0 && !_origins.Remember(scheme, toRemember))
+            {
+                return new CoreParkingWriteResult(false, [],
+                    $"Les valeurs d'origine n'ont pas pu être enregistrées ({AppSettingsStore.LastError ?? "settings.json"}) : rien n'a été écrit, pour pouvoir toujours les rendre.", note);
+            }
 
             bool written = _plan.TryWrite(scheme, CoreParkingCatalog.SubGroup,
                 writes.Select(w => new PowerValueWrite(w.Setting.Guid, w.Value.Ac, w.Value.Dc)).ToList());
