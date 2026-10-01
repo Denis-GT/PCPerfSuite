@@ -191,10 +191,12 @@ public sealed partial class CoreParkingViewModel : ObservableObject, IPageLifecy
 
     private void RefreshSettings()
     {
+        // settings.json se relit à chaque accès : une seule lecture pour toutes les lignes.
+        IReadOnlyDictionary<string, uint> origins = _service.OriginValues();
         foreach (CoreParkingSettingViewModel row in Settings.Concat(AdvancedSettings))
         {
             if (_service.Read(row.Setting) is { } value) row.SetSilently(value);
-            row.UpdateOrigin();
+            row.UpdateOrigin(origins);
         }
 
         UpdatePlanText();
@@ -225,8 +227,9 @@ public sealed partial class CoreParkingViewModel : ObservableObject, IPageLifecy
         _sampling = null;
     }
 
-    /// <summary>Une requête PDH pour toute la durée de l'affichage, créée et fermée sur ce même fil de fond. Le
-    /// premier relevé arrive une seconde après l'ouverture : avant, les compteurs de taux n'ont rien à moyenner.</summary>
+    /// <summary>Une requête PDH pour toute la durée de l'affichage, utilisée par une seule boucle à la fois (elle n'est
+    /// liée à aucun thread : la boucle reprend sur le pool après chaque attente). Le premier relevé arrive une seconde
+    /// après l'ouverture : avant, les compteurs de taux n'ont rien à moyenner.</summary>
     private async Task SampleLoopAsync(CancellationToken token)
     {
         try
@@ -341,8 +344,10 @@ public sealed partial class CoreParkingViewModel : ObservableObject, IPageLifecy
     {
         CancelPendingWrites();
 
+        IReadOnlyDictionary<string, uint> origins = _service.OriginValues();
         IReadOnlyList<CoreParkingTarget> targets = CoreParkingPresets.Targets(
-            preset, Settings.Select(s => s.Setting).ToList(), _service.Read, _service.Origin, _service.HasBattery);
+            preset, Settings.Select(s => s.Setting).ToList(), _service.Read,
+            s => CoreParkingService.Origin(origins, s), _service.HasBattery);
         if (targets.Count == 0)
         {
             Status = $"« {name} » est déjà en place.";

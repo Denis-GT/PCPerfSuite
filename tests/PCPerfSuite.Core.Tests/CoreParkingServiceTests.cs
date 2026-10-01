@@ -215,7 +215,8 @@ public class CoreParkingServiceTests
     {
         var origins = new FakeOriginStore();
         origins.Stored[Key(Min)] = 5;
-        var service = new CoreParkingService(true, true, HybridPlan(), origins);
+        // Tweak toujours actif (100 %) : l'origine sans suffixe est encore à rendre.
+        var service = new CoreParkingService(true, true, HybridPlan().Set(FakePowerPlan.Balanced, Min, 100, 100), origins);
 
         Assert.Equal(new CoreParkingValue(5, 5), service.Origin(Min));
 

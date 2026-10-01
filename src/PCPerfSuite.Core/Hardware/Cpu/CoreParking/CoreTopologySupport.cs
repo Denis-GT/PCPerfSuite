@@ -45,9 +45,12 @@ public static class CoreTopologySupport
     /// variante S à puce Alder Lake.</summary>
     private static readonly HashSet<int> VerifiedIntelHybridModels = [0x97, 0x9A, 0xB7, 0xBA, 0xBF];
 
-    /// <summary>Un X3D à deux CCD : deux groupes de cache, dont l'un a plus de L3, ou le pilote AMD qui les gère.</summary>
+    /// <summary>Un X3D à deux CCD : deux groupes de cache de même forme, dont l'un a nettement plus de L3. Le pilote AMD
+    /// 3D V-Cache ne sert que de repli quand Windows ne donne pas les tailles de L3 : il peut être installé avec le pilote
+    /// chipset sur un Ryzen à deux CCD sans V-Cache.</summary>
     public static bool IsDualCcdX3D(CpuVendor vendor, CpuTopology topology, bool vcacheDriverInstalled)
-        => vendor == CpuVendor.Amd && topology.Clusters.Count > 1 && (topology.HasMixedL3Sizes || vcacheDriverInstalled);
+        => vendor == CpuVendor.Amd && topology.Clusters.Count == 2 && topology.HasUniformClusters
+           && (topology.HasMixedL3Sizes || (vcacheDriverInstalled && topology.Clusters.Any(c => c.L3Bytes is null)));
 
     public static CoreTopologyAssessment Assess(CpuVendor vendor, int family, int model, CpuTopology topology)
     {

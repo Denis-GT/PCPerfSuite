@@ -114,6 +114,13 @@ public sealed class WindowsPerformanceSettingsService
         {
             throw new InvalidOperationException(restored.Message ?? "Les valeurs d'origine n'ont pas pu être rendues.");
         }
+
+        // L'origine notée était celle d'un autre plan (rendu à l'instant), ou le plan actif a de lui-même ses planchers à
+        // 100 % (« Performances ultimes ») : l'interrupteur ne doit pas se croire décoché.
+        if (GetCoreParkingState() == TweakState.Enabled)
+        {
+            throw new InvalidOperationException("Le plan d'alimentation actif garde tous ses cœurs actifs : PCPerfSuite n'a pas d'origine à lui rendre (un autre plan a, lui, retrouvé ses valeurs). Règle-le dans Processeur › Cœurs.");
+        }
     }
 
     public IReadOnlyList<PerformanceTweak> GetTweaks()
@@ -270,7 +277,7 @@ public sealed class WindowsPerformanceSettingsService
                 Id = "core-parking",
                 Name = "Désactiver la mise en veille des cœurs CPU (core parking)",
                 Category = "CPU",
-                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge, cœurs performants des processeurs hybrides compris (CPMINCORES et CPMINCORES1 à 100 %). Utile pour des charges très en dents de scie (jeux avec pics CPU soudains), au prix d'une chauffe et d'une consommation plus élevées au repos. Réglage plus fin et visuel par cœur : Processeur › Cœurs. Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut, et les outils du fabricant (Armoury Crate, Vantage…) peuvent l'écraser.",
+                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge, cœurs performants des processeurs hybrides compris (CPMINCORES et CPMINCORES1 à 100 %, sur secteur comme sur batterie ; sur un hybride, il n'apparaît activé que si les deux le sont). Utile pour des charges très en dents de scie (jeux avec pics CPU soudains), au prix d'une chauffe et d'une consommation plus élevées au repos. Réglage plus fin et visuel par cœur : Processeur › Cœurs. Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut, et les outils du fabricant (Armoury Crate, Vantage…) peuvent l'écraser.",
                 GetState = GetCoreParkingState,
                 Apply = ApplyCoreParking,
             },

@@ -27,7 +27,7 @@ public sealed partial class CoreParkingSettingViewModel : ObservableObject
         _report = report;
         ShowBattery = service.HasBattery;
         SetSilently(value);
-        UpdateOrigin();
+        UpdateOrigin(service.OriginValues());
     }
 
     public CoreParkingSetting Setting => _setting;
@@ -60,8 +60,9 @@ public sealed partial class CoreParkingSettingViewModel : ObservableObject
         _suppressWrite = false;
     }
 
-    public void UpdateOrigin()
-        => OriginText = _service.Origin(_setting) is { } origin
+    /// <param name="origins">Origines lues une fois pour tous les réglages (<see cref="CoreParkingService.OriginValues"/>).</param>
+    public void UpdateOrigin(IReadOnlyDictionary<string, uint> origins)
+        => OriginText = CoreParkingService.Origin(origins, _setting) is { } origin
             ? ShowBattery
                 ? $"Origine : {_setting.Format(origin.Ac)} sur secteur, {_setting.Format(origin.Dc)} sur batterie."
                 : $"Origine : {_setting.Format(origin.Ac)}."
@@ -97,7 +98,7 @@ public sealed partial class CoreParkingSettingViewModel : ObservableObject
         CoreParkingWriteResult result = _service.Write([new CoreParkingTarget(_setting, new CoreParkingValue(ac, battery))]);
         CoreParkingApplied? applied = result.Applied.FirstOrDefault();
         if (applied?.Applied is { } now) SetSilently(now);
-        UpdateOrigin();
+        UpdateOrigin(_service.OriginValues());
 
         string message = result.Error is { } error ? error
             : applied is { Matches: false, Applied: { } kept }

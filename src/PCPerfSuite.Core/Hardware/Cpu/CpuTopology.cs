@@ -31,8 +31,9 @@ public sealed record EfficiencyClassGroup(int EfficiencyClass, IReadOnlyList<Phy
 /// Intel), rangés par classe d'efficacité, la plus performante d'abord.
 /// </summary>
 /// <param name="L3Bytes">Taille du cache L3 de ce groupe, null si Windows ne l'a pas donnée.</param>
-/// <param name="HasLargerL3">Plus de L3 que le plus petit des autres groupes : le CCD avec 3D V-Cache d'un Ryzen X3D
-/// à deux CCD.</param>
+/// <param name="HasLargerL3">Au moins deux fois plus de L3 que le plus petit groupe, tous les groupes ayant autant de
+/// cœurs : le CCD avec 3D V-Cache d'un Ryzen X3D à deux CCD (96 Mo contre 32). Faux sur un Strix Point, dont les deux
+/// blocs de L3 (16 Mo pour 4 Zen 5, 8 Mo pour 8 Zen 5c) n'ont pas le même nombre de cœurs.</param>
 public sealed record CacheCluster(
     int Group, int LastLevelCacheIndex, long? L3Bytes, bool HasLargerL3, IReadOnlyList<EfficiencyClassGroup> Classes)
 {
@@ -100,6 +101,9 @@ public sealed class CpuTopology
     /// <summary>Plusieurs groupes de cache dont les L3 n'ont pas la même taille : un Ryzen X3D à deux CCD.</summary>
     public bool HasMixedL3Sizes => Clusters.Any(c => c.HasLargerL3);
 
+    /// <summary>Tous les groupes de cache ont autant de cœurs physiques (les CCD d'un Ryzen à deux CCD).</summary>
+    public bool HasUniformClusters => Clusters.Select(c => c.Cores.Count()).Distinct().Count() == 1;
+
     /// <summary>Classe la plus performante (P-cores), celle que visent les réglages Windows suffixés « 1 ».</summary>
     public int TopEfficiencyClass => EfficiencyClasses.Count > 0 ? EfficiencyClasses[0] : 0;
 
@@ -153,11 +157,13 @@ public sealed class CpuTopology
             })
             .ToList();
 
-        // Un X3D à deux CCD : l'un des L3 est trois fois plus gros. On ne compare que des tailles connues.
-        long? smallestL3 = clusters.Count > 1 && clusters.All(c => c.L3 is not null) ? clusters.Min(c => c.L3) : null;
+        // Un X3D à deux CCD : autant de cœurs dans chaque CCD, et l'un des L3 trois fois plus gros. On ne compare que
+        // des tailles connues, entre groupes de même forme.
+        bool sameShape = clusters.Select(c => c.Classes.Sum(k => k.Cores.Count)).Distinct().Count() == 1;
+        long? smallestL3 = clusters.Count > 1 && sameShape && clusters.All(c => c.L3 is not null) ? clusters.Min(c => c.L3) : null;
 
         return new CpuTopology(sorted, clusters
-            .Select(c => new CacheCluster(c.Group, c.LastLevelCacheIndex, c.L3, smallestL3 is { } min && c.L3 > min, c.Classes))
+            .Select(c => new CacheCluster(c.Group, c.LastLevelCacheIndex, c.L3, smallestL3 is { } min && c.L3 >= 2 * min, c.Classes))
             .ToList());
     }
 

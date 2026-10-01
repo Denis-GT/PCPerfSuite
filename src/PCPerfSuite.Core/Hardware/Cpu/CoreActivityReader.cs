@@ -22,7 +22,7 @@ public sealed record CoreActivitySample(IReadOnlyDictionary<LogicalProcessorId, 
 /// - « Parking Status », 0 ou 1 ;
 /// - « % Processor Performance ».
 ///
-/// Réutilisable par le bench (#10). Pas thread-safe : un seul relevé à la fois, toujours depuis le même appelant. Les
+/// Réutilisable par le bench (#10). Pas thread-safe : un seul relevé à la fois (la requête n'est liée à aucun thread). Les
 /// compteurs de taux se calculent entre deux collectes : le premier relevé après la création n'a pas encore de charge.
 /// </summary>
 public sealed class CoreActivityReader : IDisposable

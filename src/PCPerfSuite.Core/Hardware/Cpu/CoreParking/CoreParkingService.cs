@@ -75,6 +75,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
     private readonly IPowerPlanValues _plan;
     private readonly ICoreParkingOriginStore _origins;
     private readonly object _gate = new();
+    private bool _legacyChecked;
 
     public CoreParkingService(bool isHybrid, bool hasBattery, IPowerPlanValues? plan = null, ICoreParkingOriginStore? origins = null)
     {
@@ -106,7 +107,18 @@ public sealed class CoreParkingService : ISystemChangeOwner
         => _plan.ActiveScheme() is { } scheme ? Read(scheme, setting) : null;
 
     /// <summary>Valeurs d'avant PCPerfSuite, null si l'app n'a jamais écrit ce réglage.</summary>
-    public CoreParkingValue? Origin(CoreParkingSetting setting) => Origin(_origins.Values, setting);
+    public CoreParkingValue? Origin(CoreParkingSetting setting) => Origin(OriginValues(), setting);
+
+    /// <summary>Toutes les origines notées, lues une fois : pour plusieurs réglages d'un coup (settings.json est relu à
+    /// chaque accès), avec <see cref="Origin(IReadOnlyDictionary{string, uint}, CoreParkingSetting)"/>.</summary>
+    public IReadOnlyDictionary<string, uint> OriginValues()
+    {
+        lock (_gate)
+        {
+            DropStaleLegacyOrigins();
+            return _origins.Values;
+        }
+    }
 
     /// <summary>Plan dont l'origine est notée, ou le plan actif.</summary>
     public Guid? ModifiedScheme() => _origins.Scheme ?? _plan.ActiveScheme();
@@ -115,7 +127,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
     {
         get
         {
-            IReadOnlyDictionary<string, uint> values = _origins.Values;
+            IReadOnlyDictionary<string, uint> values = OriginValues();
             return CoreParkingCatalog.All.Any(s => Origin(values, s) is not null);
         }
     }
@@ -129,6 +141,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
         lock (_gate)
         {
             if (targets.Count == 0) return new CoreParkingWriteResult(true, [], null, null);
+            DropStaleLegacyOrigins();
             if (_plan.ActiveScheme() is not { } scheme)
             {
                 return new CoreParkingWriteResult(false, [], "Windows n'indique pas le plan d'alimentation actif.", null);
@@ -160,7 +173,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
                 }
 
                 if (setting.Sanitize(target.Value.Ac) is not { } ac
-                    || setting.Sanitize(HasBattery ? target.Value.Dc : target.Value.Ac) is not { } dc)
+                    || setting.Sanitize(HasBattery ? target.Value.Dc : target.Value.Ac) is not { } sanitizedDc)
                 {
                     unknown.Add(setting.LabelFor(IsHybrid));
                     continue;
@@ -173,6 +186,9 @@ public sealed class CoreParkingService : ISystemChangeOwner
                     toRemember[$"{key}/dc"] = now.Dc;
                 }
 
+                // Sans batterie, seule la valeur secteur se règle : y revenir rend aussi la valeur batterie d'origine, sinon
+                // le réglage resterait « modifié » pour une différence que l'interface ne montre pas.
+                uint dc = !HasBattery && Origin(known, setting) is { } origin && ac == origin.Ac ? origin.Dc : sanitizedDc;
                 writes.Add((setting, new CoreParkingValue(ac, dc)));
             }
 
@@ -207,6 +223,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
     {
         lock (_gate)
         {
+            DropStaleLegacyOrigins();
             if (ModifiedScheme() is not { } scheme)
             {
                 return new SystemRestoreResult(SystemRestoreStatus.Failed, Describe(),
@@ -218,7 +235,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
             foreach (CoreParkingSetting setting in settings)
             {
                 if (Origin(values, setting) is { } origin) restores.Add((setting, origin, true));
-                else if (setting == CoreParkingCatalog.MinCores && fallbackMinCores is { } fallback)
+                else if (setting == CoreParkingCatalog.MinCores && fallbackMinCores is { } fallback && scheme == _plan.ActiveScheme())
                 {
                     restores.Add((setting, new CoreParkingValue(fallback, fallback), false));
                 }
@@ -264,7 +281,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
 
     public IReadOnlyList<SystemChange> Describe()
     {
-        IReadOnlyDictionary<string, uint> values = _origins.Values;
+        IReadOnlyDictionary<string, uint> values = OriginValues();
         if (ModifiedScheme() is not { } scheme)
         {
             return CoreParkingCatalog.All.Where(s => Origin(values, s) is not null)
@@ -309,6 +326,23 @@ public sealed class CoreParkingService : ISystemChangeOwner
         };
     }
 
+    /// <summary>
+    /// Les premières versions du tweak n'effaçaient jamais l'origine de CPMINCORES en se désactivant, et ne retenaient
+    /// pas le plan. Le tweak n'écrivait que 100 % : une origine sans plan retenu, alors que le plancher du plan actif
+    /// n'est plus à 100 %, ne correspond à aucune modification en cours. Elle est oubliée, une fois par lancement, pour ne
+    /// pas rendre plus tard une valeur périmée à un plan que l'app n'a pas touché. À appeler sous le verrou.
+    /// </summary>
+    private void DropStaleLegacyOrigins()
+    {
+        if (_legacyChecked) return;
+        _legacyChecked = true;
+        if (_origins.Scheme is not null || _plan.ActiveScheme() is not { } scheme) return;
+
+        IReadOnlyDictionary<string, uint> values = _origins.Values;
+        CoreParkingSetting min = CoreParkingCatalog.MinCores;
+        if (Origin(values, min) is not null && Read(scheme, min) is { } now && now.Ac != 100) ForgetAll([min]);
+    }
+
     private string PlanLabel(Guid scheme) => _plan.FriendlyName(scheme) ?? "plan d'alimentation";
 
     private CoreParkingValue? Read(Guid scheme, CoreParkingSetting setting)
@@ -316,7 +350,7 @@ public sealed class CoreParkingService : ISystemChangeOwner
 
     /// <summary>Origine notée : les clés « /ac » et « /dc », avec repli sur la clé sans suffixe des premières versions
     /// du tweak, qui ne portait que la valeur secteur.</summary>
-    private static CoreParkingValue? Origin(IReadOnlyDictionary<string, uint> values, CoreParkingSetting setting)
+    public static CoreParkingValue? Origin(IReadOnlyDictionary<string, uint> values, CoreParkingSetting setting)
     {
         string key = CoreParkingCatalog.OriginKey(setting);
         uint? legacy = values.TryGetValue(key, out uint old) ? old : null;
