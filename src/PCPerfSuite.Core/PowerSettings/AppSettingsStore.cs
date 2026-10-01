@@ -67,6 +67,11 @@ public sealed class AppSettings
     /// clé = "guidSousGroupe/guidRéglage". Permet à « décocher » de rendre exactement ce qui était en place
     /// plutôt qu'une valeur par défaut supposée, qui n'est pas forcément celle de ce PC.</summary>
     public Dictionary<string, uint> OriginalPowerValues { get; set; } = new();
+
+    /// <summary>Plan d'alimentation où le parking des cœurs a été modifié, celui dont <see cref="OriginalPowerValues"/>
+    /// garde l'origine pour ces réglages-là (GUID). Null tant que l'app n'a rien changé, ou pour une origine notée par
+    /// une version qui ne le retenait pas : le plan actif fait alors foi.</summary>
+    public string? CoreParkingOriginScheme { get; set; }
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>
