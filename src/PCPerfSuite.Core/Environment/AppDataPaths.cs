@@ -52,6 +52,17 @@ public sealed class AppDataPaths
     /// <summary>Journal de session : opérations risquées en cours, reprises au lancement (SessionJournal, StartupRecovery).</summary>
     public string SessionJournalFile => InRoot("journal-session.jsonl");
 
+    /// <summary>Dernier catalogue en ligne accepté par la Boîte à outils (ToolCatalogStore), revérifié à chaque lecture.</summary>
+    public string ToolCatalogCacheFile => InRoot("catalogue-outils.json");
+
+    /// <summary>Signature de <see cref="ToolCatalogCacheFile"/>.</summary>
+    public string ToolCatalogCacheSignatureFile => InRoot("catalogue-outils.json.sig");
+
+    /// <summary>Téléchargements de la Boîte à outils en cours, avant leur vérification puis leur dépôt dans les
+    /// Téléchargements de l'utilisateur. Jamais un fichier qui sera lancé : ceux-là passent par un dossier que seuls les
+    /// administrateurs peuvent modifier (ProgramDataFolder, ou le dossier de travail d'OfficialInstaller).</summary>
+    public string ToolDownloadsFolder => InRoot("telechargements");
+
     private string InRoot(string name) => Path.Combine(Root, name);
 }
 

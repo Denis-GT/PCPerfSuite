@@ -1,2 +1,6 @@
 # Modules PawnIO signés : jamais de conversion de fins de ligne.
 *.bin binary
+
+# Catalogue de la Boîte à outils : signé octet pour octet (tools/catalogue), jamais de conversion de fins de ligne.
+catalogue-outils.json -text
+*.sig -text

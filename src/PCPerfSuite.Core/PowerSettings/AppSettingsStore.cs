@@ -5,6 +5,7 @@ using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.Gpu;
+using PCPerfSuite.Core.Installations;
 using PCPerfSuite.Core.Overlay;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -62,6 +63,9 @@ public sealed class AppSettings
 
     /// <summary>Réglages de l'onglet Nettoyage.</summary>
     public CleanupSettings Cleanup { get; set; } = new();
+
+    /// <summary>Réglages de la Boîte à outils (outils installés par leur installeur depuis la page).</summary>
+    public ToolboxSettings Toolbox { get; set; } = new();
 
     /// <summary>Valeur d'un réglage d'alimentation Windows telle qu'elle était avant que l'app n'y touche,
     /// clé = "guidSousGroupe/guidRéglage". Permet à « décocher » de rendre exactement ce qui était en place

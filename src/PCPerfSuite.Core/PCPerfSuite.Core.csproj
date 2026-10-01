@@ -31,6 +31,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Copie intégrée du catalogue de la Boîte à outils (ToolCatalogStore) : la liste reste utilisable hors ligne, et son
+         numéro sert de plancher contre un retour en arrière du catalogue en ligne. -->
+    <EmbeddedResource Include="Installations\catalogue-outils.json" LogicalName="PCPerfSuite.Core.Installations.catalogue-outils.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Échéancier des capteurs (SensorReadSchedule), interne mais testé -->
     <InternalsVisibleTo Include="PCPerfSuite.Core.Tests" />
   </ItemGroup>
