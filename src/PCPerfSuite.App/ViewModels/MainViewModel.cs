@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
 using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
@@ -27,6 +28,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// plateformes, et limites de puissance en watts via PawnIO sur Intel/AMD.</summary>
     private readonly CpuControlService _cpuControl = new();
 
+    /// <summary>Parking des cœurs du plan d'alimentation : partagé par Processeur › Cœurs, le tweak d'Optimisation
+    /// Windows (sa façade) et le diagnostic, inscrit au registre des modifications.</summary>
+    private readonly CoreParkingService _coreParking;
+
     private readonly MonitoringViewModel _monitoring;
     private readonly ProcessesViewModel _processes;
     private readonly FanCurvesViewModel _fans;
@@ -43,7 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
 
     /// <summary>Fonctions qui modifient Windows durablement : chacune s'y inscrit à sa création, pour que « Tout
-    /// rétablir » (mode technicien) sache qui interroger. Aucune ne s'y inscrit encore.</summary>
+    /// rétablir » (mode technicien) sache qui interroger. Le parking des cœurs est le premier inscrit.</summary>
     public SystemChangeRegistry SystemChanges { get; } = new();
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
@@ -57,7 +62,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ProcessesViewModel Processes => _processes;
     public CleanupViewModel Cleanup { get; } = new();
     public StorageViewModel Storage { get; } = new();
-    public OptimizationViewModel Optimization { get; } = new();
+    public OptimizationViewModel Optimization { get; }
     public AppSettingsViewModel AppSettings { get; }
     public FanCurvesViewModel Fans => _fans;
     public GpuControlViewModel Gpu => _gpu;
@@ -104,7 +109,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
         _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
-        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo);
+        CpuPlatform platform = _cpuControl.Platform;
+        _coreParking = new CoreParkingService(platform.IsHybrid, platform.HasBattery);
+        SystemChanges.Register(_coreParking);
+        Optimization = new OptimizationViewModel(_coreParking);
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform));
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
@@ -114,6 +123,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
         _compatibilityRows.Add(new DisplaysRowProvider());
         _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));
+        _compatibilityRows.Add(new CoreParkingRowProvider(_coreParking, platform));
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
 

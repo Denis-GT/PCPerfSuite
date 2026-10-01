@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -94,7 +95,7 @@ public sealed partial class TweakItemViewModel : ObservableObject
 /// menus standards. Les réglages de l'app elle-même sont dans <see cref="AppSettingsViewModel"/>.</summary>
 public sealed partial class OptimizationViewModel : ObservableObject, IPageLifecycle
 {
-    private readonly WindowsPerformanceSettingsService _service = new();
+    private readonly WindowsPerformanceSettingsService _service;
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public ObservableCollectionEx<TweakItemViewModel> Tweaks { get; } = new();
@@ -106,8 +107,10 @@ public sealed partial class OptimizationViewModel : ObservableObject, IPageLifec
 
     private bool _loadRequested;
 
-    public OptimizationViewModel()
+    /// <param name="coreParking">Le tweak « core-parking » en est une façade (même origine, même registre des modifications).</param>
+    public OptimizationViewModel(CoreParkingService coreParking)
     {
+        _service = new WindowsPerformanceSettingsService(coreParking);
         foreach (PerformanceTweak tweak in _service.GetTweaks())
         {
             Tweaks.Add(new TweakItemViewModel(tweak));

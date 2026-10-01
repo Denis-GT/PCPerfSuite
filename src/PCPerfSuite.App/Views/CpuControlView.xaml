@@ -1,296 +1,306 @@
 <UserControl x:Class="PCPerfSuite.App.Views.CpuControlView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
+             xmlns:views="clr-namespace:PCPerfSuite.App.Views">
 
     <ScrollViewer Padding="{StaticResource PagePadding}">
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
             <controls:PageHeader Title="Processeur"
-                                 Subtitle="Deux étages de réglage. Les réglages d'alimentation Windows marchent partout, sans pilote et sans risque. La limite de puissance en watts écrit directement dans le processeur, sur Intel et AMD : l'abaisser fait chuter température, bruit et consommation pour une perte souvent minime, la relever laisse le CPU tenir ses fréquences plus longtemps si le refroidissement suit. Chaque valeur écrite est relue : si ton firmware impose la sienne, c'est dit ici."/>
+                                 Subtitle="Deux étages de réglage. Les réglages d'alimentation Windows marchent partout, sans pilote et sans risque. La limite de puissance en watts écrit directement dans le processeur, sur Intel et AMD : l'abaisser fait chuter température, bruit et consommation pour une perte souvent minime, la relever laisse le CPU tenir ses fréquences plus longtemps si le refroidissement suit. Chaque valeur écrite est relue : si ton firmware impose la sienne, c'est dit ici. Le sous-onglet Cœurs montre la charge et le parking de chaque cœur, et règle le parking."/>
 
-            <!-- ============ Compatibilité ============ -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="Compatibilité" Style="{StaticResource H2}"/>
-                    <TextBox Text="{Binding CpuName, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold" Margin="0,8,0,0"
-                             TextWrapping="Wrap"/>
-                    <TextBox Text="{Binding PlatformText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                    <TextBox Text="{Binding DriverText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+            <!-- Sous-onglets : Réglages (alimentation, limites, profils) et Cœurs (visuel par cœur, parking). -->
+            <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
+                     DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
-                                Visibility="{Binding IsDriverMissing, Converter={StaticResource BoolToVisibility}}">
-                        <!-- Même ligne PawnIO que Paramètres › Installations : téléchargement de l'installeur officiel signé. -->
-                        <Button Content="Installer PawnIO" Style="{StaticResource AccentButton}"
-                                Command="{Binding PawnIo.PrimaryCommand}"/>
-                        <TextBox Style="{StaticResource SelectableCaption}" VerticalAlignment="Center" Margin="12,0,0,0"
-                                 TextWrapping="Wrap" MaxWidth="480"
-                                 Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
-                    </StackPanel>
-
-                    <!-- Hors du bloc ci-dessus : une fois le pilote installé, le bouton disparaît mais le résultat doit rester lisible. -->
-                    <TextBox Text="{Binding PawnIo.Message}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
-                             Visibility="{Binding PawnIo.Message, Converter={StaticResource NullToVisibility}}"/>
-                </StackPanel>
-            </Border>
-
-            <!-- ============ Réglages Windows (toutes plateformes) ============ -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="Réglages d'alimentation" Style="{StaticResource H2}"/>
-                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                             Text="Les réglages processeur du plan d'alimentation Windows actif, appliqués immédiatement. Sans pilote et sans risque : ce sont les mêmes que ceux du panneau de configuration, y compris ceux que Windows masque par défaut. Ils fonctionnent sur Intel, AMD comme Snapdragon."/>
-
-                    <ItemsControl ItemsSource="{Binding PowerSettings}" Margin="0,14,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Label}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}"
-                                                   Margin="0,2,0,0" TextWrapping="Wrap"/>
-
-                                        <!-- Sur secteur -->
-                                        <Grid Margin="0,10,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="110"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="100"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Sur secteur" Style="{StaticResource Caption}"
-                                                       VerticalAlignment="Center"/>
-                                            <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
-                                                      ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
-                                                      Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
-                                            <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                                  Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                                                  Value="{Binding AcValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
-                                                                  Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
-                                        </Grid>
-
-                                        <!-- Sur batterie -->
-                                        <Grid Margin="0,8,0,0" Visibility="{Binding ShowBattery, Converter={StaticResource BoolToVisibility}}">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="110"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="100"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Sur batterie" Style="{StaticResource Caption}"
-                                                       VerticalAlignment="Center"/>
-                                            <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
-                                                      ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
-                                                      Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
-                                            <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                                  Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                                                  Value="{Binding BatteryValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
-                                                                  Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <TextBox Text="{Binding PowerSettingsStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}"
-                             Margin="0,6,0,0" TextWrapping="Wrap"/>
-                </StackPanel>
-            </Border>
-
-            <!-- ============ Indisponible ============ -->
-            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
-                    Visibility="{Binding IsPowerLimitUnavailable, Converter={StaticResource BoolToVisibility}}">
-                <!-- Un seul champ avec StringFormat plutôt que deux Run : c'est la phrase qu'on recopie
-                     dans un rapport de bug, elle doit pouvoir se sélectionner d'un bloc. -->
-                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
-                       Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=N/D : {0}}"/>
-            </Border>
-
-            <StackPanel Visibility="{Binding ShowPowerLimits, Converter={StaticResource BoolToVisibility}}">
-
-                <!-- Limites lisibles mais pas modifiables (module PawnIO sans écriture, verrou du BIOS) : elles
-                     restent affichées, champs inactifs, avec la raison. -->
-                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
-                        Visibility="{Binding IsPowerLimitReadOnly, Converter={StaticResource BoolToVisibility}}">
-                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
-                             Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=Lecture seule : {0}}"/>
-                </Border>
-
-                <!-- Commande SMU AMD non documentée officiellement : pas encore vérifiée sur une machine
-                     réelle (règle 6 de CLAUDE.md). -->
-                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
-                        Visibility="{Binding IsExperimentalBackend, Converter={StaticResource BoolToVisibility}}">
-                    <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
-                               Text="{Binding ExperimentalNotice}" TextWrapping="Wrap"/>
-                </Border>
-
-                <!-- ============ Relevés ============ -->
+            <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=settings}">
+                <!-- ============ Compatibilité ============ -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <UniformGrid Rows="1" Columns="4" Margin="0,0,-10,-10">
-                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="Puissance" Style="{StaticResource Caption}" FontSize="11.5"/>
-                                <TextBlock Style="{StaticResource StatValue}">
-                                    <Run Text="{Binding PowerWatts, Converter={StaticResource Metric}, ConverterParameter=' W', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="Température" Style="{StaticResource Caption}" FontSize="11.5"/>
-                                <TextBlock Style="{StaticResource StatValue}">
-                                    <Run Text="{Binding PackageTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="Fréquence max" Style="{StaticResource Caption}" FontSize="11.5"/>
-                                <TextBlock Style="{StaticResource StatValue}">
-                                    <Run Text="{Binding MaxClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
-                            <StackPanel>
-                                <TextBlock Text="Charge" Style="{StaticResource Caption}" FontSize="11.5"/>
-                                <TextBlock Style="{StaticResource StatValue}">
-                                    <Run Text="{Binding LoadPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-                    </UniformGrid>
-                </Border>
-
-                <!-- ============ Limites ============ -->
-                <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Text="Limites de puissance" Style="{StaticResource H2}"/>
-                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                                 Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
+                        <TextBlock Text="Compatibilité" Style="{StaticResource H2}"/>
+                        <TextBox Text="{Binding CpuName, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold" Margin="0,8,0,0"
+                                 TextWrapping="Wrap"/>
+                        <TextBox Text="{Binding PlatformText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        <TextBox Text="{Binding DriverText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
-                        <!-- Hors du bloc désactivé plus bas, volontairement : d'où vient le maximum des champs
-                             (le processeur, ou un repli et pourquoi) se lit avant d'avoir accepté l'avertissement. -->
-                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                 Text="{Binding MaxWattsNote, Mode=OneWay}"
-                                 Visibility="{Binding MaxWattsNote, Converter={StaticResource NullToVisibility}}"/>
-
-                        <!-- Avertissement, à accepter une fois -->
-                        <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
-                                Visibility="{Binding NeedsRiskAcceptance, Converter={StaticResource BoolToVisibility}}">
-                            <StackPanel>
-                                <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap"
-                                         Text="Ces réglages écrivent directement dans le processeur. Relever une limite augmente la chaleur et la consommation, et ne tient que si le refroidissement suit. Les limites ne survivent pas à un redémarrage, et l'app les rend d'origine en quittant : en cas de souci, redémarrer suffit toujours."/>
-                                <Button Content="J'ai compris, débloquer les réglages" Style="{StaticResource AccentButton}"
-                                        HorizontalAlignment="Left" Margin="0,12,0,0" Command="{Binding AcceptRiskCommand}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <StackPanel IsEnabled="{Binding CanEditLimits}">
-                            <Grid Margin="0,16,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="170"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="90"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Limite soutenue" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                      Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                                      Value="{Binding SustainedWatts}" Unit="W" Note="{Binding SustainedNote}"/>
-                            </Grid>
-
-                            <Grid Margin="0,12,0,0" Visibility="{Binding HasBurstLimit, Converter={StaticResource BoolToVisibility}}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="170"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="90"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Limite de pointe" Style="{StaticResource Body}" VerticalAlignment="Center"/>
-                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                      Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
-                                                      Value="{Binding BurstWatts}" Unit="W" Note="{Binding BurstNote}"/>
-                            </Grid>
-
-                            <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>
-                            <Grid Margin="0,16,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Appliquer au démarrage" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,2,0,0" TextWrapping="Wrap"
-                                             Text="Réapplique ces limites au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, le processeur repart toujours de ses limites d'origine."/>
-                                </StackPanel>
-                                <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ApplyAtStartup}" VerticalAlignment="Center"/>
-                            </Grid>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                <Button Content="Limites d'origine" Style="{StaticResource GhostButton}" Command="{Binding ResetLimitsCommand}"/>
-                            </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
+                                    Visibility="{Binding IsDriverMissing, Converter={StaticResource BoolToVisibility}}">
+                            <!-- Même ligne PawnIO que Paramètres › Installations : téléchargement de l'installeur officiel signé. -->
+                            <Button Content="Installer PawnIO" Style="{StaticResource AccentButton}"
+                                    Command="{Binding PawnIo.PrimaryCommand}"/>
+                            <TextBox Style="{StaticResource SelectableCaption}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                     TextWrapping="Wrap" MaxWidth="480"
+                                     Text="PawnIO est le pilote signé qui remplace WinRing0. Sans lui, ni les limites de puissance ni certaines températures ne sont accessibles."/>
                         </StackPanel>
 
-                        <TextBox Text="{Binding Status, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                        <!-- Hors du bloc ci-dessus : une fois le pilote installé, le bouton disparaît mais le résultat doit rester lisible. -->
+                        <TextBox Text="{Binding PawnIo.Message}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
+                                 Visibility="{Binding PawnIo.Message, Converter={StaticResource NullToVisibility}}"/>
+                    </StackPanel>
+                </Border>
 
-                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,10,0,0" TextWrapping="Wrap"
-                                 Foreground="{StaticResource TextTertiaryBrush}"
-                                 Text="Sécurité : si le processeur reste collé à 98 °C pendant 15 secondes avec une limite relevée, l'app rétablit d'elle-même les limites d'origine."/>
+                <!-- ============ Réglages Windows (toutes plateformes) ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Réglages d'alimentation" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 Text="Les réglages processeur du plan d'alimentation Windows actif, appliqués immédiatement. Sans pilote et sans risque : ce sont les mêmes que ceux du panneau de configuration, y compris ceux que Windows masque par défaut. Ils fonctionnent sur Intel, AMD comme Snapdragon."/>
+
+                        <ItemsControl ItemsSource="{Binding PowerSettings}" Margin="0,14,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}"
+                                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                                            <!-- Sur secteur -->
+                                            <Grid Margin="0,10,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="110"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="100"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Sur secteur" Style="{StaticResource Caption}"
+                                                           VerticalAlignment="Center"/>
+                                                <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
+                                                          ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                          Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                      Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                                      Value="{Binding AcValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
+                                                                      Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            </Grid>
+
+                                            <!-- Sur batterie -->
+                                            <Grid Margin="0,8,0,0" Visibility="{Binding ShowBattery, Converter={StaticResource BoolToVisibility}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="110"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="100"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Sur batterie" Style="{StaticResource Caption}"
+                                                           VerticalAlignment="Center"/>
+                                                <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
+                                                          ItemTemplate="{StaticResource LabelOptionTemplate}" VerticalAlignment="Center" HorizontalAlignment="Left" MinWidth="220"
+                                                          Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                                                <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                      Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                                      Value="{Binding BatteryValue}" Unit="{Binding UnitLabel}" Note="{Binding ZeroNote}"
+                                                                      Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBox Text="{Binding PowerSettingsStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}"
+                                 Margin="0,6,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ Indisponible ============ -->
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                        Visibility="{Binding IsPowerLimitUnavailable, Converter={StaticResource BoolToVisibility}}">
+                    <!-- Un seul champ avec StringFormat plutôt que deux Run : c'est la phrase qu'on recopie
+                         dans un rapport de bug, elle doit pouvoir se sélectionner d'un bloc. -->
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                           Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=N/D : {0}}"/>
+                </Border>
+
+                <StackPanel Visibility="{Binding ShowPowerLimits, Converter={StaticResource BoolToVisibility}}">
+
+                    <!-- Limites lisibles mais pas modifiables (module PawnIO sans écriture, verrou du BIOS) : elles
+                         restent affichées, champs inactifs, avec la raison. -->
+                    <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                            Visibility="{Binding IsPowerLimitReadOnly, Converter={StaticResource BoolToVisibility}}">
+                        <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
+                                 Text="{Binding UnavailableReason, Mode=OneWay, StringFormat=Lecture seule : {0}}"/>
+                    </Border>
+
+                    <!-- Commande SMU AMD non documentée officiellement : pas encore vérifiée sur une machine
+                         réelle (règle 6 de CLAUDE.md). -->
+                    <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
+                            Visibility="{Binding IsExperimentalBackend, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource WarnBrush}"
+                                   Text="{Binding ExperimentalNotice}" TextWrapping="Wrap"/>
+                    </Border>
+
+                    <!-- ============ Relevés ============ -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <UniformGrid Rows="1" Columns="4" Margin="0,0,-10,-10">
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Puissance" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding PowerWatts, Converter={StaticResource Metric}, ConverterParameter=' W', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Température" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding PackageTempC, Converter={StaticResource Metric}, ConverterParameter=' °C', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Fréquence max" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding MaxClockMhz, Converter={StaticResource Metric}, ConverterParameter=' MHz', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource InsetTile}" Margin="0,0,10,10">
+                                <StackPanel>
+                                    <TextBlock Text="Charge" Style="{StaticResource Caption}" FontSize="11.5"/>
+                                    <TextBlock Style="{StaticResource StatValue}">
+                                        <Run Text="{Binding LoadPercent, Converter={StaticResource Metric}, ConverterParameter='%', Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+                    </Border>
+
+                    <!-- ============ Limites ============ -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Limites de puissance" Style="{StaticResource H2}"/>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                     Text="La limite soutenue est celle que le processeur tient indéfiniment. La limite de pointe est tolérée quelques secondes, le temps d'encaisser une charge courte."/>
+
+                            <!-- Hors du bloc désactivé plus bas, volontairement : d'où vient le maximum des champs
+                                 (le processeur, ou un repli et pourquoi) se lit avant d'avoir accepté l'avertissement. -->
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                     Text="{Binding MaxWattsNote, Mode=OneWay}"
+                                     Visibility="{Binding MaxWattsNote, Converter={StaticResource NullToVisibility}}"/>
+
+                            <!-- Avertissement, à accepter une fois -->
+                            <Border Style="{StaticResource CalloutWarn}" Margin="0,16,0,0"
+                                    Visibility="{Binding NeedsRiskAcceptance, Converter={StaticResource BoolToVisibility}}">
+                                <StackPanel>
+                                    <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap"
+                                             Text="Ces réglages écrivent directement dans le processeur. Relever une limite augmente la chaleur et la consommation, et ne tient que si le refroidissement suit. Les limites ne survivent pas à un redémarrage, et l'app les rend d'origine en quittant : en cas de souci, redémarrer suffit toujours."/>
+                                    <Button Content="J'ai compris, débloquer les réglages" Style="{StaticResource AccentButton}"
+                                            HorizontalAlignment="Left" Margin="0,12,0,0" Command="{Binding AcceptRiskCommand}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel IsEnabled="{Binding CanEditLimits}">
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Limite soutenue" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                    <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                          Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                                          Value="{Binding SustainedWatts}" Unit="W" Note="{Binding SustainedNote}"/>
+                                </Grid>
+
+                                <Grid Margin="0,12,0,0" Visibility="{Binding HasBurstLimit, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="90"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Limite de pointe" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                                    <controls:NumberField Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                          Minimum="{Binding MinWatts}" Maximum="{Binding MaxWatts}"
+                                                          Value="{Binding BurstWatts}" Unit="W" Note="{Binding BurstNote}"/>
+                                </Grid>
+
+                                <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Margin="0,20,0,0"/>
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Appliquer au démarrage" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                 Text="Réapplique ces limites au lancement de PCPerfSuite, et les laisse en place en quittant. Décoché, le processeur repart toujours de ses limites d'origine."/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ApplyAtStartup}" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Button Content="Limites d'origine" Style="{StaticResource GhostButton}" Command="{Binding ResetLimitsCommand}"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBox Text="{Binding Status, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,14,0,0" TextWrapping="Wrap"/>
+
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                     Foreground="{StaticResource TextTertiaryBrush}"
+                                     Text="Sécurité : si le processeur reste collé à 98 °C pendant 15 secondes avec une limite relevée, l'app rétablit d'elle-même les limites d'origine."/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ============ Profils ============ -->
+                <!-- Hors du bloc précédent, volontairement : sur une machine sans limites de puissance
+                     accessibles (Snapdragon, PC sans PawnIO), un profil garde tout son sens — il porte
+                     alors les seuls réglages d'alimentation Windows, qui marchent partout. -->
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Profils" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 Text="Enregistre tout l'onglet sous un nom — mode boost, états de fréquence, arbitrage performance/économie, et les limites en watts si ce PC les expose — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <TextBox Style="{StaticResource GlassTextBox}" Width="220"
+                                     controls:TextBoxBehaviors.CommitOnEnter="True"
+                                     Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                            <Button Content="Enregistrer les réglages actuels" Style="{StaticResource AccentButton}"
+                                    Margin="8,0,0,0" Command="{Binding SaveProfileCommand}"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Aucun profil enregistré pour l'instant." Style="{StaticResource Caption}" Margin="0,12,0,0"
+                                   Visibility="{Binding Profiles.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+
+                        <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,12,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Content="Appliquer" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
+                                                        Command="{Binding DataContext.ApplyProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="&#xE74D;" Style="{StaticResource IconButton}" ToolTip="Supprimer ce profil"
+                                                        Command="{Binding DataContext.DeleteProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBox Text="{Binding ProfileStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                 TextWrapping="Wrap"
+                                 Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
 
-            <!-- ============ Profils ============ -->
-            <!-- Hors du bloc précédent, volontairement : sur une machine sans limites de puissance
-                 accessibles (Snapdragon, PC sans PawnIO), un profil garde tout son sens — il porte
-                 alors les seuls réglages d'alimentation Windows, qui marchent partout. -->
-            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
-                <StackPanel>
-                    <TextBlock Text="Profils" Style="{StaticResource H2}"/>
-                    <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                             Text="Enregistre tout l'onglet sous un nom — mode boost, états de fréquence, arbitrage performance/économie, et les limites en watts si ce PC les expose — pour y revenir en un clic (un profil du même nom est remplacé). Un profil venu d'une autre machine s'applique quand même : ce qui n'existe pas ici est ignoré, et l'app le dit."/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <TextBox Style="{StaticResource GlassTextBox}" Width="220"
-                                 controls:TextBoxBehaviors.CommitOnEnter="True"
-                                 Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"/>
-                        <Button Content="Enregistrer les réglages actuels" Style="{StaticResource AccentButton}"
-                                Margin="8,0,0,0" Command="{Binding SaveProfileCommand}"/>
-                    </StackPanel>
-
-                    <TextBlock Text="Aucun profil enregistré pour l'instant." Style="{StaticResource Caption}" Margin="0,12,0,0"
-                               Visibility="{Binding Profiles.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
-
-                    <ItemsControl ItemsSource="{Binding Profiles}" Margin="0,12,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
-                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" Margin="0,2,0,0"
-                                                       TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Button Content="Appliquer" Style="{StaticResource GhostButton}" Margin="0,0,6,0"
-                                                    Command="{Binding DataContext.ApplyProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}"/>
-                                            <Button Content="&#xE74D;" Style="{StaticResource IconButton}" ToolTip="Supprimer ce profil"
-                                                    Command="{Binding DataContext.DeleteProfileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <TextBox Text="{Binding ProfileStatus, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
-                             TextWrapping="Wrap"
-                             Visibility="{Binding ProfileStatus, Converter={StaticResource NullToVisibility}}"/>
-                </StackPanel>
-            </Border>
+            <views:CpuCoresView DataContext="{Binding Cores}"
+                                Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=cores}"/>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

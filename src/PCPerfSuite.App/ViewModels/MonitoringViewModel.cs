@@ -433,7 +433,7 @@ public sealed partial class SensorGroupCadenceViewModel : ObservableObject
         (Name, Description) = group switch
         {
             SensorGroup.CpuLoad => ("Charge CPU", "Utilisation totale, comme le Gestionnaire des tâches"),
-            SensorGroup.Cpu => ("CPU", "Température, puissance, fréquence, charge par cœur"),
+            SensorGroup.Cpu => ("CPU", "Température, puissance, fréquence (la charge par cœur est dans Processeur › Cœurs)"),
             SensorGroup.Gpu => ("GPU", "Charge, températures, puissance, VRAM, ventilateur"),
             SensorGroup.Memory => ("Mémoire vive", "Utilisation"),
             SensorGroup.Motherboard => ("Carte mère", "Températures, tensions, ventilateurs"),

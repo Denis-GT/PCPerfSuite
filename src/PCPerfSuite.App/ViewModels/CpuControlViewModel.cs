@@ -209,7 +209,8 @@ public sealed class CpuProfileViewModel
 }
 
 /// <summary>
-/// Onglet "Processeur" : la limite de puissance du CPU, en watts.
+/// Onglet "Processeur" : la limite de puissance du CPU, en watts. Le visuel par cœur et le parking sont dans le
+/// sous-onglet « Cœurs » (<see cref="CoreParkingViewModel"/>).
 ///
 /// C'est le réglage qui change le plus le comportement d'un PC, dans les deux sens. L'abaisser fait
 /// chuter la température, le bruit et la consommation pour une perte de performance souvent minime —
@@ -322,9 +323,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     [ObservableProperty] private double? maxClockMhz;
     [ObservableProperty] private double? loadPercent;
 
-    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo)
+    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo, CoreParkingViewModel cores)
     {
         _cpu = cpu;
+        Cores = cores;
+        selectedSection = Sections[0];
         _monitoring = monitoring;
         PawnIo = pawnIo;
         _powerTuning = new CpuPowerTuningService(cpu.Platform);
@@ -762,5 +765,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         _monitoring.SnapshotUpdated -= OnSnapshotUpdated;
         PawnIo.PropertyChanged -= OnPawnIoChanged;
         DisposeSafety();
+        Cores.Dispose();
     }
 }
