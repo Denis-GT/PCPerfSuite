@@ -879,11 +879,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
         }
     }
 
-    public FanCurvesViewModel(HardwareMonitorService hardware, GpuControlService gpu, MonitoringViewModel monitoring)
+    public FanCurvesViewModel(HardwareMonitorService hardware, GpuControlService gpu, MonitoringViewModel monitoring, TuningStatusViewModel tuning)
     {
         _hardware = hardware;
         _gpu = gpu;
         _monitoring = monitoring;
+        Tuning = tuning;
         _settings = AppSettingsStore.Load();
 
         // Un fichier édité à la main peut contenir des profils vides ou sans liste : on les remet d'aplomb plutôt
@@ -997,67 +998,8 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
     {
         if (profile is null) return;
 
-        if (Fans.Count == 0)
-        {
-            ProfileStatus = $"Profil « {profile.Name} » non appliqué : aucun ventilateur pilotable. {NoFansMessage}";
-            LastProfileReport = ProfileStatus;
-            return;
-        }
-
-        FanProfileMatch match = FanProfileMatcher.Match(profile.Model, Fans.Select(f => f.FanId).ToList());
-
-        var notApplied = new List<string>();
-        var adjusted = new List<string>();
-        int applied = 0;
-
-        // Un seul enregistrement du fichier de réglages pour tout le profil, pas un par propriété modifiée.
-        _applyingProfile = true;
-        try
-        {
-            foreach (FanCurveConfig entry in match.Applicable)
-            {
-                FanControlItemViewModel item = Fans.First(f => f.FanId == entry.ControlSensorId);
-                SanitizedFanCurve sanitized = FanProfileMatcher.Sanitize(entry);
-
-                if (sanitized.Config is not { } config)
-                {
-                    notApplied.Add($"« {item.DisplayName} » ({string.Join(", ", sanitized.Notes)})");
-                    continue;
-                }
-
-                var notes = new List<string>(sanitized.Notes);
-                notes.AddRange(item.ApplyFromProfile(config, HasGpu));
-                applied++;
-
-                if (notes.Count > 0) adjusted.Add($"« {item.DisplayName} » ({string.Join(", ", notes)})");
-            }
-        }
-        finally
-        {
-            _applyingProfile = false;
-            Persist();
-        }
-
-        foreach (FanCurveConfig entry in match.Missing)
-        {
-            notApplied.Add($"« {ProfileFanName(profile.Model, entry.ControlSensorId)} » ({AbsenceReason(entry.ControlSensorId)})");
-        }
-
-        var parts = new List<string>
-        {
-            applied == 0 ? "aucun ventilateur réglé" : Plural(applied, "ventilateur réglé", "ventilateurs réglés"),
-        };
-
-        if (notApplied.Count > 0) parts.Add($"non appliqué : {string.Join(", ", notApplied)}");
-        if (adjusted.Count > 0) parts.Add($"réglages corrigés : {string.Join(", ", adjusted)}");
-
-        if (match.NotInProfile.Count > 0)
-        {
-            IEnumerable<string> names = match.NotInProfile.Select(id => $"« {Fans.First(f => f.FanId == id).DisplayName} »");
-            parts.Add($"pas dans ce profil, laissé(s) tel(s) quel(s) : {string.Join(", ", names)}");
-        }
-
-        ProfileStatus = $"Profil « {profile.Name} » : {string.Join(" · ", parts)}.";
+        // Même chemin qu'un groupe de profils : rapprochement, bornage, un seul enregistrement, ce qui manque nommé.
+        ProfileStatus = $"Profil « {profile.Name} » : {ApplyTabProfile(profile.Model)}.";
         LastProfileReport = ProfileStatus;
     }
 
@@ -1253,6 +1195,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
         {
             _hasSnapshot = true;
             RefreshProfileSummaries();
+            MarkReady();
         }
     }
 
@@ -1323,7 +1266,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
             FanCurveConfig config = ConfigFor(id, DefaultSourceFor(fan.Category), ref added);
             Fans.Add(new FanControlItemViewModel(
                 config, fan.Label, DescribeSource(fan), fan.Category, IdentityFor(id), _hardware,
-                Persist, CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
+                () => OnFanEdited(id), CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
         }
 
         foreach (int coolerId in coolerIds)
@@ -1336,7 +1279,7 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
             string subtitle = _gpuName is { Length: > 0 } gpuName ? $"{gpuName} · cooler {coolerId}" : $"Cooler {coolerId}";
             Fans.Add(new FanControlItemViewModel(
                 config, label, subtitle, FanCategory.Gpu, IdentityFor(id), _gpu,
-                Persist, CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
+                () => OnFanEdited(id), CopyCurveToAll, OnFanRestoredToAuto, OnFanIdentityChanged));
         }
 
         if (added) Persist();
@@ -1488,9 +1431,12 @@ public sealed partial class FanCurvesViewModel : ObservableObject, IDisposable, 
         // Appliquer un profil modifie des dizaines de propriétés : l'enregistrement se fait une fois, à la fin.
         if (_applyingProfile) return;
 
+        // Un groupe appliqué sans en faire l'état de démarrage : ses ventilateurs partent avec leur configuration d'avant.
+        List<FanCurveConfig> curves = StartupCurves();
+
         AppSettingsStore.Update(settings =>
         {
-            settings.FanCurves = _settings.FanCurves;
+            settings.FanCurves = curves;
             settings.FanIdentities = _settings.FanIdentities;
             settings.FanProfiles = _settings.FanProfiles;
         });
