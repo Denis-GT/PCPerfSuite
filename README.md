@@ -72,9 +72,21 @@ page sont dans `docs/navigation.md` ; les décisions transverses et les briques 
 - **Optimisation Windows** — les réglages de performance de Windows, y compris ceux qui
   sont masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
-  par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
+  par le matériel (HAGS), Mode Jeu, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
-  un indicateur pour l'isolation du noyau (HVCI).
+  un indicateur pour l'isolation du noyau (HVCI). Le sous-onglet **Animations** porte la carte
+  « Animations et effets » *(expérimental)* : un interrupteur par effet (interrupteur général des
+  effets, « Effets d'animation » de Windows, réduction des fenêtres, barre des tâches, menus,
+  info-bulles, listes, défilement fluide, contenu pendant le déplacement, ombres, transparence),
+  le préréglage « Réactif » (tout coupé en un passage, sauf le lissage des polices et
+  l'interrupteur général) et « Rétablir mes réglages d'origine ». Tout passe par
+  SystemParametersInfo, comme le fait Windows, sauf la barre des tâches et la transparence
+  (registre du profil, peut-être seulement à la prochaine ouverture de session). L'app retient la
+  valeur d'origine de chaque effet avant d'y toucher ; ces réglages restent en place quand on
+  quitte l'app. Le gain porte sur la réactivité du bureau, pas sur les FPS. PCPerfSuite suit
+  lui-même « Effets d'animation » : coupé, ses volets s'ouvrent sans animation. Lancée en
+  administrateur sous un autre compte que celui devant l'écran, l'app grise cette carte et le
+  Mode Jeu, qui régleraient le profil de l'administrateur.
 - **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
   onglets : Général (zone de notification, lancement au démarrage de Windows), Installations
   (voir plus bas), Compatibilité de ce PC (voir plus bas) et Thèmes (à venir).
@@ -382,6 +394,9 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   - **Journal de session** : les opérations risquées interrompues au dernier arrêt, et ce qui leur
     est arrivé d'après Windows (interrompu, arrêt brutal, écran bleu…). Un « arrêt brutal » dit un
     indice compatible avec une coupure ou une alimentation qui décroche, jamais une certitude.
+  - **Animations et effets** : la valeur lue de chaque effet visuel, ceux que PCPerfSuite a
+    modifiés avec leur valeur d'origine, et le compte dont le profil est réglé (masqué dans le
+    rapport copié).
 - **Paramètres › Installations** liste les deux logiciels externes dont l'app a besoin, avec leur
   état (installé ou non, version) et à quoi ils servent :
   - **PawnIO** : le bouton télécharge la dernière version de l'installeur depuis le dépôt GitHub

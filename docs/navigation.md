@@ -75,7 +75,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Diagnostic déterministe et rapport | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Diagnostic** | #12 | bientôt disponible |
 | Mode technicien et rédaction IA | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Technicien** | #13 | bientôt disponible |
 | Réglages de performance de Windows | Outils | Optimisation Windows (`optimization`) | — | existant | livrée |
-| Animations Windows | Outils | Optimisation Windows (`optimization`) | sous-onglet **Animations** | #6 | prévue |
+| Animations Windows | Outils | Optimisation Windows (`optimization`) | sous-onglet **Animations** (carte « Animations et effets ») ; l'autre sous-onglet s'appelle **Réglages** | #6 | livrée |
 | Nettoyage des caches | Outils | Nettoyage (`cleanup`) | — | existant | livrée |
 | Carte de l'espace disque | Outils | Stockage (`storage`) | — | existant | livrée |
 | Gestionnaire de disques | Outils | Stockage (`storage`) | sous-onglet **Disques** | #19 | prévue |
