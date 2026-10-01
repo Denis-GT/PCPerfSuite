@@ -42,6 +42,20 @@ public sealed record GpuIdentity(
                && SameWhenBothKnown(saved.PciSubsystemId, current.PciSubsystemId);
     }
 
+    /// <summary>
+    /// Plus strict que <see cref="Matches"/>, pour poser des décalages et une tension (groupes de profils, #8) : en plus,
+    /// la carte doit être identifiée des deux côtés par son nom ou par son identifiant PCI. Une identité qui n'a que la
+    /// marque ne suffit pas : des décalages ne se transposent pas d'une carte à l'autre, même de la même marque.
+    /// </summary>
+    public static bool IsSameCard(GpuIdentity? saved, GpuIdentity? current)
+    {
+        if (saved is null || current is null || !Matches(saved, current)) return false;
+
+        bool namedOnBothSides = !string.IsNullOrWhiteSpace(saved.Name) && !string.IsNullOrWhiteSpace(current.Name);
+        bool deviceOnBothSides = saved.PciDeviceId is not null && current.PciDeviceId is not null;
+        return namedOnBothSides || deviceOnBothSides;
+    }
+
     private static bool SameWhenBothKnown(uint? a, uint? b) => a is null || b is null || a == b;
 
     /// <summary>« NVIDIA  GeForce RTX 5070 Ti » et « nvidia geforce rtx 5070 ti » sont la même carte.</summary>

@@ -50,6 +50,9 @@ public sealed class CpuPlatform
 /// </summary>
 public static partial class CpuPlatformDetector
 {
+    /// <summary>Nom donné quand le registre n'en a aucun : il ne dit rien du processeur (voir <see cref="CpuIdentity"/>).</summary>
+    public const string UnknownName = "Processeur inconnu";
+
     private const string CentralProcessorKey = @"HARDWARE\DESCRIPTION\System\CentralProcessor\0";
 
     public static CpuPlatform Detect()
@@ -91,7 +94,7 @@ public static partial class CpuPlatformDetector
         return new CpuPlatform
         {
             Vendor = vendor,
-            Name = name.Length > 0 ? name : "Processeur inconnu",
+            Name = name.Length > 0 ? name : UnknownName,
             Family = family,
             Model = model,
             IsX64 = RuntimeInformation.ProcessArchitecture == Architecture.X64,
