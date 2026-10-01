@@ -306,4 +306,72 @@ public sealed class ProfileGroupProbationTests : IDisposable
 
         Assert.Null(ProfileGroupStartupCheck.Evaluate(settings));
     }
+
+    [Fact]
+    public void Une_bascule_transitoire_ne_masque_pas_l_etat_de_demarrage_risque()
+    {
+        // Groupe risqué appliqué à la main (état de démarrage), puis bascule automatique vers un autre groupe.
+        AppSettings settings = StartupSettings();
+        settings.ProfileGroups.Groups.Add(new ProfileGroup { Id = "auto" });
+        settings.ProfileGroups.Remember(settings.ProfileGroups.Active!);
+        settings.ProfileGroups.Remember(new ProfileGroupActiveState { GroupId = "auto", MadeStartupState = false, RequesterId = "bascule-auto" });
+
+        Assert.Equal("auto", settings.ProfileGroups.Active!.GroupId);
+        ProfileGroupStartupRisk risk = ProfileGroupStartupCheck.Evaluate(settings)!;
+        Assert.Equal("g1", risk.GroupId);
+        Assert.True(risk.GpuRaised);
+    }
+
+    [Fact]
+    public void Un_fichier_d_avant_l_etat_de_demarrage_retombe_sur_le_groupe_actif()
+    {
+        AppSettings settings = StartupSettings();
+
+        Assert.Null(settings.ProfileGroups.StartupState);
+        Assert.Equal("g1", settings.ProfileGroups.EffectiveStartupState!.GroupId);
+    }
+
+    [Fact]
+    public void Supprimer_le_groupe_efface_aussi_son_etat_de_demarrage()
+    {
+        AppSettings settings = StartupSettings();
+        settings.ProfileGroups.Remember(settings.ProfileGroups.Active!);
+
+        ProfileGroupEditor.Delete(settings.ProfileGroups, "g1");
+
+        Assert.Null(settings.ProfileGroups.StartupState);
+        Assert.Null(ProfileGroupStartupCheck.Evaluate(settings));
+    }
+
+    [Fact]
+    public void Normaliser_retire_un_etat_de_demarrage_orphelin_ou_transitoire()
+    {
+        var settings = new ProfileGroupsSettings
+        {
+            Groups = { new ProfileGroup { Id = "g1" } },
+            StartupState = new ProfileGroupActiveState { GroupId = "disparu", MadeStartupState = true },
+        };
+        Assert.True(settings.Normalize());
+        Assert.Null(settings.StartupState);
+
+        settings.StartupState = new ProfileGroupActiveState { GroupId = "g1", MadeStartupState = false };
+        Assert.True(settings.Normalize());
+        Assert.Null(settings.StartupState);
+    }
+
+    [Fact]
+    public void Le_demandeur_est_note_dans_la_ligne_du_journal()
+    {
+        _probation.Begin("g1", ProfileGroupProbation.ApplyAction, true, false, false, requesterId: "bascule-auto");
+
+        Assert.Equal("bascule-auto", Only().Values[ProfileGroupProbation.RequesterKey]);
+    }
+
+    [Fact]
+    public void Sans_demandeur_la_cle_est_absente()
+    {
+        _probation.Begin("g1", ProfileGroupProbation.ApplyAction, true, false, true);
+
+        Assert.False(Only().Values.ContainsKey(ProfileGroupProbation.RequesterKey));
+    }
 }

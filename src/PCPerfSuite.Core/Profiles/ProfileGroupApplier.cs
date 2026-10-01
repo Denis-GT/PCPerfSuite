@@ -137,7 +137,8 @@ public sealed class ProfileGroupApplier
         bool probationOpen = false;
         if (gpuRisk || wattsRisk)
         {
-            probationOpen = Probation.Begin(group.Id, ProfileGroupProbation.ApplyAction, gpuRisk, wattsRisk, options.MakeStartupState);
+            probationOpen = Probation.Begin(group.Id, ProfileGroupProbation.ApplyAction, gpuRisk, wattsRisk, options.MakeStartupState,
+                options.RequesterId);
             if (!probationOpen)
             {
                 // Règle du journal de session : une opération risquée ne commence pas sans sa ligne sur le disque.

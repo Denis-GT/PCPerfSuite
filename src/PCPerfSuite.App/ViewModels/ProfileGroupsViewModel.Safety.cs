@@ -1,5 +1,6 @@
 using System.Windows.Threading;
 using Microsoft.Win32;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Profiles;
@@ -32,6 +33,10 @@ public sealed partial class ProfileGroupsViewModel
 
     /// <summary>TDR vu pendant la période probatoire de cette session.</summary>
     private ProfileGroupWarning? _sessionWarning;
+
+    /// <summary>Un groupe vient d'être suspendu pendant la session (TDR pendant sa période probatoire), avec la cause :
+    /// la bascule automatique (#9) le note à son journal et prévient. Sur le fil d'interface.</summary>
+    public event Action<string, string>? GroupSuspended;
 
     private ProfileGroupProbation Probation => _applier.Probation;
 
@@ -164,6 +169,16 @@ public sealed partial class ProfileGroupsViewModel
                 Acknowledged = true,
             };
             Persist();
+
+            try
+            {
+                GroupSuspended?.Invoke(group.Id, cause);
+            }
+            catch (Exception ex)
+            {
+                // Un abonné en échec ne doit pas empêcher l'avertissement de la page.
+                CrashLog.Record(ex, "groupe suspendu : abonné");
+            }
         }
 
         var tabs = new List<string>();

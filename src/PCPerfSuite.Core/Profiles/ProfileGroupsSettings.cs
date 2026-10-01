@@ -19,6 +19,13 @@ public sealed class ProfileGroupsSettings
     /// <summary>Dernier groupe appliqué et ce que le matériel en a retenu, null si aucun.</summary>
     public ProfileGroupActiveState? Active { get; set; }
 
+    /// <summary>Dernier groupe appliqué <b>en en faisant l'état de démarrage</b> des onglets, null si aucun. Distinct de
+    /// <see cref="Active"/> : une bascule automatique (#9) remplace le groupe actif sans toucher à ce que les onglets
+    /// reposeront au lancement, et la prudence au démarrage (<see cref="ProfileGroupStartupCheck"/>) doit encore
+    /// reconnaître l'état risqué d'un groupe appliqué à la main. Absent d'un fichier écrit avant #9 : repli sur
+    /// <see cref="Active"/>.</summary>
+    public ProfileGroupActiveState? StartupState { get; set; }
+
     /// <summary>Groupes suspendus après un incident (clé = <see cref="ProfileGroup.Id"/>) : ils ne sont plus réappliqués
     /// sans une confirmation.</summary>
     public Dictionary<string, ProfileGroupSuspension> Suspensions { get; set; } = new();
@@ -71,6 +78,12 @@ public sealed class ProfileGroupsSettings
             changed = true;
         }
 
+        if (StartupState is not null && (Find(StartupState.GroupId) is null || !StartupState.MadeStartupState))
+        {
+            StartupState = null;
+            changed = true;
+        }
+
         if (Suspensions is null)
         {
             Suspensions = new Dictionary<string, ProfileGroupSuspension>();
@@ -88,6 +101,19 @@ public sealed class ProfileGroupsSettings
 
     public ProfileGroup? Find(string? id)
         => string.IsNullOrEmpty(id) ? null : Groups.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Mémorise un groupe qui vient d'être appliqué : il devient le groupe actif et, s'il a fait l'état de
+    /// démarrage des onglets, l'état de démarrage aussi.</summary>
+    public void Remember(ProfileGroupActiveState active)
+    {
+        Active = active;
+        if (active.MadeStartupState) StartupState = active;
+    }
+
+    /// <summary>L'état que les onglets reposeront au lancement s'il vient d'un groupe : <see cref="StartupState"/>, ou
+    /// <see cref="Active"/> pour un fichier écrit avant que l'état de démarrage ne soit séparé.</summary>
+    public ProfileGroupActiveState? EffectiveStartupState
+        => StartupState ?? (Active is { MadeStartupState: true } active ? active : null);
 }
 
 /// <summary>

@@ -346,27 +346,30 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
         bool liftSuspension = item.IsConfirmingApply;
         item.IsConfirmingApply = false;
-        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, makeStartupState);
+        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState));
         if (result is null) return;
 
         if (liftSuspension && result.Active is not null) _store.Suspensions.Remove(item.Id);
         Refresh();
     }
 
-    /// <summary>Applique par l'orchestrateur, puis mémorise l'état retenu comme groupe actif.</summary>
-    private async Task<ProfileGroupApplyResult?> RunApplyAsync(ProfileGroup group, bool makeStartupState)
+    private static ProfileGroupApplyOptions ManualOptions(bool makeStartupState)
+        => new(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true, MakeStartupState: makeStartupState);
+
+    /// <summary>Applique par l'orchestrateur, puis mémorise l'état retenu comme groupe actif (et comme état de démarrage
+    /// s'il l'est devenu).</summary>
+    private async Task<ProfileGroupApplyResult?> RunApplyAsync(ProfileGroup group, ProfileGroupApplyOptions options)
     {
         IsApplying = true;
         try
         {
-            ProfileGroupApplyResult result = await _applier.ApplyAsync(group,
-                new ProfileGroupApplyOptions(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true, MakeStartupState: makeStartupState));
+            ProfileGroupApplyResult result = await _applier.ApplyAsync(group, options);
 
             LastReport = result.Report.Describe();
             Status = result.Report.Title;
             if (result.Active is { } active)
             {
-                _store.Active = active;
+                _store.Remember(active);
                 Persist();
             }
 
@@ -582,7 +585,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         if (item is null) return;
 
         item.IsEditing = false;
-        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, makeStartupState: true);
+        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState: true));
         if (result is null || result.Report.WasRefused) return;
 
         _tuning = (item.Id, dimension);

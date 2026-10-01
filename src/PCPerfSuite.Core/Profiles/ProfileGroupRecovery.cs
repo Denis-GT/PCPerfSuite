@@ -149,7 +149,9 @@ public sealed record ProfileGroupStartupRisk(string GroupId, bool GpuRaised, boo
 /// Au lancement, les onglets réappliquent leurs dernières valeurs si leur case « Appliquer au démarrage » est cochée
 /// (le GPU dans son constructeur). Quand ces valeurs sont l'état risqué du dernier groupe appliqué, c'est une nouvelle
 /// application de ce groupe : elle ouvre sa période probatoire, avant que le GPU ne soit construit. Décidé d'après les
-/// seuls réglages, en logique pure.
+/// seuls réglages, en logique pure. On lit l'état de démarrage (<see cref="ProfileGroupsSettings.StartupState"/>), pas
+/// le groupe actif : une bascule automatique (#9), transitoire, ne doit pas masquer l'état risqué d'un groupe appliqué à
+/// la main.
 /// </summary>
 public static class ProfileGroupStartupCheck
 {
@@ -157,7 +159,7 @@ public static class ProfileGroupStartupCheck
 
     public static ProfileGroupStartupRisk? Evaluate(AppSettings settings)
     {
-        if (settings.ProfileGroups?.Active is not { MadeStartupState: true } active) return null;
+        if (settings.ProfileGroups?.EffectiveStartupState is not { MadeStartupState: true } active) return null;
         if (settings.ProfileGroups.Suspensions?.ContainsKey(active.GroupId) == true) return null;
 
         bool gpu = active.GpuRaised && settings.Gpu.ApplyOverclockAtStartup && active.Gpu is { } retained && SameGpu(retained, settings.Gpu);
