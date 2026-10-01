@@ -459,8 +459,16 @@ public sealed class PawnIoModule : IDisposable
     private static readonly ulong[] NoValues = [];
 
     public bool TryExecute(string function, ulong[] input, int outputCount, out ulong[] output)
+        => TryExecute(function, input, outputCount, out output, out _);
+
+    /// <param name="returned">Nombre de valeurs réellement écrites par le module (au plus <paramref name="outputCount"/>) :
+    /// <paramref name="output"/> est toujours de la taille demandée, complété de zéros. Un appel réussi qui annonce 0
+    /// valeur alors qu'on en attendait compte comme complet : rien ne garantit que chaque version de PawnIO renseigne
+    /// cette taille (à vérifier), et le compter vide ferait régresser les lectures qui marchaient avant.</param>
+    public bool TryExecute(string function, ulong[] input, int outputCount, out ulong[] output, out int returned)
     {
         output = outputCount > 0 ? new ulong[outputCount] : NoValues;
+        returned = 0;
 
         lock (_lock)
         {
@@ -482,7 +490,8 @@ public sealed class PawnIoModule : IDisposable
                     _handle, function,
                     input, (nuint)input.Length,
                     output, (nuint)output.Length,
-                    out _);
+                    out nuint returnSize);
+                returned = returnSize == 0 && LastError == 0 ? output.Length : (int)Math.Min(returnSize, (nuint)output.Length);
                 return LastError == 0;
             }
             catch (Exception ex)
@@ -497,7 +506,8 @@ public sealed class PawnIoModule : IDisposable
     /// HRESULT en forçant le bit 0x10000000 : 0xC0000022 (accès refusé) devient donc 0xD0000022.</summary>
     public static string DescribeError(int hresult) => (uint)hresult switch
     {
-        0xD0000022 => "écriture refusée par le module PawnIO",
+        // Lecture comme écriture : le registre n'est pas sur la liste blanche du module.
+        0xD0000022 => "accès refusé par le module PawnIO",
         0xD00000BB => "non supporté sur ce processeur",
         0xD000000D => "paramètre invalide",
         0xD0000001 => "le module a échoué",

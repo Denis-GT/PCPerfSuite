@@ -5,9 +5,11 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Safety;
+using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
 using PCPerfSuite.Core.SystemInfo;
 
@@ -90,8 +92,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// rien ne manque.</summary>
     public string? AppSettingsToolTip => _installations.MissingSummary;
 
-    public MainViewModel()
+    /// <summary>Bilan de la reprise au lancement (opérations interrompues au dernier arrêt, et ce qui leur est arrivé),
+    /// fait par App.OnStartup avant cette classe. Les fonctions qui ne doivent pas réappliquer un réglage après un
+    /// incident le consultent.</summary>
+    public StartupRecoveryReport StartupRecovery { get; }
+
+    public MainViewModel(StartupRecoveryReport startupRecovery)
     {
+        StartupRecovery = startupRecovery;
         _monitoring = new MonitoringViewModel(_hardware);
         _processes = new ProcessesViewModel(_monitoring);
         _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
@@ -105,6 +113,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
         _compatibilityRows.Add(new DisplaysRowProvider());
+        _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));
+        _compatibilityRows.Add(new WindowsEventsRowProvider());
+        _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),

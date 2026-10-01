@@ -686,7 +686,13 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
         _tickIntervalTicks = ComputeTickInterval().Ticks;
         _loop = new SamplingLoop(() => TickInterval, OnSamplingTick);
         _loop.Start();
+
+        // Un bail de cadence (bench, test) peut raccourcir le tick depuis n'importe quel thread : recalcul sur celui de
+        // l'interface, comme pour les autres changements de cadence.
+        _hardware.CadenceChanged += OnCadenceChanged;
     }
+
+    private void OnCadenceChanged() => _dispatcher.InvokeAsync(UpdateTimerInterval);
 
     private void OnMyMetricsSelectionChanged()
     {
@@ -1022,6 +1028,7 @@ public sealed partial class MonitoringViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _hardware.CadenceChanged -= OnCadenceChanged;
         _loop.Dispose();
     }
 }

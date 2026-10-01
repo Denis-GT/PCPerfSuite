@@ -61,6 +61,30 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   pas être annulé. Pas de « ne plus demander ». Une opération qui peut faire planter la machine le dit avant.
 - **Pages** : une page qui charge ou relève quelque chose implémente `IPageLifecycle` et charge à la première
   ouverture, jamais dans son constructeur (voir `docs/navigation.md`).
+- **Journal de session** (#4) : toute opération risquée qui doit être reprise après un plantage (palier d'OC, essai
+  d'écran, test combiné, bench, groupe ou bascule appliqués, limites par processus actives) s'inscrit dans
+  `SessionJournal.Current` (`src/PCPerfSuite.Core/Safety/SessionJournal.cs`), et nulle part ailleurs : **aucun autre
+  « marqueur » ni « témoin de session »**. Le seul témoin antérieur, `AdlxProbeGuard` (initialisation d'ADLX), reste
+  tel quel ; #14 pourra le migrer.
+  - Fichier `AppDataPaths.SessionJournalFile` = `journal-session.jsonl`, JSON Lines v1, une ligne par écriture, jamais
+    réécrite pendant une opération : `{"v":1,"id":GUID,"timeUtc":…,"boot":…,"pid":…,"component":"test-combine",
+    "action":"debut","values":{clé:chaîne},"state":"InProgress"|"Completed"|"Failed","cause":…}`. L'état d'une
+    opération est celui de sa dernière ligne ; `boot` (démarrage de Windows) dit si le PC a redémarré depuis.
+  - `Begin(composant, action, valeurs)` → `SessionOperation` (`Complete()`, `Fail(cause)`, `Dispose()` sans clôture =
+    échouée ; `IsDurable` faux = ligne pas sur le disque, l'opération ne doit pas commencer). Composant et action en
+    kebab-case ; valeurs = nombres ou mots, jamais un nom d'application ou de fichier (masqués).
+  - Écriture courte en ajout, `WriteThrough` puis `Flush(true)`, précédée d'un saut de ligne ; lecture tolérante (fin
+    arrachée ignorée). Rétention 30 jours, compactage au lancement seulement.
+  - Une exception non gérée qui tue l'app clôt ses opérations ouvertes (`AbandonAll`). Limite connue : un processus tué
+    de l'extérieur (Gestionnaire des tâches) laisse son opération en cours, et un arrêt anormal de Windows survenu
+    ensuite, avant tout redémarrage, lui est imputé.
+  - Reprise : un gestionnaire `IStartupRecoveryHandler` (étape `RecoveryStage`, composants) s'inscrit dans
+    `src/PCPerfSuite.App/StartupRecoveryHandlers.cs`. Il reçoit, avant toute fenêtre, ses opérations restées en cours
+    avec leur `IncidentQualification`, ne montre aucune fenêtre, et peut lever sans gêner les autres. Le bilan
+    (`StartupRecoveryReport`) est passé à `MainViewModel.StartupRecovery`.
+- **Cause d'une absence** (#4) : une lecture « N/D » porte un `Unavailable` (`UnavailableCause` : `HardwareOrDriver`,
+  `UnsupportedModel`, `MissingRights`, `src/PCPerfSuite.Core/Compatibility/UnavailableCause.cs`) et un texte, pour que
+  le diagnostic (#12) range ce qui n'est pas mesurable sans réinventer les trois causes de la règle 3.
 
 ## Briques partagées
 
@@ -79,10 +103,12 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
 | Appliquer puis relire l'OC GPU : `GpuControlService.ApplyAndVerify(GpuOverclockRequest)` → `GpuApplyReport` (demandé / retenu / `GpuApplyStatus` par réglage), comparaison pure `GpuApplyComparison.Compare` ; plages de repli NVAPI signalées par `GpuOverclockSnapshot.CoreOffsetRangeIsFallback` / `MemoryOffsetRangeIsFallback` | #2 | `src/PCPerfSuite.Core/Hardware/Gpu/GpuOverclockApply.cs` | livrée ; pour #8, #15 |
 | Fonctions d'un module PawnIO : `PawnIoModuleFunctions.Parse` (chaînes `ioctl_…` du module), `PawnIoModuleInfo` (source, version, fonctions, SHA-256), `PawnIoDriver.LoadedModules` et `PawnIoDriver.LoadFailures` (dernier échec par module) ; modules livrés par l'app `ShippedPawnIoModules` (IntelMSR 0.2.11 dans `PawnIO\`, choisi avant celui de LHM par `PawnIoModuleChoice`) ; ligne `PawnIoModulesRowProvider` | #2 | `src/PCPerfSuite.Core/Hardware/Cpu/PawnIoModules.cs` | livrée ; reprise par #4 |
 | Inventaire des écrans `DisplayTopology.Read()` → `DisplayTopologySnapshot` : `DisplayMonitor` (HMONITOR, bornes et zone de travail en pixels physiques, DPI et échelle, principal, nom du GPU) et un `DisplayTarget` par écran physique, plusieurs si dupliqués (nom convivial, chemin du moniteur, EDID fabricant en code PNP et produit, sortie `DisplayOutputKind`, connecteur, LUID et chemin de l'adaptateur, fréquence). Filtre des fenêtres du premier plan `IsIgnoredForegroundWindow` (PCPerfSuite, barre des tâches, bureau, menu Démarrer, recherche, Alt+Tab) et fenêtre → écran `MonitorFromWindow` / `FindMonitor`, pour #9. Identité enregistrée `DisplayIdentity` (chemin, EDID, nom, empreinte du numéro de série ; jamais `\\.\DISPLAYn`) et `DisplayIdentityResolver` ; numéros de série WMI `MonitorSerials` (empreinte seulement) ; noms `DisplayNames` ; ligne « Écrans » `DisplaysRowProvider`. Win32 seulement, aucun WinRT (D10) | #3 | `src/PCPerfSuite.Core/Hardware/Displays/` | livrée ; pour #9, #17, #22 |
-| `SessionJournal` et qualification d'incident au lancement | #4 | `src/PCPerfSuite.Core/Safety/` | prévue |
-| Étape `StartupRecovery` d'`App.OnStartup` | #4 | `src/PCPerfSuite.App/App.xaml.cs` | prévue |
-| Lecteur CfgMgr32 (graine du service des périphériques de #18) | #4 | `src/PCPerfSuite.Core/Devices/` | prévue |
-| Bail de cadence (cadence temporaire par demandeur) | #4 | `HardwareMonitorService` / `SensorReadSchedule` | prévue |
+| `SessionJournal` (format et règles : voir « Journal de session » plus haut) ; qualification d'incident `IncidentClassifier.Qualify` (même démarrage de Windows = interrompu ; sinon événements en direct avant le premier redémarrage, événements d'après coup entre ce redémarrage et le suivant) et `ClassifyAll` (incidents des 30 derniers jours) ; lecture du journal Système `SystemEventReader` (Kernel-Power 41, WER 1001, 6008, démarrages et arrêts propres, WHEA 17/18/19/47, Display 4101, disk 7/51/153, Kernel-Processor-Power 37 ; champs techniques seulement, jamais le texte des messages) ; lignes « Journal de session » et « Journaux Windows » | #4 | `src/PCPerfSuite.Core/Safety/SessionJournal.cs`, `src/PCPerfSuite.Core/Safety/Events/` | livrée ; pour #8 à #21 |
+| Étape `StartupRecovery` : logique pure `StartupRecovery` (ordre fixe des étapes, gestionnaires isolés, journal Système lu 2 s au plus, opérations closes avec leur qualification, compactage), appelée par `App.OnStartup` après le mutex d'instance et avant la fenêtre ; gestionnaires dans `StartupRecoveryHandlers` | #4 | `src/PCPerfSuite.Core/Safety/StartupRecovery.cs`, `src/PCPerfSuite.App/App.xaml.cs`, `src/PCPerfSuite.App/StartupRecoveryHandlers.cs` | livrée ; aucun gestionnaire inscrit |
+| Lecteur CfgMgr32 (graine du service des périphériques de #18) | #4 | `src/PCPerfSuite.Core/Devices/` | prévue (pas encore fait par #4) |
+| Bail de cadence `HardwareMonitorService.RequestCadence(demandeur, intervalle, groupes)` → IDisposable, logique pure `CadenceLeases` : le plus rapide l'emporte sur la cadence imposée, l'automatique et le plafond GPU, sans les modifier ; groupe sous bail relu en mode éco ; tick minimal 100 ms (`MinTickInterval`) ; `IsCadenceLeased(groupe)` | #4 | `src/PCPerfSuite.Core/Hardware/HardwareMonitorService.Cadence.cs`, `CadenceLeases.cs` | livrée ; pour #10, #11 |
+| Bridage CPU dans le relevé `HardwareSnapshot.CpuThrottle` (`CpuThrottleReading` : thermique, PROCHOT, puissance, courant, TjMax et décalage TCC, fréquences, valeurs AMD, source et cause) : MSR Intel (IntelMSR, 0x64F tenté), PM table AMD par version (`PmTableLayouts`), compteurs Windows toujours ; balayage par cœur seulement sous bail ; ligne « Raisons de bridage CPU » ; dernier relevé `HardwareMonitorService.LastSnapshot` | #4 | `src/PCPerfSuite.Core/Hardware/Cpu/Throttle/` | livrée ; pour #10, #11, #12 |
+| Bridage GPU dans le relevé, verrou des appels au pilote dans `GpuControlService`, liens PCIe, contrôles de configuration, carte « Bridage » de Monitoring | #4 | voir le plan de #4 | prévue (pas encore fait par #4) |
 | `CpuTopology` (CPU sets : cœur, fils SMT, L3/CCD, classe d'efficacité ; logique pure) | #5 | `src/PCPerfSuite.Core/Hardware/Cpu/` | prévue |
 | `OfficialInstaller` paramétré par source | #7 | `src/PCPerfSuite.Core/Installations/` | prévue |
 | Dossier sécurisé `%ProgramData%\PCPerfSuite` (ACL restreinte, jonctions refusées) | #7 | `src/PCPerfSuite.Core/Installations/` | prévue |

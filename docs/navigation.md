@@ -51,7 +51,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Fonctionnalité | Section | Page (clé) | Sous-onglet ou emplacement | Conversation | État |
 |---|---|---|---|---|---|
 | Monitoring en temps réel | Surveiller | Monitoring (`monitoring`) | — | existant | livrée |
-| Signaux : bridage, journaux Windows, liens PCIe | Surveiller | Monitoring (`monitoring`) et diagnostic | pas de page ; lignes du diagnostic par fournisseur | #4 | prévue |
+| Signaux : bridage, journaux Windows, liens PCIe | Surveiller | Monitoring (`monitoring`) et diagnostic | pas de page ; lignes du diagnostic par fournisseur ; carte « Bridage » dans Monitoring | #4 | en partie : bridage CPU, journaux Windows et journal de session livrés au diagnostic ; bridage GPU, liens PCIe, contrôles et carte Monitoring prévus |
 | Gestionnaire de processus | Surveiller | Processus (`processes`) | — | existant | livrée |
 | Limites CPU / RAM / disque / réseau par processus | Surveiller | Processus (`processes`) | « Limiter… » dans le menu contextuel et le détail ; sous-onglet **Limites** pour la liste des règles | #21 | prévue |
 | Overlay en jeu | Surveiller | Overlay (`overlay`) | — | existant | livrée |

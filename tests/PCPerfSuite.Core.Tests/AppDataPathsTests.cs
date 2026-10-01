@@ -16,6 +16,7 @@ public class AppDataPathsTests
         Assert.Equal(Path.Combine(Root, "erreurs.log"), paths.CrashLogFile);
         Assert.Equal(Path.Combine(Root, "diagnostic-ventilateurs.log"), paths.FanChipDiagnosticFile);
         Assert.Equal(Path.Combine(Root, "adlx-plantage.temoin"), paths.AdlxSentinelFile);
+        Assert.Equal(Path.Combine(Root, "journal-session.jsonl"), paths.SessionJournalFile);
     }
 
     [Fact]
