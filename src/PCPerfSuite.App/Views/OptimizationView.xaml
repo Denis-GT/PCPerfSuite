@@ -1,7 +1,8 @@
 <UserControl x:Class="PCPerfSuite.App.Views.OptimizationView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
+             xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels">
 
     <UserControl.Resources>
         <!-- Réglages regroupés par catégorie : une carte par catégorie, une ligne par réglage. -->
@@ -16,88 +17,198 @@
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
 
             <controls:PageHeader Title="Optimisation Windows"
-                                 Subtitle="Réglages de performance de Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.). Les réglages de PCPerfSuite lui-même sont dans « Paramètres », en bas de la barre latérale."/>
+                                 Subtitle="Réglages de performance de Windows, y compris ceux masqués dans les menus standards (plan d'alimentation caché, planification GPU, etc.), et effets visuels du bureau. Les réglages de PCPerfSuite lui-même sont dans « Paramètres », en bas de la barre latérale."/>
 
-            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,20"
-                    Visibility="{Binding IsElevated, Converter={StaticResource InverseBoolToVisibility}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" VerticalAlignment="Top" Margin="0,1,12,0"/>
-                    <TextBox Grid.Column="1" Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
-                             Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → « Exécuter en tant qu'administrateur »)."/>
-                </Grid>
-            </Border>
+            <!-- Sous-onglets : ajouter une section dans OptimizationViewModel.Sections, puis son panneau ci-dessous. -->
+            <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
+                     DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
-            <ItemsControl ItemsSource="{Binding Source={StaticResource GroupedTweaks}}">
-                <ItemsControl.GroupStyle>
-                    <GroupStyle>
-                        <GroupStyle.ContainerStyle>
-                            <Style TargetType="GroupItem">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="GroupItem">
-                                            <StackPanel Margin="0,0,0,20">
-                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
-                                                <Border Style="{StaticResource Card}" Padding="20,4">
-                                                    <ItemsPresenter/>
-                                                </Border>
+            <!-- Réglages -->
+            <StackPanel Visibility="{Binding SelectedSection.Key, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:OptimizationViewModel.TweaksSectionKey}}">
+
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,20"
+                        Visibility="{Binding IsElevated, Converter={StaticResource InverseBoolToVisibility}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" VerticalAlignment="Top" Margin="0,1,12,0"/>
+                        <TextBox Grid.Column="1" Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
+                                 Text="Certains réglages ne s'appliqueront pas tant que l'app ne tourne pas en administrateur (clic droit → « Exécuter en tant qu'administrateur »)."/>
+                    </Grid>
+                </Border>
+
+                <ItemsControl ItemsSource="{Binding Source={StaticResource GroupedTweaks}}">
+                    <ItemsControl.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="GroupItem">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="GroupItem">
+                                                <StackPanel Margin="0,0,0,20">
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
+                                                    <Border Style="{StaticResource Card}" Padding="20,4">
+                                                        <ItemsPresenter/>
+                                                    </Border>
+                                                </StackPanel>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
+                        </GroupStyle>
+                    </ItemsControl.GroupStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+
+                                        <WrapPanel Margin="0,8,0,0">
+                                            <Border Style="{StaticResource Badge}"
+                                                    Visibility="{Binding RequiresRestart, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="Redémarrage requis" Style="{StaticResource BadgeText}"/>
+                                            </Border>
+                                            <Border Style="{StaticResource BadgeWarn}"
+                                                    Visibility="{Binding IsRisky, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="Compromis énergie/chaleur" Style="{StaticResource BadgeText}"/>
+                                            </Border>
+                                            <Border Style="{StaticResource Badge}"
+                                                    Visibility="{Binding IsUnknownState, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="État inconnu sur cette config" Style="{StaticResource BadgeText}"/>
+                                            </Border>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="{Binding UnavailableReason}" Style="{StaticResource Caption}" Foreground="{StaticResource WarnBrush}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding UnavailableReason, Converter={StaticResource NullToVisibility}}"/>
+                                        <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
+                                                   Margin="0,6,0,0"
+                                                   Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
+                                    </StackPanel>
+
+                                    <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                              IsChecked="{Binding IsOn, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"/>
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <!-- Pas de séparateur au-dessus de la première ligne d'une carte. -->
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                    <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Animations : carte « Animations et effets » (WindowsAnimationsViewModel). -->
+            <StackPanel DataContext="{Binding Animations}"
+                        Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:OptimizationViewModel.AnimationsSectionKey}}">
+
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,20"
+                        Visibility="{Binding UnavailableReason, Converter={StaticResource NullToVisibility}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" VerticalAlignment="Top" Margin="0,1,12,0"/>
+                        <TextBox Grid.Column="1" Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" FontWeight="SemiBold"
+                                 Text="{Binding UnavailableReason, Mode=OneWay}"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Margin="4,0,0,8">
+                    <TextBlock Text="Animations et effets" Style="{StaticResource Eyebrow}" FontSize="12" VerticalAlignment="Center"/>
+                    <Border Style="{StaticResource BadgeAccent}" Margin="10,0,0,0"
+                            ToolTip="L'effet de chaque interrupteur n'a pas encore été vérifié sur une vraie machine.">
+                        <TextBlock Text="Expérimental" Style="{StaticResource BadgeText}"/>
+                    </Border>
+                </StackPanel>
+
+                <Border Style="{StaticResource Card}" Padding="20,16,20,4">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                                   Text="Couper ces effets rend le bureau plus vif (fenêtres, menus, info-bulles). Les jeux les ignorent : rien à attendre côté FPS. Ces réglages restent en place quand tu quittes PCPerfSuite ; « Rétablir mes réglages d'origine » rend ceux que l'app a changés."/>
+
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Content="Préréglage « Réactif »" Style="{StaticResource AccentButton}" Margin="0,0,8,8"
+                                    Command="{Binding ApplyResponsivePresetCommand}"
+                                    ToolTip="Coupe toutes les animations, les ombres et la transparence en un seul passage. Le lissage des polices et l'interrupteur général restent tels quels."/>
+                            <Button Content="Rétablir mes réglages d'origine" Style="{StaticResource GhostButton}" Margin="0,0,8,8"
+                                    Command="{Binding RestoreOriginalCommand}"
+                                    ToolTip="Rend à chaque effet modifié par PCPerfSuite la valeur qu'il avait avant."/>
+                        </WrapPanel>
+
+                        <TextBlock Text="{Binding StatusMessage}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibility}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StatusIsError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <ItemsControl ItemsSource="{Binding Items}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
+
+                                                <WrapPanel Margin="0,8,0,0">
+                                                    <Border Style="{StaticResource BadgeAccent}"
+                                                            Visibility="{Binding ChangedText, Converter={StaticResource NullToVisibility}}">
+                                                        <TextBlock Text="{Binding ChangedText}" Style="{StaticResource BadgeText}"/>
+                                                    </Border>
+                                                    <Border Style="{StaticResource Badge}"
+                                                            Visibility="{Binding IsUnknownState, Converter={StaticResource BoolToVisibility}}">
+                                                        <TextBlock Text="État illisible sur ce PC" Style="{StaticResource BadgeText}"/>
+                                                    </Border>
+                                                </WrapPanel>
+
+                                                <TextBlock Text="{Binding ApplyNote}" Style="{StaticResource Caption}" Margin="0,6,0,0"
+                                                           Visibility="{Binding ApplyNote, Converter={StaticResource NullToVisibility}}"/>
+                                                <TextBlock Text="{Binding BlockedReason}" Style="{StaticResource Caption}" Foreground="{StaticResource WarnBrush}"
+                                                           Margin="0,6,0,0"
+                                                           Visibility="{Binding BlockedReason, Converter={StaticResource NullToVisibility}}"/>
+                                                <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
+                                                           Margin="0,6,0,0"
+                                                           Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
                                             </StackPanel>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </GroupStyle.ContainerStyle>
-                    </GroupStyle>
-                </ItemsControl.GroupStyle>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
 
-                                <StackPanel Grid.Column="0" Margin="0,0,24,0">
-                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,4,0,0"/>
-
-                                    <WrapPanel Margin="0,8,0,0">
-                                        <Border Style="{StaticResource Badge}"
-                                                Visibility="{Binding RequiresRestart, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="Redémarrage requis" Style="{StaticResource BadgeText}"/>
-                                        </Border>
-                                        <Border Style="{StaticResource BadgeWarn}"
-                                                Visibility="{Binding IsRisky, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="Compromis énergie/chaleur" Style="{StaticResource BadgeText}"/>
-                                        </Border>
-                                        <Border Style="{StaticResource Badge}"
-                                                Visibility="{Binding IsUnknownState, Converter={StaticResource BoolToVisibility}}">
-                                            <TextBlock Text="État inconnu sur cette config" Style="{StaticResource BadgeText}"/>
-                                        </Border>
-                                    </WrapPanel>
-
-                                    <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" Foreground="{StaticResource DangerBrush}"
-                                               Margin="0,6,0,0"
-                                               Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
-                                </StackPanel>
-
-                                <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
-                                          IsChecked="{Binding IsOn, Mode=TwoWay}" IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolean}}"/>
-                            </Grid>
-                        </Border>
-                        <DataTemplate.Triggers>
-                            <!-- Pas de séparateur au-dessus de la première ligne d'une carte. -->
-                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
-                                <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
-                            </DataTrigger>
-                        </DataTemplate.Triggers>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
+                                                      IsChecked="{Binding IsOn, Mode=TwoWay}"
+                                                      IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
 
         </StackPanel>
     </ScrollViewer>

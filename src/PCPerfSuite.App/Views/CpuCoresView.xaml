@@ -1,0 +1,208 @@
+<UserControl x:Class="PCPerfSuite.App.Views.CpuCoresView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <UserControl.Resources>
+        <!-- Un réglage du parking : son nom et son alias Windows (celui de powercfg /qh), puis secteur et batterie. Même mise en
+             page que les réglages d'alimentation de l'onglet Réglages. Ici et non dans Styles/Cores.xaml : un modèle d'un
+             dictionnaire fusionné ne voit pas les convertisseurs déclarés dans App.xaml. -->
+        <DataTemplate x:Key="CoreParkingSettingTemplate">
+            <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Label}" Style="{StaticResource Body}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Border Style="{StaticResource Badge}" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Alias}" Style="{StaticResource BadgeText}"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Sur secteur" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding AcChoice}"
+                                  ItemTemplate="{StaticResource LabelOptionTemplate}" HorizontalAlignment="Left" MinWidth="240"
+                                  Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                        <controls:NumberField Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding AcValue}" Unit="%"
+                                              Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                    </Grid>
+
+                    <Grid Margin="0,8,0,0" Visibility="{Binding ShowBattery, Converter={StaticResource BoolToVisibility}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Sur batterie" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding BatteryChoice}"
+                                  ItemTemplate="{StaticResource LabelOptionTemplate}" HorizontalAlignment="Left" MinWidth="240"
+                                  Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                        <controls:NumberField Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding BatteryValue}" Unit="%"
+                                              Visibility="{Binding IsNumeric, Converter={StaticResource BoolToVisibility}}"/>
+                    </Grid>
+
+                    <TextBlock Text="{Binding OriginText}" Style="{StaticResource Caption}" Foreground="{StaticResource TextTertiaryBrush}"
+                               Margin="0,6,0,0" Visibility="{Binding OriginText, Converter={StaticResource NullToVisibility}}"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <!-- Processeur › Cœurs. Pas de ScrollViewer ici : la page Processeur défile déjà. -->
+    <StackPanel>
+
+        <!-- ============ Usage par cœur ============ -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="Usage par cœur" Style="{StaticResource H2}"/>
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                         Text="Chaque jauge est un fil d'exécution (processeur logique), rangé avec son cœur, sa classe et son cache L3. Le remplissage est la charge, comme dans la vue des processeurs logiques du Gestionnaire des tâches ; les hachures, la part du temps passé parqué sur les 5 dernières secondes (l'état bascule plusieurs fois par seconde). Relevé chaque seconde, seulement tant que cet onglet est affiché."/>
+
+                <TextBox Text="{Binding Summary, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"
+                         Margin="0,12,0,0" TextWrapping="Wrap"/>
+                <TextBox Text="{Binding ParkedSummary, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,2,0,0"/>
+
+                <!-- Légende -->
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <controls:CoreThreadBar Width="10" Height="18" Load="60" HasValue="True"/>
+                    <TextBlock Text="charge" Style="{StaticResource CoreLegendText}"/>
+                    <controls:CoreThreadBar Width="10" Height="18" Load="0" ParkedShare="1" HasValue="True"/>
+                    <TextBlock Text="parqué" Style="{StaticResource CoreLegendText}"/>
+                </StackPanel>
+
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,12,0,0"
+                        Visibility="{Binding TopologyUnavailable, Converter={StaticResource NullToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                             Text="{Binding TopologyUnavailable, Mode=OneWay}"/>
+                </Border>
+
+                <!-- Règle 6 : ce qui n'a pas été vérifié sur une vraie machine. -->
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,12,0,0"
+                        Visibility="{Binding ExperimentalNotice, Converter={StaticResource NullToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                             Text="{Binding ExperimentalNotice, Mode=OneWay}"/>
+                </Border>
+
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                         Text="{Binding VCacheNotice, Mode=OneWay}"
+                         Visibility="{Binding VCacheNotice, Converter={StaticResource NullToVisibility}}"/>
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                         Text="{Binding ActivityNote, Mode=OneWay}"
+                         Visibility="{Binding ActivityNote, Converter={StaticResource NullToVisibility}}"/>
+
+                <TextBlock Text="Analyse…" Style="{StaticResource Caption}" Margin="0,12,0,0"
+                           Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}"/>
+
+                <!-- Groupes de cache L3, puis classes, puis cœurs et leurs fils. -->
+                <ItemsControl ItemsSource="{Binding Clusters}" Margin="0,14,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="Panel" Style="{StaticResource CoreClusterPanel}">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                                Visibility="{Binding HasHeader, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="{Binding Title}" Style="{StaticResource Body}" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="0,0,10,0"
+                                                   Visibility="{Binding Title, Converter={StaticResource NullToVisibility}}"/>
+                                        <TextBlock Text="{Binding CacheText}" Style="{StaticResource Caption}" VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"
+                                                   Visibility="{Binding CacheText, Converter={StaticResource NullToVisibility}}"/>
+                                        <Border Style="{StaticResource BadgeAccent}" VerticalAlignment="Center"
+                                                Visibility="{Binding IsVCache, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="CCD avec 3D V-Cache" Style="{StaticResource BadgeText}"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <ItemsControl ItemsSource="{Binding Classes}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Title}" Style="{StaticResource CoreClassTitle}"
+                                                               Visibility="{Binding Title, Converter={StaticResource NullToVisibility}}"/>
+                                                    <ItemsControl ItemsSource="{Binding Cores}" ItemTemplate="{StaticResource CoreTileTemplate}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <WrapPanel/>
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsVCache}" Value="True">
+                                    <Setter TargetName="Panel" Property="Style" Value="{StaticResource CoreClusterPanelVCache}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <!-- ============ Parking du plan actif ============ -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <TextBlock Text="Parking des cœurs" Style="{StaticResource H2}"/>
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                         Text="Windows met en veille (parque) les cœurs dont il n'a pas besoin, pour économiser l'énergie, et les réveille quand la charge monte. Ces réglages, en part des cœurs, sont ceux du plan d'alimentation actif, y compris ceux que Windows masque. Ils ne sont pas enregistrés dans les profils de l'onglet Réglages."/>
+
+                <TextBox Text="{Binding PlanText, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold" Margin="0,12,0,0"/>
+
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap"
+                         Foreground="{StaticResource TextTertiaryBrush}"
+                         Text="Ne porte que sur le plan actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le perd. Les outils du fabricant (Armoury Crate, Lenovo Vantage…) et les profils internes de Windows (mode Jeu…) peuvent l'écraser. Ces réglages restent en place après la fermeture de PCPerfSuite, jusqu'à « Windows (origine) »."/>
+
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,12,0,0"
+                        Visibility="{Binding ElevationMessage, Converter={StaticResource NullToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                             Text="{Binding ElevationMessage, Mode=OneWay}"/>
+                </Border>
+
+                <Border Style="{StaticResource CalloutWarn}" Margin="0,12,0,0"
+                        Visibility="{Binding SettingsUnavailable, Converter={StaticResource NullToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                             Text="{Binding SettingsUnavailable, Mode=OneWay}"/>
+                </Border>
+
+                <!-- Préréglages -->
+                <WrapPanel Margin="0,14,0,0" IsEnabled="{Binding CanEdit}">
+                    <Button Content="Windows (origine)" Style="{StaticResource GhostButton}" Margin="0,0,8,8"
+                            ToolTip="Rend les valeurs d'avant PCPerfSuite, notées avant sa première modification."
+                            Command="{Binding RestoreOriginCommand}"/>
+                    <Button Content="Tous les cœurs actifs" Style="{StaticResource GhostButton}" Margin="0,0,8,8"
+                            ToolTip="Plus aucun cœur parqué (100 % au minimum, d'après Microsoft). Plus réactif aux pics de charge, mais chauffe et consomme plus au repos, surtout sur un portable. Sur un portable, seule la valeur sur secteur change."
+                            Command="{Binding ApplyAllCoresActiveCommand}"/>
+                    <Button Content="Économie" Style="{StaticResource GhostButton}" Margin="0,0,8,8"
+                            ToolTip="La moitié des cœurs de chaque classe au plus, même en charge : moins de chauffe et de consommation, moins de performances en multicœur."
+                            Command="{Binding ApplyEconomyCommand}"/>
+                </WrapPanel>
+                <TextBox Style="{StaticResource SelectableCaption}" Margin="0,0,0,0" TextWrapping="Wrap"
+                         Text="« Tous les cœurs actifs » chauffe et consomme plus au repos, surtout sur un portable : sur batterie, la valeur reste celle d'avant."/>
+
+                <!-- Réglages en % de cœurs -->
+                <ItemsControl ItemsSource="{Binding Settings}" Margin="0,14,0,0" IsEnabled="{Binding CanEdit}"
+                              ItemTemplate="{StaticResource CoreParkingSettingTemplate}"/>
+
+                <CheckBox Content="Afficher l'ordonnancement des processeurs hybrides (avancé)" IsChecked="{Binding ShowAdvanced}"
+                          Margin="0,6,0,0"
+                          Visibility="{Binding HasAdvanced, Converter={StaticResource BoolToVisibility}}"/>
+                <controls:RevealPanel IsOpen="{Binding ShowAdvanced}">
+                    <ItemsControl ItemsSource="{Binding AdvancedSettings}" Margin="0,10,0,0" IsEnabled="{Binding CanEdit}"
+                                  ItemTemplate="{StaticResource CoreParkingSettingTemplate}"/>
+                </controls:RevealPanel>
+
+                <TextBox Text="{Binding Status, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,10,0,0"
+                         TextWrapping="Wrap" Visibility="{Binding Status, Converter={StaticResource NullToVisibility}}"/>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

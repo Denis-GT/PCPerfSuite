@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Win32;
+using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
+using PCPerfSuite.Core.SystemChanges;
 
 namespace PCPerfSuite.Core.PowerSettings;
 
@@ -11,6 +13,12 @@ namespace PCPerfSuite.Core.PowerSettings;
 public sealed class WindowsPerformanceSettingsService
 {
     private readonly PowerPlanService _powerPlans = new();
+
+    /// <summary>Le tweak « core-parking » en est une façade : même origine, même registre des modifications, et les
+    /// cœurs performants des processeurs hybrides (CPMINCORES1) avec.</summary>
+    private readonly CoreParkingService _coreParking;
+
+    public WindowsPerformanceSettingsService(CoreParkingService coreParking) => _coreParking = coreParking;
 
     /// <summary>
     /// Écrit une valeur de sous-réglage d'alimentation, en mémorisant à la première activation celle qui
@@ -46,14 +54,20 @@ public sealed class WindowsPerformanceSettingsService
     /// réécrire à chaque activation mémoriserait la valeur que l'app vient elle-même de poser.</summary>
     private void RememberOriginalValue(string key, string subGroup, string setting)
     {
-        AppSettings settings = AppSettingsStore.Load();
-        if (settings.OriginalPowerValues.ContainsKey($"{key}/ac")) return;
+        if (AppSettingsStore.Load().OriginalPowerValues.ContainsKey($"{key}/ac")) return;
 
+        // powercfg est lu avant le verrou : le lambda d'Update ne fait que des affectations, et ne réécrit pas une
+        // origine notée entre-temps.
         if (_powerPlans.GetValueIndicesAsync(subGroup, setting).GetAwaiter().GetResult() is not { } current) return;
 
-        settings.OriginalPowerValues[$"{key}/ac"] = current.Ac;
-        settings.OriginalPowerValues[$"{key}/dc"] = current.Dc;
-        AppSettingsStore.Save(settings);
+        bool saved = AppSettingsStore.TryUpdate(settings =>
+        {
+            if (!settings.OriginalPowerValues.TryAdd($"{key}/ac", current.Ac)) return;
+            settings.OriginalPowerValues[$"{key}/dc"] = current.Dc;
+        });
+
+        // Sans origine sur le disque, décocher ne pourrait plus rendre ce que le PC avait : on n'écrit rien.
+        if (!saved) throw new InvalidOperationException(AppSettingsStore.LastError ?? "Valeur d'origine non enregistrée.");
     }
 
     /// <summary>Mémorise le plan actif juste avant d'activer « Performances ultimes », et lui seul : une
@@ -68,6 +82,47 @@ public sealed class WindowsPerformanceSettingsService
         if (active is null) return;
 
         AppSettingsStore.Update(settings => settings.PreUltimatePerformanceSchemeGuid = active);
+    }
+
+    /// <summary>Planchers du parking que le tweak met à 100 % : celui des cœurs efficaces (ou de tous les cœurs), et
+    /// celui des cœurs performants sur un processeur hybride.</summary>
+    private IReadOnlyList<CoreParkingSetting> CoreParkingFloors => _coreParking.Settings.Where(s => s.IsCoreCount && s.IsMinimum).ToList();
+
+    /// <summary>Activé quand chaque plancher est à 100 % sur secteur, lu par powrprof : powercfg ne montre pas ces
+    /// réglages masqués et rendait « inconnu ».</summary>
+    private TweakState GetCoreParkingState()
+    {
+        List<CoreParkingValue?> values = CoreParkingFloors.Select(_coreParking.Read).ToList();
+        if (values.Any(v => v is null)) return TweakState.Unknown;
+        return values.All(v => v!.Value.Ac == 100) ? TweakState.Enabled : TweakState.Disabled;
+    }
+
+    /// <summary>Activer pose 100 % sur secteur et sur batterie ; désactiver rend l'origine notée, avec le repli des
+    /// premières versions (5 %) pour CPMINCORES quand aucune ne l'a été.</summary>
+    private void ApplyCoreParking(bool enable)
+    {
+        if (enable)
+        {
+            CoreParkingWriteResult result = _coreParking.Write(CoreParkingFloors
+                .Select(s => new CoreParkingTarget(s, new CoreParkingValue(100, 100))).ToList());
+            if (!result.Succeeded) throw new InvalidOperationException(result.Error ?? "Windows a refusé le réglage.");
+            return;
+        }
+
+        SystemRestoreResult restored = _coreParking.Restore(CoreParkingFloors, fallbackMinCores: 5);
+        if (restored.Status is SystemRestoreStatus.Failed or SystemRestoreStatus.Partial)
+        {
+            throw new InvalidOperationException(restored.Message ?? "Les valeurs d'origine n'ont pas pu être rendues.");
+        }
+
+        // L'origine notée était celle d'un autre plan (rendu à l'instant), ou le plan actif a de lui-même ses planchers à
+        // 100 % (« Performances ultimes ») : l'interrupteur ne doit pas se croire décoché.
+        if (GetCoreParkingState() == TweakState.Enabled)
+        {
+            string other = restored.Status == SystemRestoreStatus.Restored ? " (un autre plan a, lui, retrouvé ses valeurs)" : "";
+            throw new InvalidOperationException(
+                $"Le plan d'alimentation actif garde tous ses cœurs actifs : PCPerfSuite n'a pas d'origine à lui rendre{other}. Règle-le dans Processeur › Cœurs.");
+        }
     }
 
     public IReadOnlyList<PerformanceTweak> GetTweaks()
@@ -135,28 +190,9 @@ public sealed class WindowsPerformanceSettingsService
                 },
                 // HKCU : le réglage appartient au profil de l'utilisateur, pas à la machine.
                 RequiresElevation = false,
+                TargetsUserProfile = true,
                 Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
                     @"Software\Microsoft\GameBar", "AutoGameModeEnabled", enable ? 1 : 0),
-            },
-
-            new()
-            {
-                Id = "visual-effects-performance",
-                Name = "Effets visuels : privilégier les performances",
-                Category = "Interface",
-                Description = "Équivalent de Panneau de configuration → Performances → \"Ajuster afin d'obtenir les meilleures performances\" : coupe animations, ombres et transparences.",
-                GetState = () =>
-                {
-                    int? value = RegistryHelper.ReadDword(RegistryHive.CurrentUser,
-                        @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting");
-                    // Valeur absente = réglage par défaut de Windows ("Laisser Windows choisir"), qui
-                    // n'active pas ce mode "performances" (équivalent à 0/1/3).
-                    return value == 2 ? TweakState.Enabled : TweakState.Disabled;
-                },
-                // HKCU, comme le Mode Jeu : aucune élévation nécessaire.
-                RequiresElevation = false,
-                Apply = enable => RegistryHelper.WriteDword(RegistryHive.CurrentUser,
-                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects", "VisualFXSetting", enable ? 2 : 0),
             },
 
             new()
@@ -243,15 +279,9 @@ public sealed class WindowsPerformanceSettingsService
                 Id = "core-parking",
                 Name = "Désactiver la mise en veille des cœurs CPU (core parking)",
                 Category = "CPU",
-                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge. Utile pour des charges très en dents de scie (jeux avec pics CPU soudains). Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut.",
-                GetState = () =>
-                {
-                    uint? value = _powerPlans.GetValueIndexAsync(PowerSubGroups.Processor, PowerSubGroups.ProcessorMinCoreParkingState)
-                        .GetAwaiter().GetResult();
-                    return value switch { 100 => TweakState.Enabled, not null => TweakState.Disabled, _ => TweakState.Unknown };
-                },
-                Apply = enable => ApplyPowerValue(
-                    PowerSubGroups.Processor, PowerSubGroups.ProcessorMinCoreParkingState, enable, enabledValue: 100u, defaultValue: 5u),
+                Description = "Force tous les cœurs à rester disponibles au lieu d'être parqués par Windows selon la charge, cœurs performants des processeurs hybrides compris (CPMINCORES et CPMINCORES1 à 100 %, sur secteur comme sur batterie ; sur un hybride, il n'apparaît activé que si les deux le sont). Utile pour des charges très en dents de scie (jeux avec pics CPU soudains), au prix d'une chauffe et d'une consommation plus élevées au repos. Réglage plus fin et visuel par cœur : Processeur › Cœurs. Ne porte que sur le plan d'alimentation actif : changer de plan (dont activer « Performances ultimes », qui en crée un nouveau) le remet à sa valeur par défaut, et les outils du fabricant (Armoury Crate, Vantage…) peuvent l'écraser.",
+                GetState = GetCoreParkingState,
+                Apply = ApplyCoreParking,
             },
 
             new()

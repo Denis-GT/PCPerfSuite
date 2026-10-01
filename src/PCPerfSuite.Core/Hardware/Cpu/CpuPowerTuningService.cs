@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+using PCPerfSuite.Core.PowerSettings;
 
 namespace PCPerfSuite.Core.Hardware.Cpu;
 
@@ -160,29 +160,8 @@ public sealed class CpuPowerTuningService
     {
         onAc = 0;
         onBattery = 0;
-
-        IntPtr scheme = IntPtr.Zero;
-        try
-        {
-            if (PowerGetActiveScheme(IntPtr.Zero, out scheme) != 0) return false;
-
-            Guid schemeGuid = Marshal.PtrToStructure<Guid>(scheme);
-            Guid sub = SubProcessor;
-            Guid id = setting.Guid;
-
-            if (PowerReadACValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref id, out onAc) != 0) return false;
-            if (PowerReadDCValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref id, out onBattery) != 0) return false;
-
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-        finally
-        {
-            if (scheme != IntPtr.Zero) LocalFree(scheme);
-        }
+        return PowerPlanValues.Instance.ActiveScheme() is { } scheme
+               && PowerPlanValues.Instance.TryRead(scheme, SubProcessor, setting.Guid, out onAc, out onBattery);
     }
 
     /// <summary>
@@ -194,52 +173,7 @@ public sealed class CpuPowerTuningService
         uint ac = Math.Clamp(onAc, setting.Min, setting.Max);
         uint dc = Math.Clamp(onBattery, setting.Min, setting.Max);
 
-        IntPtr scheme = IntPtr.Zero;
-        try
-        {
-            if (PowerGetActiveScheme(IntPtr.Zero, out scheme) != 0) return false;
-
-            Guid schemeGuid = Marshal.PtrToStructure<Guid>(scheme);
-            Guid sub = SubProcessor;
-            Guid id = setting.Guid;
-
-            if (PowerWriteACValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref id, ac) != 0) return false;
-            if (PowerWriteDCValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref id, dc) != 0) return false;
-
-            return PowerSetActiveScheme(IntPtr.Zero, ref schemeGuid) == 0;
-        }
-        catch
-        {
-            return false;
-        }
-        finally
-        {
-            if (scheme != IntPtr.Zero) LocalFree(scheme);
-        }
+        return PowerPlanValues.Instance.ActiveScheme() is { } scheme
+               && PowerPlanValues.Instance.TryWrite(scheme, SubProcessor, [new PowerValueWrite(setting.Guid, ac, dc)]);
     }
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, ref Guid schemeGuid);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerReadACValueIndex(
-        IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid, ref Guid settingGuid, out uint value);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerReadDCValueIndex(
-        IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid, ref Guid settingGuid, out uint value);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerWriteACValueIndex(
-        IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid, ref Guid settingGuid, uint value);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerWriteDCValueIndex(
-        IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid, ref Guid settingGuid, uint value);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr handle);
 }

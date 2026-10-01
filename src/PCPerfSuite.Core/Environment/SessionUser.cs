@@ -58,6 +58,16 @@ public static class SessionUser
           "depuis ce compte-là."
         : null;
 
+    /// <summary>Pourquoi un réglage du profil (HKCU, SystemParametersInfo) est grisé, ou null quand les deux comptes
+    /// coïncident : sous un autre compte, il s'écrirait dans le profil de l'administrateur, pas dans celui de la
+    /// personne devant l'écran.</summary>
+    public static string? OtherProfileSettingMessage
+        => IsOtherProfile ? DescribeOtherProfileSetting(ProcessAccount, InteractiveAccount!) : null;
+
+    public static string DescribeOtherProfileSetting(string processAccount, string interactiveAccount)
+        => $"PCPerfSuite tourne sous le compte {processAccount}, pas sous {interactiveAccount} : ce réglage s'écrirait "
+           + $"dans le profil de {processAccount}. Pour le modifier, lance PCPerfSuite depuis le compte {interactiveAccount}.";
+
     private static string ReadProcessAccount()
     {
         try

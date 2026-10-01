@@ -76,9 +76,21 @@ page sont dans `docs/navigation.md` ; les décisions transverses et les briques 
 - **Optimisation Windows** — les réglages de performance de Windows, y compris ceux qui
   sont masqués : plan d'alimentation
   "Performances ultimes" (cette app le débloque et l'active), planification GPU accélérée
-  par le matériel (HAGS), Mode Jeu, effets visuels, power throttling, limitation réseau
+  par le matériel (HAGS), Mode Jeu, power throttling, limitation réseau
   multimédia, démarrage rapide, suspension sélective USB, core parking CPU, ASPM PCIe, et
-  un indicateur pour l'isolation du noyau (HVCI).
+  un indicateur pour l'isolation du noyau (HVCI). Le sous-onglet **Animations** porte la carte
+  « Animations et effets » *(expérimental)* : un interrupteur par effet (interrupteur général des
+  effets, « Effets d'animation » de Windows, réduction des fenêtres, barre des tâches, menus,
+  info-bulles, listes, défilement fluide, contenu pendant le déplacement, ombres, transparence),
+  le préréglage « Réactif » (tout coupé en un passage, sauf le lissage des polices et
+  l'interrupteur général) et « Rétablir mes réglages d'origine ». Tout passe par
+  SystemParametersInfo, comme le fait Windows, sauf la barre des tâches et la transparence
+  (registre du profil, peut-être seulement à la prochaine ouverture de session). L'app retient la
+  valeur d'origine de chaque effet avant d'y toucher ; ces réglages restent en place quand on
+  quitte l'app. Le gain porte sur la réactivité du bureau, pas sur les FPS. PCPerfSuite suit
+  lui-même « Effets d'animation » : coupé, ses volets s'ouvrent sans animation. Lancée en
+  administrateur sous un autre compte que celui devant l'écran, l'app grise cette carte et le
+  Mode Jeu, qui régleraient le profil de l'administrateur.
 - **Paramètres** (en bas de la barre latérale) — les réglages de PCPerfSuite lui-même, par
   onglets : Général (zone de notification, lancement au démarrage de Windows), Installations
   (voir plus bas), Compatibilité de ce PC (voir plus bas) et Thèmes (à venir).
@@ -235,7 +247,8 @@ pas l'overclock : c'est la sécurité thermique ci-dessus qui s'en charge.
 
 ## Processeur
 
-L'onglet **Processeur** a deux étages.
+L'onglet **Processeur** a deux sous-onglets : **Réglages** (deux étages, ci-dessous) et **Cœurs** (usage par
+cœur et parking).
 
 ### Réglages d'alimentation (Intel, AMD et Snapdragon)
 
@@ -295,6 +308,45 @@ Garde-fous :
 
 Cet étage a besoin du pilote **PawnIO** (voir « Points d'attention ») : sans lui, l'onglet affiche
 « N/D » et propose de l'installer.
+
+### Cœurs : usage par cœur et parking (toutes plateformes)
+
+Le sous-onglet **Cœurs** montre chaque fil d'exécution (processeur logique), rangé comme le matériel :
+par cache L3 (un CCD chez AMD, marqué « CCD avec 3D V-Cache » sur un Ryzen X3D à deux CCD), puis par
+classe de cœurs (« performants (P) » et « efficaces (E) », seulement s'il y en a au moins deux), puis par
+cœur avec ses fils SMT côte à côte. Le remplissage de chaque jauge est la charge, la même mesure que la
+vue des processeurs logiques du Gestionnaire des tâches (`% Processor Utility`, plafonnée à 100) ; les
+hachures, la part du temps passé parqué sur les 5 dernières secondes (l'état bascule plusieurs fois par
+seconde). L'info-bulle donne aussi la fréquence relative.
+
+La lecture se fait sans pilote ni administrateur (CPU sets de Windows et compteurs de performances),
+une fois par seconde, hors du thread d'interface, et seulement tant que le sous-onglet est affiché et la
+fenêtre visible. Si le compteur « Parking Status » manque, l'état parqué vient des CPU sets ; si les CPU
+sets manquent, le visuel affiche « N/D » avec la raison. Les classes de cœurs des Snapdragon X, des
+Meteor Lake et Lunar Lake (cœurs LP-E) et des Strix Point, et le repérage du CCD avec 3D V-Cache, sont
+marqués **expérimentaux** tant qu'ils n'ont pas été vérifiés sur une vraie machine.
+
+Les réglages du parking sont ceux du plan d'alimentation actif, en part des cœurs, sur secteur et sur
+batterie sur un portable : cœurs toujours actifs (CPMINCORES) et actifs au maximum (CPMAXCORES), leurs
+variantes pour les cœurs performants sur un processeur hybride (CPMINCORES1, CPMAXCORES1), et en avancé
+l'ordonnancement hybride (SCHEDPOLICY, SHORTSCHEDPOLICY, HETEROPOLICY). Trois préréglages :
+**Windows (origine)**, **Tous les cœurs actifs** (100 % au minimum : d'après Microsoft, plus aucun cœur
+n'est parqué ; sur un portable, seule la valeur sur secteur change) et **Économie** (la moitié des
+cœurs au plus).
+
+- L'écriture demande l'administrateur, et chaque valeur est relue.
+- L'origine de chaque réglage est notée avant sa première modification ; « Windows (origine) » la rend,
+  par le même chemin que le registre des modifications de l'app.
+- **Ces réglages restent en place après la fermeture de l'app.** Ils ne portent que sur le plan actif :
+  changer de plan (dont « Performances ultimes ») les perd, et les outils du fabricant (Armoury Crate,
+  Lenovo Vantage…) ou les profils internes de Windows peuvent les écraser.
+- Ils ne sont pas enregistrés dans les profils de l'onglet Réglages.
+- « Tous les cœurs actifs » chauffe et consomme plus au repos. Sur un Ryzen X3D à deux CCD, il demande
+  confirmation : le pilote AMD 3D V-Cache parque volontairement le CCD sans V-Cache en jeu, et l'en
+  empêcher fait probablement perdre des images.
+
+Le tweak « core parking » d'Optimisation Windows passe par les mêmes réglages : il met aussi à 100 %
+le plancher des cœurs performants (CPMINCORES1), sans quoi ils restaient parqués sur un processeur hybride.
 
 ## Courbes de ventilation
 
@@ -463,6 +515,9 @@ des pilotes et, sur un portable, de la marque. L'app le dit toujours clairement 
   - **Journal de session** : les opérations risquées interrompues au dernier arrêt, et ce qui leur
     est arrivé d'après Windows (interrompu, arrêt brutal, écran bleu…). Un « arrêt brutal » dit un
     indice compatible avec une coupure ou une alimentation qui décroche, jamais une certitude.
+  - **Animations et effets** : la valeur lue de chaque effet visuel, ceux que PCPerfSuite a
+    modifiés avec leur valeur d'origine, et le compte dont le profil est réglé (masqué dans le
+    rapport copié).
 - **Paramètres › Installations** liste les deux logiciels externes dont l'app a besoin, avec leur
   état (installé ou non, version) et à quoi ils servent :
   - **PawnIO** : le bouton télécharge la dernière version de l'installeur depuis le dépôt GitHub

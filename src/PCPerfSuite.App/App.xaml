@@ -18,6 +18,7 @@
                 <ResourceDictionary Source="Styles/Navigation.xaml"/>
                 <ResourceDictionary Source="Styles/Menus.xaml"/>
                 <ResourceDictionary Source="Styles/Overlay.xaml"/>
+                <ResourceDictionary Source="Styles/Cores.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <conv:PercentToStarConverter x:Key="PercentToStar"/>

@@ -56,8 +56,8 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Limites CPU / RAM / disque / réseau par processus | Surveiller | Processus (`processes`) | « Limiter… » dans le menu contextuel et le détail ; sous-onglet **Limites** pour la liste des règles | #21 | prévue |
 | Overlay en jeu | Surveiller | Overlay (`overlay`) | — | existant | livrée |
 | Choix de l'écran de l'overlay | Surveiller | Overlay (`overlay`) | bloc « Canal fenêtre » (`OverlayScreenPicker`) | #3 | livrée |
-| Limites du processeur | Régler | Processeur (`cpu`) | — | existant | livrée |
-| Core parking et usage par cœur | Régler | Processeur (`cpu`) | sous-onglet **Cœurs** | #5 | prévue |
+| Limites du processeur | Régler | Processeur (`cpu`) | sous-onglet **Réglages** | existant | livrée |
+| Core parking et usage par cœur | Régler | Processeur (`cpu`) | sous-onglet **Cœurs** (`CoreParkingViewModel`) | #5 | livrée |
 | Fiabilisation du tuning (garde-fous, veille, relecture) | Régler | Processeur, GPU, Ventilateurs | dans les pages existantes | #2 | prévue |
 | Overclocking GPU | Régler | GPU (`gpu`) | — | existant | livrée |
 | OC GPU AMD Radeon et Intel Arc vérifié | Régler | GPU (`gpu`) | dans la page | #14 | prévue |
@@ -75,7 +75,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Diagnostic déterministe et rapport | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Diagnostic** | #12 | bientôt disponible |
 | Mode technicien et rédaction IA | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Technicien** | #13 | bientôt disponible |
 | Réglages de performance de Windows | Outils | Optimisation Windows (`optimization`) | — | existant | livrée |
-| Animations Windows | Outils | Optimisation Windows (`optimization`) | sous-onglet **Animations** | #6 | prévue |
+| Animations Windows | Outils | Optimisation Windows (`optimization`) | sous-onglet **Animations** (carte « Animations et effets ») ; l'autre sous-onglet s'appelle **Réglages** | #6 | livrée |
 | Nettoyage des caches | Outils | Nettoyage (`cleanup`) | — | existant | livrée |
 | Carte de l'espace disque | Outils | Stockage (`storage`) | — | existant | livrée |
 | Gestionnaire de disques | Outils | Stockage (`storage`) | sous-onglet **Disques** | #19 | prévue |

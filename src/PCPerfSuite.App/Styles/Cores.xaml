@@ -1,0 +1,81 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <!-- ============================================================ -->
+    <!-- Processeur › Cœurs : visuel par cœur (CpuCoresView).          -->
+    <!-- Fusionné après Theme.xaml, dont il réutilise les pinceaux.    -->
+    <!-- ============================================================ -->
+
+    <!-- Un groupe de cache L3 (CCD, CCX, ou tout le processeur). -->
+    <Style x:Key="CoreClusterPanel" TargetType="Border" BasedOn="{StaticResource InsetTile}">
+        <Setter Property="Padding" Value="14,12"/>
+        <Setter Property="Margin" Value="0,0,0,10"/>
+    </Style>
+
+    <!-- Le CCD avec 3D V-Cache : liseré d'accent, pour le distinguer de l'autre au premier coup d'œil. -->
+    <Style x:Key="CoreClusterPanelVCache" TargetType="Border" BasedOn="{StaticResource CoreClusterPanel}">
+        <Setter Property="BorderBrush" Value="{StaticResource AccentSoftBorderBrush}"/>
+    </Style>
+
+    <!-- Titre d'une classe de cœurs (« Cœurs performants (P) »). -->
+    <Style x:Key="CoreClassTitle" TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,6,0,6"/>
+    </Style>
+
+    <!-- Un cœur physique : son nom, puis ses fils SMT côte à côte. -->
+    <Style x:Key="CoreTile" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource SubtleFillBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="6,4,6,4"/>
+        <Setter Property="Margin" Value="0,0,6,6"/>
+    </Style>
+
+    <Style x:Key="CoreTileLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,0,3"/>
+    </Style>
+
+    <!-- Charge d'un fil sous sa jauge, en chiffres : de quoi comparer au Gestionnaire des tâches. -->
+    <Style x:Key="CoreThreadLoad" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+
+    <!-- Un fil : jauge et charge. L'info-bulle reprend tout (charge, part parquée, fréquence). -->
+    <DataTemplate x:Key="CoreThreadTemplate">
+        <StackPanel Margin="2,0" ToolTip="{Binding ToolTip}" Background="Transparent">
+            <controls:CoreThreadBar Load="{Binding Load}" ParkedShare="{Binding ParkedShare}" HasValue="{Binding HasValue}"/>
+            <TextBlock Text="{Binding LoadText}" Style="{StaticResource CoreThreadLoad}"/>
+        </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="CoreTileTemplate">
+        <Border Style="{StaticResource CoreTile}">
+            <StackPanel>
+                <TextBlock Text="{Binding Label}" Style="{StaticResource CoreTileLabel}"/>
+                <ItemsControl ItemsSource="{Binding Threads}" ItemTemplate="{StaticResource CoreThreadTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- Légende : une jauge pleine, une jauge hachurée. -->
+    <Style x:Key="CoreLegendText" TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="6,0,16,0"/>
+    </Style>
+</ResourceDictionary>

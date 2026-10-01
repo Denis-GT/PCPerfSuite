@@ -109,43 +109,8 @@ public static partial class CpuPlatformDetector
         return GetSystemPowerStatus(out SystemPowerStatus status) && status.BatteryFlag is not (128 or 255);
     }
 
-    /// <summary>Vrai si les cœurs logiques n'ont pas tous la même classe d'efficacité. On lit le tampon de
-    /// GetSystemCpuSetInformation à la main (entrées de taille variable, champ EfficiencyClass à l'octet 18)
-    /// plutôt que via une structure marshalée, dont la taille change selon la version de Windows.</summary>
-    private static bool DetectHybrid()
-    {
-        try
-        {
-            GetSystemCpuSetInformation(IntPtr.Zero, 0, out uint needed, IntPtr.Zero, 0);
-            if (needed == 0) return false;
-
-            IntPtr buffer = Marshal.AllocHGlobal((int)needed);
-            try
-            {
-                if (!GetSystemCpuSetInformation(buffer, needed, out needed, IntPtr.Zero, 0)) return false;
-
-                var classes = new HashSet<byte>();
-                int offset = 0;
-                while (offset + 19 <= needed)
-                {
-                    int size = Marshal.ReadInt32(buffer, offset);
-                    if (size <= 0) break;
-                    classes.Add(Marshal.ReadByte(buffer, offset + 18));
-                    offset += size;
-                }
-
-                return classes.Count > 1;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    /// <summary>Vrai si les cœurs logiques n'ont pas tous la même classe d'efficacité (voir <see cref="CpuTopology"/>).</summary>
+    private static bool DetectHybrid() => CpuTopology.Read().Topology?.IsHybrid ?? false;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SystemPowerStatus
@@ -161,9 +126,4 @@ public static partial class CpuPlatformDetector
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetSystemCpuSetInformation(
-        IntPtr information, uint bufferLength, out uint returnedLength, IntPtr process, uint flags);
 }
