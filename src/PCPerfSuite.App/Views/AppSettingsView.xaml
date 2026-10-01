@@ -150,7 +150,7 @@
 
                         <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,12">
                             <TextBox Style="{StaticResource SelectableCaption}"
-                                     Text="PawnIO est téléchargé uniquement depuis sa source officielle (le dépôt GitHub de son auteur, en HTTPS), et sa signature est vérifiée avant le lancement de l'installeur. RTSS s'installe depuis la page officielle de Guru3D. Les pilotes graphiques (NVIDIA, AMD, Intel) ne figurent pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
+                                     Text="PawnIO est téléchargé uniquement depuis sa source officielle (le dépôt GitHub de son auteur, en HTTPS), et sa signature est vérifiée avant le lancement de l'installeur. RTSS s'installe depuis la page officielle de Guru3D, ou depuis Outils › Boîte à outils, qui le télécharge du miroir officiel de Guru3D et vérifie sa signature. Les pilotes graphiques (NVIDIA, AMD, Intel) ne figurent pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
                         </Border>
                     </StackPanel>
                 </Border>

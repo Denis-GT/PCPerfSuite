@@ -8,6 +8,7 @@ using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
+using PCPerfSuite.Core.Installations;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
@@ -43,8 +44,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
 
     /// <summary>Fonctions qui modifient Windows durablement : chacune s'y inscrit à sa création, pour que « Tout
-    /// rétablir » (mode technicien) sache qui interroger. Aucune ne s'y inscrit encore.</summary>
+    /// rétablir » (mode technicien) sache qui interroger.</summary>
     public SystemChangeRegistry SystemChanges { get; } = new();
+
+    /// <summary>Catalogue de la Boîte à outils : partagé par la page et par sa ligne du diagnostic.</summary>
+    private readonly ToolCatalogStore _toolCatalog = new(ToolCatalog.All);
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
     public bool ShowElevationBanner => !IsElevated;
@@ -57,6 +61,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ProcessesViewModel Processes => _processes;
     public CleanupViewModel Cleanup { get; } = new();
     public StorageViewModel Storage { get; } = new();
+    public ToolboxViewModel Toolbox { get; }
     public OptimizationViewModel Optimization { get; } = new();
     public AppSettingsViewModel AppSettings { get; }
     public FanCurvesViewModel Fans => _fans;
@@ -108,6 +113,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
+        Toolbox = new ToolboxViewModel(_toolCatalog);
+        SystemChanges.Register(new ToolboxChanges());
 
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
@@ -116,6 +123,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
+        _compatibilityRows.Add(new ToolboxRowProvider(_toolCatalog));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
@@ -135,6 +143,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             [PageKeys.Optimization] = Optimization,
             [PageKeys.Cleanup] = Cleanup,
             [PageKeys.Storage] = Storage,
+            [PageKeys.Toolbox] = Toolbox,
         };
         // Seul un PC de bureau avéré perd les pages des portables : sur un châssis indéterminé, la page reste et dira
         // elle-même ce qu'elle trouve.
@@ -195,7 +204,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>La fenêtre revient au premier plan : c'est le moment où l'on découvre que l'utilisateur a installé
     /// RTSS ou lancé son installeur dans une autre fenêtre. Une relecture du registre, hors du thread d'interface.</summary>
-    public void OnWindowActivated() => _ = _installations.RefreshAsync();
+    public void OnWindowActivated()
+    {
+        _ = _installations.RefreshAsync();
+        Toolbox.OnWindowActivated();
+    }
 
     /// <summary>Bouton "Paramètres" : la liste se désélectionne, pour qu'un seul élément paraisse actif.</summary>
     [RelayCommand]
@@ -214,6 +227,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
+        DisposeSafely(Toolbox.Dispose, nameof(Toolbox));
         // Le relevé s'arrête AVANT le retour des ventilateurs au BIOS : il lisait encore la puce des
         // ventilateurs pendant qu'on la leur rendait, et LibreHardwareMonitor abandonne alors l'écriture
         // sans le dire (voir HardwareMonitorService.RunWithIsaBus). Les abonnés qui se désabonnent ensuite

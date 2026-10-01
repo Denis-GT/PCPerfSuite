@@ -1,0 +1,158 @@
+<UserControl x:Class="PCPerfSuite.App.Views.ToolboxView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+
+    <!-- Boîte à outils : un outil par ligne, rangé par rubrique. Les TextBox en lecture seule qui lisent une propriété
+         sans setter (Name, Purpose…) sont en Mode=OneWay : le Mode par défaut d'un TextBox, TwoWay, refuserait de se lier. -->
+    <ScrollViewer Padding="{StaticResource PagePadding}">
+        <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
+
+            <controls:PageHeader Title="Boîte à outils"
+                                 Subtitle="Les outils utiles au diagnostic et au réglage, téléchargés depuis leur source officielle et vérifiés avant d'être gardés."/>
+
+            <!-- App lancée sous un autre compte : les fichiers ne vont pas dans les Téléchargements de la personne devant l'écran. -->
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,12"
+                    Visibility="{Binding OtherProfileMessage, Converter={StaticResource NullToVisibility}}">
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                         Text="{Binding OtherProfileMessage, Mode=OneTime}"/>
+            </Border>
+
+            <!-- Catalogue en ligne refusé pour une raison qui mérite d'être vue (signature, retour en arrière). -->
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,12"
+                    Visibility="{Binding CatalogWarning, Converter={StaticResource NullToVisibility}}">
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                         Text="{Binding CatalogWarning, Mode=OneWay}"/>
+            </Border>
+
+            <!-- Dossier sécurisé refusé : les outils portables ne peuvent pas être installés. -->
+            <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,12"
+                    Visibility="{Binding FolderWarning, Converter={StaticResource NullToVisibility}}">
+                <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                         Text="{Binding FolderWarning, Mode=OneWay}"/>
+            </Border>
+
+            <!-- Origine du catalogue, et relecture. -->
+            <Grid Margin="4,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Text="{Binding CatalogText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" VerticalAlignment="Center"
+                         TextWrapping="Wrap"/>
+                <Button Grid.Column="1" Content="Actualiser" Style="{StaticResource GhostButton}" Margin="12,0,0,0"
+                        Command="{Binding RefreshCommand}"
+                        ToolTip="Relit le catalogue en ligne et l'état de chaque outil, après une installation faite en dehors de PCPerfSuite"/>
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Groups}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,0,0,20">
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource Eyebrow}" FontSize="12" Margin="4,0,0,8"/>
+                            <Border Style="{StaticResource Card}" Padding="20,4">
+                                <ItemsControl ItemsSource="{Binding Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border x:Name="Row" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14">
+                                                <StackPanel>
+                                                    <!-- Nom, état, badges -->
+                                                    <WrapPanel Orientation="Horizontal">
+                                                        <TextBox Text="{Binding Name, Mode=OneWay}" Style="{StaticResource SelectableBody}" FontWeight="SemiBold"
+                                                                 VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                                        <Border x:Name="StatusBadge" Style="{StaticResource Badge}" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding StatusText}" Style="{StaticResource BadgeText}"/>
+                                                        </Border>
+                                                        <Border Style="{StaticResource BadgeWarn}" VerticalAlignment="Center"
+                                                                Visibility="{Binding RequiresProLicence, Mode=OneTime, Converter={StaticResource BoolToVisibility}}"
+                                                                ToolTip="La version gratuite interdit l'usage commercial : un technicien qui facture son intervention a besoin de la licence payante de l'éditeur.">
+                                                            <TextBlock Text="licence pro requise" Style="{StaticResource BadgeText}"/>
+                                                        </Border>
+                                                        <Border Style="{StaticResource BadgeWarn}" VerticalAlignment="Center"
+                                                                Visibility="{Binding IsUnsigned, Mode=OneTime, Converter={StaticResource BoolToVisibility}}"
+                                                                ToolTip="L'éditeur ne signe pas ses fichiers : PCPerfSuite vérifie leur empreinte et ne les lance jamais.">
+                                                            <TextBlock Text="non signé" Style="{StaticResource BadgeText}"/>
+                                                        </Border>
+                                                        <Border Style="{StaticResource Badge}" VerticalAlignment="Center"
+                                                                Visibility="{Binding IsExperimental, Mode=OneTime, Converter={StaticResource BoolToVisibility}}"
+                                                                ToolTip="Téléchargement et lancement pas encore vérifiés sur une vraie machine.">
+                                                            <TextBlock Text="expérimental" Style="{StaticResource BadgeText}"/>
+                                                        </Border>
+                                                    </WrapPanel>
+
+                                                    <TextBox Text="{Binding Purpose, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"/>
+                                                    <TextBox Text="{Binding Details, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"/>
+                                                    <TextBox Text="{Binding VersionText, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                                             Visibility="{Binding VersionText, Converter={StaticResource NullToVisibility}}"/>
+
+                                                    <!-- Lien direct versionné, sélectionnable et copiable. -->
+                                                    <Grid Margin="0,4,0,0" Visibility="{Binding DirectLink, Converter={StaticResource NullToVisibility}}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBox Text="{Binding DirectLink, Mode=OneWay}" Style="{StaticResource SelectableCaption}"
+                                                                 TextWrapping="NoWrap" VerticalAlignment="Center" ToolTip="{Binding DirectLink}"/>
+                                                        <Button Grid.Column="1" Content="Copier le lien" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                                                Command="{Binding CopyLinkCommand}"/>
+                                                    </Grid>
+
+                                                    <TextBox Text="{Binding Note, Mode=OneWay}" Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
+                                                             Visibility="{Binding Note, Converter={StaticResource NullToVisibility}}"/>
+
+                                                    <!-- Boutons, le principal en premier. -->
+                                                    <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                                        <Button Content="{Binding PrimaryLabel}" Style="{StaticResource AccentButton}" Margin="0,0,8,0"
+                                                                Command="{Binding PrimaryCommand}"
+                                                                Visibility="{Binding PrimaryLabel, Converter={StaticResource NullToVisibility}}"/>
+                                                        <Button Content="Mettre à jour" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding UpdateCommand}"
+                                                                Visibility="{Binding CanUpdate, Converter={StaticResource BoolToVisibility}}"/>
+                                                        <Button Content="Télécharger" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding DownloadCommand}"
+                                                                Visibility="{Binding CanDownload, Converter={StaticResource BoolToVisibility}}"
+                                                                ToolTip="Télécharge le fichier vérifié dans tes Téléchargements, sans l'installer"/>
+                                                        <Button Content="Page officielle" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding OpenPageCommand}"
+                                                                Visibility="{Binding ShowPageButton, Converter={StaticResource BoolToVisibility}}"/>
+                                                        <Button Content="Installer avec winget" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding WingetCommand}"
+                                                                Visibility="{Binding CanUseWinget, Converter={StaticResource BoolToVisibility}}"/>
+                                                        <Button Content="Supprimer" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding RemoveCommand}"
+                                                                Visibility="{Binding CanRemove, Converter={StaticResource BoolToVisibility}}"/>
+                                                        <Button Content="Annuler" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                                Command="{Binding CancelCommand}"
+                                                                Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}"/>
+                                                    </WrapPanel>
+
+                                                    <TextBox Text="{Binding Message}" Style="{StaticResource SelectableCaption}" Margin="0,8,0,0"
+                                                             Foreground="{StaticResource TextPrimaryBrush}"
+                                                             Visibility="{Binding Message, Converter={StaticResource NullToVisibility}}"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsPresent}" Value="True">
+                                                    <Setter TargetName="StatusBadge" Property="Style" Value="{StaticResource BadgeSuccess}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                                    <Setter TargetName="Row" Property="BorderThickness" Value="0"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Ce que PCPerfSuite vérifie, une fois pour toutes. -->
+            <Border Style="{StaticResource Card}" Padding="20,14">
+                <TextBox Style="{StaticResource SelectableCaption}" TextWrapping="Wrap"
+                         Text="Chaque fichier vient de la source officielle de l'éditeur, en HTTPS, et n'est gardé que si son empreinte SHA-256 est celle du catalogue signé. Un programme n'est lancé que s'il porte la signature de son éditeur, relevée d'avance. Un outil non signé est seulement déposé dans tes Téléchargements. Les outils portables vont dans %ProgramData%\PCPerfSuite\Tools, que seuls les administrateurs peuvent modifier, et se lancent avec tes droits habituels : s'ils ont besoin d'être administrateur, Windows le demande. Rien n'est installé sans ton clic. Les pilotes graphiques ne sont pas ici : ils s'installent depuis le site du fabricant de la carte ou Windows Update."/>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

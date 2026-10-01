@@ -257,7 +257,8 @@ public sealed class PawnIoItemViewModel : ExternalSoftwareViewModel, IDisposable
     public void Dispose() => _cancellation.Cancel();
 }
 
-/// <summary>RTSS : pas de lien direct stable, donc le bouton ouvre la page officielle ; une fois installé, il le lance.</summary>
+/// <summary>RTSS : pas de lien stable vers sa dernière version, donc le bouton ouvre la page officielle (la Boîte à
+/// outils, elle, l'installe d'après son catalogue) ; une fois installé, il le lance.</summary>
 public sealed class RtssItemViewModel : ExternalSoftwareViewModel
 {
     /// <summary>RTSS met un instant à apparaître dans la liste des processus une fois lancé.</summary>
@@ -290,8 +291,9 @@ public sealed class RtssItemViewModel : ExternalSoftwareViewModel
         if (!status.IsInstalled)
         {
             StatusText = "Non installé";
-            StatusDetail = "PCPerfSuite ne peut pas le télécharger lui-même : Guru3D, l'éditeur de RTSS, ne propose pas de " +
-                           "lien direct stable. Le bouton ouvre la page officielle ; l'état se met à jour dès ton retour ici.";
+            StatusDetail = "Guru3D, l'éditeur de RTSS, n'a pas de lien stable vers sa dernière version. Outils › Boîte à outils " +
+                           "l'installe depuis le miroir officiel de Guru3D, en vérifiant sa signature ; ce bouton ouvre la page " +
+                           "officielle. L'état se met à jour dès ton retour ici.";
             PrimaryLabel = "Ouvrir la page de téléchargement";
             SecondaryLabel = null;
         }

@@ -63,13 +63,6 @@ public static class ComingSoonPages
                 "Inventaire par type et par connexion, avec la cause de chaque erreur.",
                 "Onglet Pilotes : version, date, éditeur, sauvegarde avant toute suppression.",
             }),
-        [PageKeys.Toolbox] = new(
-            "Les outils utiles au diagnostic et au réglage, téléchargés depuis leur source officielle.",
-            new[]
-            {
-                "Téléchargement vérifié quand un lien direct existe, page officielle sinon.",
-                "La licence de chaque outil : usage personnel ou professionnel.",
-            }),
         [PageKeys.Memory] = new(
             "Où part la mémoire vive, et le fichier d'échange.",
             new[]

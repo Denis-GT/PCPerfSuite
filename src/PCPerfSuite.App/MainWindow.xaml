@@ -145,6 +145,8 @@
                                Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Cleanup}}"/>
             <views:StorageView DataContext="{Binding Storage}"
                                Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Storage}}"/>
+            <views:ToolboxView DataContext="{Binding Toolbox}"
+                               Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Toolbox}}"/>
             <views:AppSettingsView DataContext="{Binding AppSettings}"
                                    Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Settings}}"/>
 
