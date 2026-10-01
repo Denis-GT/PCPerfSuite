@@ -67,6 +67,11 @@ public sealed class AppSettings
     /// clé = "guidSousGroupe/guidRéglage". Permet à « décocher » de rendre exactement ce qui était en place
     /// plutôt qu'une valeur par défaut supposée, qui n'est pas forcément celle de ce PC.</summary>
     public Dictionary<string, uint> OriginalPowerValues { get; set; } = new();
+
+    /// <summary>État d'origine des effets de la carte « Animations et effets », clé = <c>AnimationSetting.Key</c>
+    /// (« menu-animation »…), retenu juste avant la première écriture de l'app et retiré quand le réglage revient à
+    /// cette valeur. Une clé présente veut donc dire : modifié par PCPerfSuite.</summary>
+    public Dictionary<string, bool> OriginalAnimationValues { get; set; } = new();
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>
@@ -431,6 +436,18 @@ public static class AppSettingsStore
             AppSettings settings = Load();
             mutate(settings);
             Save(settings);
+        }
+    }
+
+    /// <summary>Comme <see cref="Update"/>, en disant si l'enregistrement a réussi : <see cref="LastError"/> est lu
+    /// sous le même verrou, avant qu'un autre enregistrement ne le remette à null. Pour ce qui ne doit pas continuer
+    /// sans trace sur le disque (une valeur d'origine avant de modifier Windows).</summary>
+    public static bool TryUpdate(Action<AppSettings> mutate)
+    {
+        lock (Gate)
+        {
+            Update(mutate);
+            return LastError is null;
         }
     }
 

@@ -8,6 +8,7 @@ using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Cpu.Throttle;
 using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
+using PCPerfSuite.Core.PowerSettings.Animations;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
@@ -43,7 +44,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<ICompatibilityRowProvider> _compatibilityRows = new();
 
     /// <summary>Fonctions qui modifient Windows durablement : chacune s'y inscrit à sa création, pour que « Tout
-    /// rétablir » (mode technicien) sache qui interroger. Aucune ne s'y inscrit encore.</summary>
+    /// rétablir » (mode technicien) sache qui interroger.</summary>
     public SystemChangeRegistry SystemChanges { get; } = new();
 
     public bool IsElevated { get; } = ElevationHelper.IsAdministrator();
@@ -57,7 +58,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ProcessesViewModel Processes => _processes;
     public CleanupViewModel Cleanup { get; } = new();
     public StorageViewModel Storage { get; } = new();
-    public OptimizationViewModel Optimization { get; } = new();
+    public OptimizationViewModel Optimization { get; }
     public AppSettingsViewModel AppSettings { get; }
     public FanCurvesViewModel Fans => _fans;
     public GpuControlViewModel Gpu => _gpu;
@@ -109,6 +110,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
 
+        WindowsAnimationSettings animations = WindowsAnimationSettings.CreateDefault();
+        SystemChanges.Register(animations);
+        Optimization = new OptimizationViewModel(animations);
+
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
@@ -116,6 +121,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
+        _compatibilityRows.Add(new WindowsAnimationsRowProvider(animations));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
