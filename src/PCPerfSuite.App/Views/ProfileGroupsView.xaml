@@ -96,7 +96,7 @@
                                      controls:TextBoxBehaviors.CommitOnEnter="True"
                                      Text="{Binding NewGroupName, UpdateSourceTrigger=PropertyChanged}"/>
                             <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding UsageChoices}" SelectedItem="{Binding NewGroupUsage}"
-                                      DisplayMemberPath="Label" MinWidth="160" Margin="0,0,8,6"/>
+                                      ItemTemplate="{StaticResource LabelOptionTemplate}" MinWidth="160" Margin="0,0,8,6"/>
                             <Button Content="Enregistrer le groupe" Style="{StaticResource AccentButton}" Margin="0,0,0,6"
                                     Command="{Binding SaveCurrentCommand}"/>
                         </WrapPanel>
@@ -248,17 +248,17 @@
                                                         </Grid.RowDefinitions>
                                                         <TextBlock Grid.Row="0" Text="Processeur" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                                         <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource GlassComboBox}" Margin="0,0,0,6"
-                                                                  ItemsSource="{Binding CpuChoices}" SelectedItem="{Binding CpuChoice}" DisplayMemberPath="Label"/>
+                                                                  ItemsSource="{Binding CpuChoices}" SelectedItem="{Binding CpuChoice}" ItemTemplate="{StaticResource LabelOptionTemplate}"/>
                                                         <TextBlock Grid.Row="1" Text="Carte graphique" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                                         <ComboBox Grid.Row="1" Grid.Column="1" Style="{StaticResource GlassComboBox}" Margin="0,0,0,6"
-                                                                  ItemsSource="{Binding GpuChoices}" SelectedItem="{Binding GpuChoice}" DisplayMemberPath="Label"/>
+                                                                  ItemsSource="{Binding GpuChoices}" SelectedItem="{Binding GpuChoice}" ItemTemplate="{StaticResource LabelOptionTemplate}"/>
                                                         <TextBlock Grid.Row="2" Text="Ventilation" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                                         <ComboBox Grid.Row="2" Grid.Column="1" Style="{StaticResource GlassComboBox}" Margin="0,0,0,6"
-                                                                  ItemsSource="{Binding FanChoices}" SelectedItem="{Binding FanChoice}" DisplayMemberPath="Label"/>
+                                                                  ItemsSource="{Binding FanChoices}" SelectedItem="{Binding FanChoice}" ItemTemplate="{StaticResource LabelOptionTemplate}"/>
                                                         <TextBlock Grid.Row="3" Text="Usage" Style="{StaticResource Body}" VerticalAlignment="Center"/>
                                                         <ComboBox Grid.Row="3" Grid.Column="1" Style="{StaticResource GlassComboBox}" HorizontalAlignment="Left" MinWidth="200"
                                                                   ItemsSource="{Binding DataContext.UsageChoices, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                  SelectedItem="{Binding EditUsage}" DisplayMemberPath="Label"/>
+                                                                  SelectedItem="{Binding EditUsage}" ItemTemplate="{StaticResource LabelOptionTemplate}"/>
                                                     </Grid>
                                                     <WrapPanel Margin="0,10,0,0">
                                                         <Button Content="Enregistrer" Style="{StaticResource AccentButton}" Margin="0,0,6,4"
@@ -335,7 +335,14 @@
                             </WrapPanel>
                             <WrapPanel Margin="0,6,0,0">
                                 <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding Groups}" SelectedItem="{Binding ToolGroup}"
-                                          DisplayMemberPath="Name" MinWidth="200" Margin="0,0,6,6"/>
+                                          MinWidth="200" Margin="0,0,6,6">
+                                    <!-- ItemTemplate et non DisplayMemberPath : la case fermée l'ignorerait (voir LabelOptionTemplate). -->
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <Button Content="Appliquer sans en faire l'état de démarrage" Style="{StaticResource GhostButton}" Margin="0,0,6,6"
                                         Command="{Binding ApplyToolGroupTransientCommand}"/>
                             </WrapPanel>
@@ -514,7 +521,7 @@
 
                         <TextBlock Text="Ajouter une règle" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,10,0,6"/>
                         <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding SeenApps}" SelectedItem="{Binding SelectedSeenApp}"
-                                  DisplayMemberPath="Label" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6"
+                                  ItemTemplate="{StaticResource LabelOptionTemplate}" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6"
                                   ToolTip="Les applications vues au premier plan depuis l'activation (historique local, jamais transmis)."/>
                         <WrapPanel>
                             <TextBox Style="{StaticResource GlassTextBox}" Width="420" Margin="0,0,8,6"
@@ -527,7 +534,7 @@
                         </WrapPanel>
                         <WrapPanel>
                             <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding TargetChoices}" SelectedItem="{Binding NewRuleTarget}"
-                                      DisplayMemberPath="Label" MinWidth="240" Margin="0,0,8,6"/>
+                                      ItemTemplate="{StaticResource LabelOptionTemplate}" MinWidth="240" Margin="0,0,8,6"/>
                             <Button Content="Ajouter la règle" Style="{StaticResource AccentButton}" Margin="0,0,0,6" Command="{Binding AddRuleCommand}"/>
                         </WrapPanel>
                     </StackPanel>
