@@ -95,8 +95,11 @@ public sealed record UsageThresholds
     /// <summary>Trou entre deux relevés au-delà duquel on repart de zéro (veille, app figée).</summary>
     public TimeSpan Gap { get; init; } = TimeSpan.FromSeconds(60);
 
-    /// <summary>Poids maximal d'un relevé dans les moyennes (relevés espacés de 5 s en mode éco).</summary>
-    public TimeSpan MaxSampleWeight { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>Poids maximal d'une mesure dans les moyennes (charges relues toutes les 5 à 6 s en mode éco).</summary>
+    public TimeSpan MaxSampleWeight { get; init; } = TimeSpan.FromSeconds(6);
+
+    /// <summary>Une charge ou des FPS lus il y a moins que cela valent encore pour les signes instantanés (mode éco).</summary>
+    public TimeSpan StaleAfter { get; init; } = TimeSpan.FromSeconds(10);
 
     public TimeSpan LoadWindow { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan CpuSustainedWindow { get; init; } = TimeSpan.FromMinutes(2);
@@ -139,6 +142,9 @@ public sealed class UsageClassifier
     private readonly TimeWeightedMean _gpu60;
     private readonly TimeWeightedMean _cpu60;
     private readonly TimeWeightedMean _cpu120;
+    private readonly RecentReading _gpu = new();
+    private readonly RecentReading _cpu = new();
+    private readonly RecentReading _fps = new();
 
     private DateTimeOffset? _lastSampleUtc;
     private UsagePending? _pending;
@@ -175,7 +181,6 @@ public sealed class UsageClassifier
         try
         {
             DateTimeOffset now = sample.TimeUtc;
-            double weight = 1;
             if (_lastSampleUtc is { } last)
             {
                 TimeSpan elapsed = now - last;
@@ -184,19 +189,29 @@ public sealed class UsageClassifier
                     // Veille, horloge changée, app figée : les moyennes et l'attente ne valent plus rien.
                     ResetWindows();
                 }
-                else
-                {
-                    weight = Math.Clamp(elapsed.TotalSeconds, 0.05, _t.MaxSampleWeight.TotalSeconds);
-                }
             }
 
             _lastSampleUtc = now;
-            if (sample.GpuLoad is { } gpu && float.IsFinite(gpu)) _gpu60.Add(now, weight, Math.Clamp(gpu, 0, 100));
+
+            // Chaque mesure compte pour le temps écoulé depuis SA lecture précédente : en mode éco, les charges ne sont
+            // relues qu'un relevé sur plusieurs, les autres relevés n'apportant que le premier plan.
+            if (sample.GpuLoad is { } gpu && float.IsFinite(gpu))
+            {
+                double value = Math.Clamp(gpu, 0, 100);
+                _gpu60.Add(now, _gpu.WeightAt(now, _t), value);
+                _gpu.Set(value, now);
+            }
+
             if (sample.CpuLoad is { } cpu && float.IsFinite(cpu))
             {
-                _cpu60.Add(now, weight, Math.Clamp(cpu, 0, 100));
-                _cpu120.Add(now, weight, Math.Clamp(cpu, 0, 100));
+                double value = Math.Clamp(cpu, 0, 100);
+                double weight = _cpu.WeightAt(now, _t);
+                _cpu60.Add(now, weight, value);
+                _cpu120.Add(now, weight, value);
+                _cpu.Set(value, now);
             }
+
+            if (sample.RtssFps is { } fps && double.IsFinite(fps)) _fps.Set(fps, now);
 
             _gpu60.Trim(now);
             _cpu60.Trim(now);
@@ -256,6 +271,9 @@ public sealed class UsageClassifier
         _gpu60.Clear();
         _cpu60.Clear();
         _cpu120.Clear();
+        _gpu.Clear();
+        _cpu.Clear();
+        _fps.Clear();
         _pending = null;
     }
 
@@ -297,12 +315,15 @@ public sealed class UsageClassifier
 
         double? gpuMean = GpuMean;
         double? cpuMean = CpuMean;
-        float? gpu = sample.GpuLoad is { } g && float.IsFinite(g) ? g : null;
+
+        // Valeurs instantanées : celles du relevé, sinon la dernière lue s'il y a moins de StaleAfter (mode éco).
+        double? gpu = _gpu.FreshAt(now, _t.StaleAfter);
+        double? fps = _fps.FreshAt(now, _t.StaleAfter);
 
         (UsageReasonKind Kind, string Detail)? sign = null;
-        if (sample.RtssFps is > 0 and var fps && (sample.IsFullscreen || gpu >= _t.RtssGpuPercent))
+        if (fps is > 0 and var rate && (sample.IsFullscreen || gpu >= _t.RtssGpuPercent))
         {
-            sign = (UsageReasonKind.Rtss, $"RTSS : {fps.ToString("0", CultureInfo.InvariantCulture)} images/s au premier plan");
+            sign = (UsageReasonKind.Rtss, $"RTSS : {rate.ToString("0", CultureInfo.InvariantCulture)} images/s au premier plan");
         }
         else if (sample.IsExclusiveFullscreen)
         {
@@ -411,4 +432,35 @@ internal sealed class TimeWeightedMean
         _points.Clear();
         _sum = _weight = 0;
     }
+}
+
+/// <summary>La dernière lecture d'une mesure et son heure : poids de la lecture suivante, et valeur encore fraîche pour un
+/// relevé qui ne l'a pas relue (mode éco).</summary>
+internal sealed class RecentReading
+{
+    private double? _value;
+    private DateTimeOffset? _at;
+
+    public void Set(double value, DateTimeOffset at)
+    {
+        _value = value;
+        _at = at;
+    }
+
+    public void Clear()
+    {
+        _value = null;
+        _at = null;
+    }
+
+    /// <summary>Le temps que représente une lecture faite à <paramref name="now"/> : l'écart depuis la précédente, borné
+    /// (1 s pour la première).</summary>
+    public double WeightAt(DateTimeOffset now, UsageThresholds thresholds)
+        => _at is { } at && now > at
+            ? Math.Clamp((now - at).TotalSeconds, 0.05, thresholds.MaxSampleWeight.TotalSeconds)
+            : 1;
+
+    /// <summary>La dernière valeur si elle a moins de <paramref name="staleAfter"/>, sinon null.</summary>
+    public double? FreshAt(DateTimeOffset now, TimeSpan staleAfter)
+        => _at is { } at && now >= at && now - at <= staleAfter ? _value : null;
 }

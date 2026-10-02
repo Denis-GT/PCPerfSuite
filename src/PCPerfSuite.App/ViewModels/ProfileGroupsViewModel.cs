@@ -384,7 +384,19 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
                 Persist();
             }
 
-            CheckConformity();
+            if (options.IsManual || IsPageShown)
+            {
+                CheckConformity();
+            }
+            else
+            {
+                // Bascule automatique, page cachée : pas de relecture du matériel pour un affichage que personne ne voit ;
+                // la conformité sera vérifiée à la prochaine ouverture de la page.
+                RefreshActive();
+                ConformityText = null;
+                _conformityCheckedUtc = null;
+            }
+
             return result;
         }
         catch (Exception ex)

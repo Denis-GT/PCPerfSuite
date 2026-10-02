@@ -58,6 +58,11 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     private readonly ProfileGroupsViewModel _profiles;
     private readonly DispatcherTimer _timer;
     private bool _syncing;
+    private bool _restoringSelection;
+    private int _ticks;
+
+    /// <summary>Rafraîchissement complet toutes les 15 s (minuterie d'une seconde).</summary>
+    private const int FullRefreshTicks = 15;
 
     public AutoProfilesViewModel(AutoProfileSwitcher switcher, ProfileGroupsViewModel profiles)
     {
@@ -66,9 +71,9 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
         foreach (string usage in ProfileGroupUsage.All) UsageGroups.Add(new AutoUsageGroupItem(usage));
 
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
-        _timer.Tick += (_, _) => Refresh();
+        _timer.Tick += (_, _) => OnTick();
         _switcher.Changed += OnSwitcherChanged;
-        SyncSettings();
+        SyncSettings(_switcher.Settings);
     }
 
     [ObservableProperty] private bool isPageShown;
@@ -166,7 +171,8 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
 
     partial void OnSelectedSeenAppChanged(SeenAppChoice? value)
     {
-        if (value is null) return;
+        // Liste reconstruite : la sélection est seulement remise, le chemin choisi entre-temps (« Parcourir… ») reste.
+        if (value is null || _restoringSelection) return;
         NewRulePath = value.Path;
     }
 
@@ -177,9 +183,29 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
         if (IsPageShown) Refresh();
     }
 
-    private void SyncSettings()
+    /// <summary>Chaque seconde, l'état et l'usage (compte à rebours d'un changement) ; le reste (groupes, règles, historique,
+    /// qui ne bougent guère) toutes les <see cref="FullRefreshTicks"/> secondes, ou à chaque changement de la bascule.</summary>
+    private void OnTick()
     {
-        AutoSwitchSettings settings = _switcher.Settings;
+        if (++_ticks % FullRefreshTicks == 0)
+        {
+            Refresh();
+            return;
+        }
+
+        try
+        {
+            RefreshState();
+            RefreshUsage();
+        }
+        catch (Exception ex)
+        {
+            Status = $"Affichage incomplet ({ex.GetType().Name}).";
+        }
+    }
+
+    private void SyncSettings(AutoSwitchSettings settings)
+    {
         _syncing = true;
         IsEnabled = settings.Enabled;
         NotifyEachSwitch = settings.NotifyEachSwitch;
@@ -192,12 +218,9 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     {
         try
         {
-            SyncSettings();
             AutoSwitchSettings settings = _switcher.Settings;
-            AutoSwitchDecision decision = _switcher.Decision;
-            StateText = decision.Text;
-            IsPaused = decision.State == AutoSwitchState.Paused && _switcher.ManualPauseUntil is not null;
-            IsLocked = decision.State == AutoSwitchState.Locked;
+            SyncSettings(settings);
+            RefreshState();
 
             RefreshUsage();
             RefreshGroups(settings);
@@ -208,6 +231,14 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
         {
             Status = $"Affichage incomplet ({ex.GetType().Name}).";
         }
+    }
+
+    private void RefreshState()
+    {
+        AutoSwitchDecision decision = _switcher.Decision;
+        StateText = decision.Text;
+        IsPaused = decision.State == AutoSwitchState.Paused && _switcher.ManualPauseUntil is not null;
+        IsLocked = decision.State == AutoSwitchState.Locked;
     }
 
     private void RefreshUsage()
@@ -298,17 +329,29 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
         }
 
         if (_switcher.History is not { } history) return;
-        var seen = history.Apps
-            .OrderByDescending(a => a.LastSeenUtc)
-            .Take(SeenAppsShown)
-            .Select(a => new SeenAppChoice(a.Path, $"{ApplicationPaths.DisplayName(a.Path)} — {Duration(a.TotalSeconds)} vue, dont {Duration(a.FullscreenSeconds)} en plein écran"))
-            .ToList();
-        if (!seen.SequenceEqual(SeenApps))
+        // Reconstruite seulement quand les applications changent (pas à chaque seconde de plus), pour ne pas bouger sous la
+        // souris ; les durées affichées sont celles de la dernière reconstruction.
+        List<UsageAppRecord> recent = history.Apps.OrderByDescending(a => a.LastSeenUtc).Take(SeenAppsShown).ToList();
+        if (!recent.Select(a => a.Path).OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .SequenceEqual(SeenApps.Select(a => a.Path).OrderBy(p => p, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase))
         {
             SeenAppChoice? selected = SelectedSeenApp;
-            SeenApps.Clear();
-            foreach (SeenAppChoice app in seen) SeenApps.Add(app);
-            SelectedSeenApp = SeenApps.FirstOrDefault(a => a.Path == selected?.Path);
+            _restoringSelection = true;
+            try
+            {
+                SeenApps.Clear();
+                foreach (UsageAppRecord app in recent)
+                {
+                    SeenApps.Add(new SeenAppChoice(app.Path,
+                        $"{ApplicationPaths.DisplayName(app.Path)} — {Duration(app.TotalSeconds)} vue, dont {Duration(app.FullscreenSeconds)} en plein écran"));
+                }
+
+                SelectedSeenApp = SeenApps.FirstOrDefault(a => string.Equals(a.Path, selected?.Path, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                _restoringSelection = false;
+            }
         }
     }
 

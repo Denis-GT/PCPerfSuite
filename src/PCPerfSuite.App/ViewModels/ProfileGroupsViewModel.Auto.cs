@@ -19,7 +19,7 @@ public sealed partial class ProfileGroupsViewModel
     {
         ProfileGroupApplyResult? result = await RunApplyAsync(group,
             new ProfileGroupApplyOptions(AutoSwitchRequester.Id, AutoSwitchRequester.Label, IsManual: false, MakeStartupState: false));
-        if (_loaded) Refresh();
+        if (_loaded && IsPageShown) Refresh();
         return result;
     }
 

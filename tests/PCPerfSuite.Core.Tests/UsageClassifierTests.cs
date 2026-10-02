@@ -252,6 +252,47 @@ public sealed class UsageClassifierTests
         Assert.Equal(ProfileGroupUsage.LightGaming, Usage);
     }
 
+    /// <summary>Mode éco : un relevé « vide » (premier plan seulement), puis un relevé avec les charges 1 s plus tard, toutes
+    /// les 6 s.</summary>
+    private void FeedEco(int cycles, float gpu, double? fps = null, bool fullscreen = true)
+    {
+        for (int i = 0; i < cycles; i++)
+        {
+            _classifier.Add(new UsageSample(_now, Game, fullscreen, false, null, null, null, false));
+            _now = _now.AddSeconds(1);
+            _classifier.Add(new UsageSample(_now, Game, fullscreen, false, 30, gpu, fps, false));
+            _now = _now.AddSeconds(5);
+        }
+    }
+
+    [Fact]
+    public void En_mode_eco_les_charges_espacees_suffisent_a_reconnaitre_un_jeu_exigeant()
+    {
+        FeedEco(25, gpu: 97);
+
+        Assert.Equal(ProfileGroupUsage.HeavyGaming, Usage);
+        Assert.NotNull(_classifier.GpuMean);
+    }
+
+    [Fact]
+    public void En_mode_eco_un_releve_vide_n_interrompt_pas_l_entree_en_jeu()
+    {
+        FeedEco(7, gpu: 70);
+
+        Assert.Equal(ProfileGroupUsage.LightGaming, Usage);
+    }
+
+    [Fact]
+    public void Une_charge_trop_ancienne_ne_vaut_plus_pour_un_signe_instantane()
+    {
+        _classifier.Add(Fullscreen(_now, gpu: 90));
+        _now = _now.AddSeconds(15);
+
+        _classifier.Add(new UsageSample(_now, Game, true, false, null, null, null, false));
+
+        Assert.Equal(UsageReasonKind.NoGame, _classifier.LastCandidate!.Reason);
+    }
+
     [Fact]
     public void Une_regle_l_emporte_apres_10_secondes_et_sort_apres_2_minutes()
     {

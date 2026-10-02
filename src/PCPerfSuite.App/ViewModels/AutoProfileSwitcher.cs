@@ -37,6 +37,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// <summary>Délai avant de relire un usage.json qui n'a pas pu être lu (verrouillé, clé USB pas prête).</summary>
     public static readonly TimeSpan HistoryRetry = TimeSpan.FromMinutes(5);
 
+    /// <summary>En mode éco, intervalle entre deux relevés des charges pour la bascule.</summary>
+    public static readonly TimeSpan EcoSampleInterval = TimeSpan.FromSeconds(5);
+
     /// <summary>Attente maximale de l'enregistrement de l'historique à la fermeture.</summary>
     private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(2);
 
@@ -68,6 +71,14 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private DateTime _lastCaptured;
     private DateTimeOffset _lastSaveUtc;
     private bool _onBattery;
+    private double _lastFps;
+    private DateTimeOffset _lastEcoSampleUtc;
+
+    /// <summary>Règle trouvée pour l'application au premier plan, recalculée seulement quand l'application, les règles, les
+    /// groupes ou un éditeur vérifié changent.</summary>
+    private (string? Path, int Settings, int Groups, int Publishers, UsageRuleTarget? Rule) _ruleCache;
+    private int _settingsVersion;
+    private int _publishersVersion;
     private bool _tickErrorLogged;
     private bool _disposed;
 
@@ -109,6 +120,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _cpuService.EmergencyRestored += OnCpuEmergency;
         _gpuService.ThermalSafety.EmergencyRestored += OnGpuEmergency;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        _publishers.Resolved += () => Interlocked.Increment(ref _publishersVersion);
 
         if (_settings.Enabled) LoadHistory();
     }
@@ -164,9 +176,19 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _history?.DaysWithData ?? 0,
         HistoryProblem);
 
+    /// <summary>
+    /// Fenêtre cachée, la bascule n'a pas besoin d'un relevé par seconde (ses délais vont de 30 s à 2 min) : elle ne
+    /// demande ses groupes que toutes les <see cref="EcoSampleInterval"/>, pour que le relevé retombe entre-temps sur son
+    /// rythme de repos si personne d'autre n'a besoin de capteurs. Sur batterie, le GPU n'est interrogé que si quelque chose
+    /// ressemble déjà à un jeu (RTSS, plein écran exclusif, jeu reconnu) : une vidéo en plein écran ne le réveille pas.
+    /// </summary>
     public void AddRequiredGroups(ISet<SensorGroup> into)
-        => BackgroundSensorNeeds.AddForAutoSwitch(into, _settings.Enabled && !_disposed, _hasBattery, _onBattery,
-            CurrentApp is { IsFullscreen: true } || Classifier.Current?.Target.IsGaming == true);
+    {
+        if (_monitoring.IsBackgroundMode && _time.GetUtcNow() - _lastEcoSampleUtc < EcoSampleInterval) return;
+
+        bool looksLikeGame = CurrentApp is { IsExclusiveFullscreen: true } || _lastFps > 0 || Classifier.Current?.Target.IsGaming == true;
+        BackgroundSensorNeeds.AddForAutoSwitch(into, _settings.Enabled && !_disposed, _hasBattery, _onBattery, looksLikeGame);
+    }
 
     // ---- Relevé ----
 
@@ -184,6 +206,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             float? cpuLoad = read.Contains(SensorGroup.CpuLoad) ? snapshot.Cpu.LoadPercent : null;
             float? gpuLoad = read.Contains(SensorGroup.Gpu) ? snapshot.Gpu?.LoadPercent : null;
             double? fps = read.Contains(SensorGroup.Fps) ? snapshot.Game?.Fps : null;
+            if (read.Contains(SensorGroup.Fps)) _lastFps = fps ?? 0;
+            if (_monitoring.IsBackgroundMode && read.Contains(SensorGroup.CpuLoad)) _lastEcoSampleUtc = _time.GetUtcNow();
             if (snapshot.Battery is { } battery) _onBattery = !battery.PowerOnline;
             else if (!_hasBattery) _onBattery = false;
 
@@ -208,8 +232,20 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     {
         if (_settings.Rules is not { Count: > 0 } rules || appPath is null) return null;
 
+        int groups = _profiles.Store.Groups.Count;
+        int publishers = Volatile.Read(ref _publishersVersion);
+        if (_ruleCache.Path == appPath && _ruleCache.Settings == _settingsVersion && _ruleCache.Groups == groups
+            && _ruleCache.Publishers == publishers)
+        {
+            return _ruleCache.Rule;
+        }
+
         Func<string, string?>? publisherOf = AutoSwitchRules.AnyRequiresPublisher(rules) ? _publishers.PublisherOf : null;
-        return AutoSwitchRules.Find(rules, appPath, publisherOf, id => _profiles.Store.Find(id) is not null);
+        UsageRuleTarget? rule = AutoSwitchRules.Find(rules, appPath, publisherOf, id => _profiles.Store.Find(id) is not null);
+        // Clé prise avant la recherche : un éditeur vérifié pendant ce temps change la version, et la règle sera recherchée
+        // de nouveau au relevé suivant.
+        _ruleCache = (appPath, _settingsVersion, groups, publishers, rule);
+        return rule;
     }
 
     private void Record(DateTimeOffset now, HardwareSnapshot snapshot, IReadOnlyCollection<SensorGroup> read, float? cpuLoad, float? gpuLoad)
@@ -567,6 +603,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private void UpdateSettings(Action<AutoSwitchSettings> mutate)
     {
         mutate(_settings);
+        _settingsVersion++;
         AutoSwitchSettings copy = ProfileGroupJson.Clone(_settings);
         AppSettingsStore.Update(s => s.AutoSwitch = copy);
     }
