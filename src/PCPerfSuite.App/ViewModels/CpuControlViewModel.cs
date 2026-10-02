@@ -25,6 +25,9 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     /// <summary>Pourquoi une écriture manuelle est refusée (bail de réglage tenu par un autre), null si elle est permise.</summary>
     private readonly Func<string?> _manualRefusal;
 
+    /// <summary>Un geste de l'utilisateur sur ce réglage : la bascule automatique se met en pause.</summary>
+    private readonly Action? _onManualEdit;
+
     /// <summary>Écrire un réglage d'alimentation réapplique le plan d'alimentation entier au système
     /// (PowerSetActiveScheme) : c'est l'écriture la plus lourde de l'app, et un curseur en lèverait une
     /// par pixel parcouru.</summary>
@@ -60,12 +63,13 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
 
     public CpuPowerSettingViewModel(
         CpuPowerTuningService service, CpuPowerSetting setting, uint onAc, uint onBattery, Action<string> report,
-        Func<string?> manualRefusal)
+        Func<string?> manualRefusal, Action? onManualEdit = null)
     {
         _service = service;
         _setting = setting;
         _report = report;
         _manualRefusal = manualRefusal;
+        _onManualEdit = onManualEdit;
         ShowBattery = service.HasBattery;
 
         _suppressWrite = true;
@@ -145,6 +149,7 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     private void Write()
     {
         if (_suppressWrite) return;
+        _onManualEdit?.Invoke();
         _writeDebounce.Schedule(Label, WriteNow);
     }
 
@@ -431,7 +436,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
             if (!_powerTuning.TryRead(setting, out uint onAc, out uint onBattery)) continue;
 
             PowerSettings.Add(new CpuPowerSettingViewModel(
-                _powerTuning, setting, onAc, onBattery, message => PowerSettingsStatus = message, Tuning.ManualWriteRefusal));
+                _powerTuning, setting, onAc, onBattery, message => PowerSettingsStatus = message, Tuning.ManualWriteRefusal, NoteManualEdit));
         }
 
         if (PowerSettings.Count == 0)
@@ -485,6 +490,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     partial void OnSustainedWattsChanged(double value)
     {
         OnPropertyChanged(nameof(SustainedNote));
+        if (!_suppressApply && IsPowerLimitAvailable && RiskAccepted) NoteManualEdit();
 
         // La limite de pointe ne peut pas passer sous la limite soutenue : on la pousse avec.
         if (HasBurstLimit && BurstWatts < value)
@@ -499,6 +505,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     partial void OnBurstWattsChanged(double value)
     {
         OnPropertyChanged(nameof(BurstNote));
+        if (!_suppressApply && IsPowerLimitAvailable && RiskAccepted) NoteManualEdit();
         Apply();
     }
 
@@ -550,6 +557,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         // d'origine : on l'abandonne.
         _applyDebounce.Cancel(PowerLimitKey);
         if (RefuseManualWrite()) return;
+        NoteManualEdit();
 
         _wattsTransient = false;
         UpdateKeepLimitsOnExit();

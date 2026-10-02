@@ -89,6 +89,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Page Profils : groupes de profils CPU + GPU + ventilation.</summary>
     public ProfileGroupsViewModel Profiles { get; }
 
+    /// <summary>Bascule automatique de profils selon l'usage (#9) : relevé de l'usage, historique, bascules. Continue fenêtre
+    /// cachée (mode éco) ; arrêtée en premier à la fermeture.</summary>
+    private readonly AutoProfileSwitcher _autoSwitch;
+
+    public AutoProfileSwitcher AutoSwitch => _autoSwitch;
+
     /// <summary>Entrées de la barre latérale, dans l'ordre de <see cref="NavigationMenu.Pages"/> : MainWindow les
     /// range sous leurs en-têtes de section.</summary>
     public ObservableCollection<NavEntry> NavItems { get; }
@@ -165,9 +171,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var applier = new ProfileGroupApplier(_cpu, _gpu, _fans, _tuningLease, _groupProbation, TimeProvider.System);
         Profiles = new ProfileGroupsViewModel(applier, _cpu, _gpu, _fans, _tuningLease, Tuning, startupRecovery, Navigate,
             _cpuControl, _gpuControl);
+        _autoSwitch = new AutoProfileSwitcher(_monitoring, Profiles, _cpu, _gpu, _fans, _tuningLease, Tuning, _cpuControl, _gpuControl,
+            platform.HasBattery);
 
         _compatibilityRows.Add(new ToolboxRowProvider(_toolCatalog));
         _compatibilityRows.Add(new ProfileGroupsRowProvider(() => Profiles.Store, _tuningLease, () => Profiles.DiagnosticStatus));
+        _compatibilityRows.Add(new AutoSwitchRowProvider(() => _autoSwitch.DiagnosticStatus));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
@@ -228,10 +237,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, et réglage activé. Seuls
-    /// l'overlay, les courbes de ventilateurs et les sécurités thermiques du GPU et du CPU continuent d'être nourris.</summary>
+    /// l'overlay, les courbes de ventilateurs, les sécurités thermiques du GPU et du CPU et la bascule automatique (quand
+    /// elle est activée) continuent d'être nourris.</summary>
     private void UpdateEcoMode()
         => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
-            new IBackgroundSensorConsumer[] { _overlay, _fans, _gpu, _cpu });
+            new IBackgroundSensorConsumer[] { _overlay, _fans, _gpu, _cpu, _autoSwitch });
 
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
     /// de la fenêtre : le clignotement du bouton Paramètres et son info-bulle, puis, pour chaque page, si elle est sous
@@ -276,6 +286,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // Chaque étape est protégée individuellement : _fans (retour au firmware) et _gpu/_cpu (retrait
         // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
         // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
+        // La bascule automatique s'arrête en tête : plus aucune application de groupe pendant que le relevé, les
+        // ventilateurs, le GPU et le CPU se ferment.
+        DisposeSafely(_autoSwitch.Dispose, nameof(_autoSwitch));
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
         DisposeSafely(Toolbox.Dispose, nameof(Toolbox));

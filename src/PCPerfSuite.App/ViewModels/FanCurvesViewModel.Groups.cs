@@ -126,6 +126,10 @@ public sealed partial class FanCurvesViewModel : IFanGroupTarget
         if (_applyingProfile) return;
         _startupOverrides.Release(fanId);
         Persist();
+
+        // Un ventilateur pas encore listé est en cours de création (règles des pompes à la découverte) : pas un geste
+        // de l'utilisateur, la bascule automatique n'a pas à se mettre en pause.
+        if (Fans.Any(f => f.FanId == fanId)) Tuning.NoteManualWrite("réglage manuel dans l'onglet Ventilateurs");
     }
 
     /// <summary>Ce qui part sur le disque : les configurations vivantes, sauf celles mises de côté.</summary>
@@ -149,6 +153,7 @@ public sealed partial class FanCurvesViewModel : IFanGroupTarget
     {
         if (Tuning.ManualWriteRefusal() is { } refusal) return $"non appliqué : {refusal}";
 
+        Tuning.NoteManualWrite("profil appliqué dans l'onglet Ventilateurs");
         FanGroupPlan plan = FanGroupPlanner.Plan(ProfileGroupEditor.FanValues(model), ReadState(), AbsenceReason);
         FanApplyOutcome outcome = Apply(plan, new ProfileGroupApplyContext(ProfileGroupRequesters.Tab, true, true, null));
         return outcome.Report.Body;

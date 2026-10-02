@@ -54,6 +54,10 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
 
     public void FlushPendingManualWrites() => _applyDebounce.Flush();
 
+    /// <summary>Un geste de l'utilisateur dans l'onglet (curseur, champ, bouton) : la bascule automatique se met en
+    /// pause. Jamais pour une relecture, une réapplication au lancement ou au réveil, ni un groupe.</summary>
+    private void NoteManualEdit() => Tuning.NoteManualWrite("réglage manuel dans l'onglet GPU");
+
     public GpuTargetState ReadState()
         => new(IsAvailable, IsAvailable ? null : UnavailableMessage, CanOverclock, _gpuControl.Identity,
             IsAvailable ? _gpuControl.GetOverclock() : null, IsAvailable ? _gpuControl.GetSnapshot() : null, _emergencyThisSession);
@@ -118,6 +122,7 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
     {
         if (Tuning.ManualWriteRefusal() is { } refusal) return $"non appliqué : {refusal}";
 
+        NoteManualEdit();
         FlushPendingManualWrites();
         var withLimits = new GpuOverclockProfile
         {

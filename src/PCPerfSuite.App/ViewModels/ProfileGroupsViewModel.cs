@@ -357,12 +357,14 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         => new(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true, MakeStartupState: makeStartupState);
 
     /// <summary>Applique par l'orchestrateur, puis mémorise l'état retenu comme groupe actif (et comme état de démarrage
-    /// s'il l'est devenu).</summary>
+    /// s'il l'est devenu). Un clic de l'utilisateur est un réglage à la main : la bascule automatique se met en
+    /// pause.</summary>
     private async Task<ProfileGroupApplyResult?> RunApplyAsync(ProfileGroup group, ProfileGroupApplyOptions options)
     {
         IsApplying = true;
         try
         {
+            if (options.IsManual) Tuning.NoteManualWrite($"groupe « {group.Name} » appliqué à la main");
             ProfileGroupApplyResult result = await _applier.ApplyAsync(group, options);
 
             LastReport = result.Report.Describe();
@@ -747,6 +749,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         IsApplying = true;
         try
         {
+            Tuning.NoteManualWrite("carte graphique rendue d'origine à la main");
             ProfileGroupApplyResult result = await _applier.ApplyAsync(origin,
                 new ProfileGroupApplyOptions(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true));
             Status = result.Report.WasRefused ? result.Report.Title : $"Carte graphique : {result.Report.Find(ProfileDimension.Gpu)?.Body ?? "rien à changer"}.";

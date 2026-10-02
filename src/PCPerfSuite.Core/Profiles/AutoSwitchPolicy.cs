@@ -145,6 +145,19 @@ public static class AutoSwitchPolicy
     }
 }
 
+/// <summary>Ce que le journal des bascules retient d'un rapport d'application.</summary>
+public static class AutoSwitchReports
+{
+    /// <summary>Les réglages refusés ou laissés de côté, par dimension, avec leur raison (« Carte graphique : overclock
+    /// non posé, … ») ; les rapports des planificateurs ne nomment aucune application.</summary>
+    public static List<string> NotApplied(ProfileGroupReport report)
+        => report.Dimensions
+            .SelectMany(d => d.Items
+                .Where(i => i.Status is ReportItemStatus.Refused or ReportItemStatus.Ignored)
+                .Select(i => $"{DimensionReport.Title(d.Dimension)} : {i.Text}"))
+            .ToList();
+}
+
 /// <summary>Libellés des raisons du classifieur, sans nom d'application (diagnostic, notification).</summary>
 public static class UsageReasons
 {

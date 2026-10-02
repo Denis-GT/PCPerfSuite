@@ -57,6 +57,10 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
         foreach (CpuPowerSettingViewModel setting in PowerSettings) setting.FlushPendingWrite();
     }
 
+    /// <summary>Un geste de l'utilisateur dans l'onglet (curseur, champ, bouton) : la bascule automatique se met en
+    /// pause. Jamais pour une relecture, une réapplication au lancement ou au réveil, ni un groupe.</summary>
+    private void NoteManualEdit() => Tuning.NoteManualWrite("réglage manuel dans l'onglet Processeur");
+
     public CpuTargetState ReadState()
     {
         // Relu dans Windows, pas sur les curseurs : ceux-ci ne sont lus qu'au lancement, et le plan a pu changer depuis.
@@ -120,6 +124,7 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
     {
         if (Tuning.ManualWriteRefusal() is { } refusal) return $"non appliqué : {refusal}";
 
+        NoteManualEdit();
         FlushPendingManualWrites();
         CpuGroupPlan plan = CpuGroupPlanner.Plan(ProfileGroupEditor.CpuValues(model, _identity), ReadState(), isManual: true, checkIdentity: false);
         CpuApplyOutcome outcome = Apply(plan, new ProfileGroupApplyContext(ProfileGroupRequesters.Tab, true, true, null));

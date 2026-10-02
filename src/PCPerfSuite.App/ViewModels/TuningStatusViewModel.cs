@@ -60,6 +60,24 @@ public sealed partial class TuningStatusViewModel : ObservableObject, IDisposabl
     /// <summary>Pourquoi une écriture manuelle est refusée maintenant, null si elle est permise.</summary>
     public string? ManualWriteRefusal() => Lease.RefusalText(null);
 
+    /// <summary>L'utilisateur vient de régler quelque chose à la main dans un onglet, ou d'appliquer un groupe d'un clic
+    /// (sur le fil d'interface) : la bascule automatique (#9) se met en pause. Levé au geste, pas à l'écriture différée,
+    /// pour qu'une bascule ne démarre pas entre les deux.</summary>
+    public event Action<string>? ManualWrite;
+
+    /// <summary>Signale un réglage manuel (<paramref name="source"/> : « réglage manuel dans l'onglet GPU »).</summary>
+    public void NoteManualWrite(string source)
+    {
+        try
+        {
+            ManualWrite?.Invoke(source);
+        }
+        catch
+        {
+            // Un abonné en échec ne doit pas empêcher le réglage de l'utilisateur.
+        }
+    }
+
     private void OnLeaseChanged()
     {
         if (_dispatcher.CheckAccess())

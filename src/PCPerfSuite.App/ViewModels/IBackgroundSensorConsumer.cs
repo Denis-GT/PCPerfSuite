@@ -39,6 +39,22 @@ public static class BackgroundSensorNeeds
         }
     }
 
+    /// <summary>
+    /// Groupes lus fenêtre cachée par la bascule automatique (#9) : charge CPU, FPS RTSS, batterie s'il y en a une, et
+    /// GPU, sauf sur batterie quand rien ne ressemble à un jeu (l'interroger peut réveiller le GPU dédié d'un portable).
+    /// Jamais le groupe Cpu, coûteux : la température CPU n'entre dans l'historique que si un autre besoin la lit déjà
+    /// (courbe de ventilateur qui la suit, sécurité thermique). Rien quand la bascule est désactivée.
+    /// </summary>
+    public static void AddForAutoSwitch(ISet<SensorGroup> into, bool isEnabled, bool hasBattery, bool onBattery, bool looksLikeGame)
+    {
+        if (!isEnabled) return;
+
+        into.Add(SensorGroup.CpuLoad);
+        into.Add(SensorGroup.Fps);
+        if (hasBattery) into.Add(SensorGroup.Battery);
+        if (!onBattery || looksLikeGame) into.Add(SensorGroup.Gpu);
+    }
+
     /// <summary>Groupes lus par les métriques affichées dans l'overlay ; rien quand il est désactivé. L'heure, qui ne
     /// vient d'aucun capteur (groupe null), n'en demande aucun.</summary>
     public static void AddForOverlay(ISet<SensorGroup> into, bool isEnabled, IEnumerable<SensorGroup?> metricGroups)

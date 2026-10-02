@@ -141,6 +141,20 @@ public sealed class AutoSwitchPolicyTests
         => Assert.True(AutoSwitchPolicy.Decide(Context(lastSwitch: T0.AddHours(1))).ShouldSwitch);
 
     [Fact]
+    public void Le_journal_retient_les_reglages_refuses_ou_laisses_de_cote_par_dimension()
+    {
+        var report = new ProfileGroupReport("g", "Jeu", T0, ApplyOrder.FansFirst,
+        [
+            new DimensionReport(ProfileDimension.Cpu, [ReportItem.Applied("epp", "préférence posée"), ReportItem.Ignored("watts", "watts ignorés : avertissement non accepté")], []),
+            new DimensionReport(ProfileDimension.Gpu, [ReportItem.Refused("cœur", "overclock refusé par le pilote")], []),
+        ], null, []);
+
+        Assert.Equal(
+            ["Processeur : watts ignorés : avertissement non accepté", "Carte graphique : overclock refusé par le pilote"],
+            AutoSwitchReports.NotApplied(report));
+    }
+
+    [Fact]
     public void Les_raisons_ont_un_libelle_sans_nom_d_application()
     {
         foreach (UsageReasonKind reason in Enum.GetValues<UsageReasonKind>())
