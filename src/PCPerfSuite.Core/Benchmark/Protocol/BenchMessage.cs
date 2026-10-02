@@ -61,6 +61,10 @@ public sealed class BenchMessage
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
+    /// <summary>Avec le bonjour : ce que le worker a pu régler sur son processus (EcoQoS, priorité).</summary>
+    [JsonPropertyName("notes")]
+    public List<string>? Notes { get; set; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; set; }
 

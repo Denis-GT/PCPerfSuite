@@ -17,8 +17,11 @@ public readonly record struct LogicalProcessorId(int Group, int Index)
 /// <param name="EfficiencyClass">Classe d'efficacité : plus elle est haute, plus le cœur est performant (P-cores
 /// Intel en 1, E-cores en 0). Tous à 0 sur un processeur non hybride.</param>
 /// <param name="IsParked">Parqué au moment de la lecture (instantané, l'état bascule vite).</param>
+/// <param name="CpuSetId">Identifiant du CPU set de Windows (SetThreadSelectedCpuSets, pour épingler un thread du bench
+/// dessus) ; 0 si le tampon ne le donnait pas.</param>
 public sealed record LogicalProcessor(
-    LogicalProcessorId Id, int CoreIndex, int LastLevelCacheIndex, int NumaNode, int EfficiencyClass, bool IsParked);
+    LogicalProcessorId Id, int CoreIndex, int LastLevelCacheIndex, int NumaNode, int EfficiencyClass, bool IsParked,
+    uint CpuSetId = 0);
 
 /// <summary>Un cœur physique et ses fils SMT, dans l'ordre de leur index.</summary>
 public sealed record PhysicalCore(int Group, int CoreIndex, int EfficiencyClass, IReadOnlyList<LogicalProcessor> Threads);
@@ -187,7 +190,8 @@ public sealed class CpuTopology
                     LastLevelCacheIndex: entry[16],
                     NumaNode: entry[17],
                     EfficiencyClass: entry[18],
-                    IsParked: (entry[19] & ParkedFlag) != 0));
+                    IsParked: (entry[19] & ParkedFlag) != 0,
+                    CpuSetId: BinaryPrimitives.ReadUInt32LittleEndian(entry[8..])));
             }
 
             offset += size;
