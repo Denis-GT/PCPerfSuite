@@ -392,14 +392,15 @@ public sealed class UsageClassifier
             : $"{span.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)} s";
 }
 
+/// <summary>Un relevé de <see cref="TimeWeightedMean"/> : son heure, le temps qu'il représente et sa valeur.</summary>
+internal readonly record struct TimeWeightedPoint(DateTimeOffset Time, double Weight, double Value);
+
 /// <summary>Moyenne glissante pondérée par le temps : chaque relevé compte pour la durée qu'il représente, pour que des
 /// relevés espacés (mode éco) ne pèsent pas moins que des relevés serrés.</summary>
 internal sealed class TimeWeightedMean
 {
-    private readonly record struct Point(DateTimeOffset Time, double Weight, double Value);
-
     private readonly TimeSpan _span;
-    private readonly Queue<Point> _points = new();
+    private readonly Queue<TimeWeightedPoint> _points = new();
     private double _sum;
     private double _weight;
 
@@ -407,7 +408,7 @@ internal sealed class TimeWeightedMean
 
     public void Add(DateTimeOffset time, double weight, double value)
     {
-        _points.Enqueue(new Point(time, weight, value));
+        _points.Enqueue(new TimeWeightedPoint(time, weight, value));
         _sum += weight * value;
         _weight += weight;
     }
@@ -416,7 +417,7 @@ internal sealed class TimeWeightedMean
     {
         while (_points.Count > 0 && now - _points.Peek().Time > _span)
         {
-            Point old = _points.Dequeue();
+            TimeWeightedPoint old = _points.Dequeue();
             _sum -= old.Weight * old.Value;
             _weight -= old.Weight;
         }

@@ -260,7 +260,8 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
 
         SignalsText = _switcher.SignalsText;
         ForegroundText = _switcher.CurrentApp is { } app
-            ? $"Au premier plan : {app.DisplayName}{(app.IsFullscreen ? ", en plein écran" : "")}{(app.ForegroundIgnored ? " (PCPerfSuite ou le bureau par-dessus)" : "")}."
+            ? $"Au premier plan : {app.DisplayName}{(app.IsFullscreen ? ", en plein écran" : "")}{(app.ForegroundIgnored ? " (PCPerfSuite ou le bureau par-dessus)" : "")}"
+              + (app.PathUnavailableReason is { } why ? $" ({why})." : ".")
             : "Au premier plan : aucune application.";
 
         IncidentText = _switcher.StartupIncidents.Count == 0

@@ -322,7 +322,7 @@
                             <StackPanel>
                                 <TextBlock Text="Outils de vérification" Style="{StaticResource H2}"/>
                                 <TextBox Style="{StaticResource SelectableCaption}" Margin="0,2,0,0" TextWrapping="Wrap"
-                                         Text="Pour tester le bail de réglage et l'application « sans en faire l'état de démarrage », comme le feront le bench et la bascule automatique."/>
+                                         Text="Pour vérifier le bail de réglage et l'application « sans en faire l'état de démarrage », celle de la bascule automatique (et, plus tard, du bench). Tenir le bail grise les onglets et met la bascule en pause."/>
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ShowTools}" VerticalAlignment="Center"/>
                         </Grid>

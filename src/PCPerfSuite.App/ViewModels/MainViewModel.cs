@@ -161,6 +161,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _compatibilityRows.Add(new PawnIoModulesRowProvider());
         _compatibilityRows.Add(new GpuIdentityRowProvider(_gpuControl));
+        _compatibilityRows.Add(new CpuIdentityRowProvider(_cpu.Identity));
         _compatibilityRows.Add(new GpuThermalSafetyRowProvider(_gpuControl));
         _compatibilityRows.Add(new DisplaysRowProvider());
         _compatibilityRows.Add(new CpuThrottleRowProvider(() => _hardware.LastSnapshot));

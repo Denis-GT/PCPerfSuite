@@ -13,6 +13,7 @@ public sealed class ApplicationPublisherCacheTests
     private ExecutableStamp? _stamp = new(1000, new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
     private string? _publisher = "Studio SAS";
     private int _verifications;
+    private int _stampReads;
 
     private ApplicationPublisherCache Create() => new(
         path =>
@@ -20,7 +21,11 @@ public sealed class ApplicationPublisherCacheTests
             _verifications++;
             return _publisher;
         },
-        _ => _stamp,
+        _ =>
+        {
+            _stampReads++;
+            return _stamp;
+        },
         work => _queued.Add(work),
         _clock);
 
@@ -61,8 +66,39 @@ public sealed class ApplicationPublisherCacheTests
         _clock.Now = T0 + ApplicationPublisherCache.StampRecheck + TimeSpan.FromSeconds(1);
 
         Assert.Equal("Studio SAS", cache.PublisherOf(Game));
+        RunQueued();
+        Assert.Equal("Studio SAS", cache.PublisherOf(Game));
         Assert.Empty(_queued);
         Assert.Equal(1, _verifications);
+    }
+
+    [Fact]
+    public void La_taille_et_les_dates_ne_sont_pas_relues_sur_le_fil_de_l_appelant()
+    {
+        // Un jeu sur un partage réseau ou un disque en veille : relire ses dates peut prendre des secondes.
+        ApplicationPublisherCache cache = Create();
+        cache.PublisherOf(Game);
+        RunQueued();
+        int reads = _stampReads;
+        _clock.Now = T0 + ApplicationPublisherCache.StampRecheck;
+
+        Assert.Equal("Studio SAS", cache.PublisherOf(Game));
+        Assert.Equal(reads, _stampReads);
+        Assert.Single(_queued);
+    }
+
+    [Fact]
+    public void Au_dela_du_plafond_une_verification_en_cours_n_est_pas_oubliee()
+    {
+        ApplicationPublisherCache cache = Create();
+        Assert.Null(cache.PublisherOf(Game));
+        for (int i = 0; i < ApplicationPublisherCache.MaxEntries; i++) cache.PublisherOf($@"C:\Apps\app{i}.exe");
+
+        RunQueued();
+
+        Assert.Equal("Studio SAS", cache.PublisherOf(Game));
+        Assert.Empty(_queued);
+        Assert.Equal(ApplicationPublisherCache.MaxEntries + 1, _verifications);
     }
 
     [Fact]
@@ -76,7 +112,8 @@ public sealed class ApplicationPublisherCacheTests
         _publisher = null;
         _clock.Now = T0 + ApplicationPublisherCache.StampRecheck;
 
-        Assert.Null(cache.PublisherOf(Game));
+        // L'éditeur connu reste rendu le temps de la relecture, faite en arrière-plan.
+        Assert.Equal("Studio SAS", cache.PublisherOf(Game));
         RunQueued();
         Assert.Null(cache.PublisherOf(Game));
         Assert.Equal(2, _verifications);
@@ -92,8 +129,9 @@ public sealed class ApplicationPublisherCacheTests
         _stamp = _stamp!.Value with { CreationUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) };
         _clock.Now = T0 + ApplicationPublisherCache.StampRecheck;
 
-        Assert.Null(cache.PublisherOf(Game));
-        Assert.Single(_queued);
+        cache.PublisherOf(Game);
+        RunQueued();
+        Assert.Equal(2, _verifications);
     }
 
     [Fact]

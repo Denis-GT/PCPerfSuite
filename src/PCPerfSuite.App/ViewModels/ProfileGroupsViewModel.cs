@@ -331,7 +331,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
     [RelayCommand]
     private Task Apply(ProfileGroupItemViewModel? item) => ApplyAsync(item, makeStartupState: true);
 
-    /// <summary>Outil de vérification : appliquer sans en faire l'état de démarrage, comme le fera la bascule
+    /// <summary>Outil de vérification : appliquer sans en faire l'état de démarrage, comme le fait la bascule
     /// automatique (#9).</summary>
     [RelayCommand]
     private Task ApplyTransient(ProfileGroupItemViewModel? item) => ApplyAsync(item, makeStartupState: false);

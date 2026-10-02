@@ -10,7 +10,10 @@ public readonly record struct ExecutableStamp(long Length, DateTime LastWriteUtc
 /// vérification Authenticode hache tout le fichier : de quelques millisecondes à quelques secondes pour un gros jeu.
 /// Elle se fait donc hors du fil d'interface, une à la fois, et seulement à la demande ; tant qu'elle n'a pas abouti,
 /// l'éditeur est inconnu (la règle ne correspond pas encore), puis <see cref="Resolved"/> est levé. Le résultat est gardé
-/// tant que la taille et les dates du fichier ne changent pas. Utilisable depuis n'importe quel fil ; ne lève jamais.
+/// tant que la taille et les dates du fichier ne changent pas ; leur relecture se fait elle aussi hors du fil de
+/// l'appelant (un jeu sur un partage réseau ou un disque en veille ne doit pas figer l'interface) : l'éditeur connu est
+/// rendu tout de suite, et un fichier remplacé repasse en vérification. Utilisable depuis n'importe quel fil ; ne lève
+/// jamais.
 ///
 /// Limite connue : un programme qui peut écrire dans le dossier de l'exécutable peut le remplacer en gardant sa taille et
 /// ses dates ; l'éditeur vérifié reste alors en cache jusqu'à la relance de l'app. L'enjeu se borne au groupe que la règle
@@ -23,17 +26,8 @@ public sealed class ApplicationPublisherCache
     /// <summary>Intervalle minimal entre deux relectures de la taille et de la date d'un même fichier.</summary>
     public static readonly TimeSpan StampRecheck = TimeSpan.FromSeconds(30);
 
-    private sealed class Entry
-    {
-        public ExecutableStamp? Stamp;
-        public DateTimeOffset StampReadUtc;
-        public string? Publisher;
-        public bool Verified;
-        public bool Pending;
-    }
-
     private readonly object _gate = new();
-    private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PublisherCacheEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, string?> _verify;
     private readonly Func<string, ExecutableStamp?> _stamp;
     private readonly Action<Action> _runInBackground;
@@ -65,42 +59,39 @@ public sealed class ApplicationPublisherCache
         try
         {
             DateTimeOffset now = _time.GetUtcNow();
-            Entry entry;
-            bool verified;
-            ExecutableStamp? known;
+            PublisherCacheEntry entry;
             lock (_gate)
             {
-                if (!_entries.TryGetValue(path, out Entry? found))
+                if (!_entries.TryGetValue(path, out PublisherCacheEntry? found))
                 {
-                    if (_entries.Count >= MaxEntries) _entries.Clear();
-                    found = new Entry();
+                    if (_entries.Count >= MaxEntries) ForgetIdle();
+                    found = new PublisherCacheEntry();
                     _entries[path] = found;
                 }
 
                 entry = found;
                 if (entry.Pending) return null;
-                if (entry.Verified && now - entry.StampReadUtc < StampRecheck && now >= entry.StampReadUtc) return entry.Publisher;
-                if (entry.Verified) entry.StampReadUtc = now;
-                verified = entry.Verified;
-                known = entry.Stamp;
+                if (entry.Verified && (entry.Checking || (now - entry.StampReadUtc < StampRecheck && now >= entry.StampReadUtc)))
+                {
+                    return entry.Publisher;
+                }
+
+                if (entry.Verified)
+                {
+                    // Déjà vérifié : la taille et les dates sont relues en arrière-plan, l'éditeur connu reste rendu.
+                    entry.StampReadUtc = now;
+                    entry.Checking = true;
+                }
+                else
+                {
+                    entry.Pending = true;
+                }
             }
 
-            // Déjà vérifié : un fichier inchangé garde son éditeur, un fichier remplacé repasse en vérification.
-            if (verified && _stamp(path) == known)
-            {
-                lock (_gate) return entry.Publisher;
-            }
+            if (entry.Checking) _runInBackground(() => Recheck(path, entry));
+            else _runInBackground(() => Verify(path, entry));
 
-            lock (_gate)
-            {
-                if (entry.Pending) return null;
-                entry.Verified = false;
-                entry.Publisher = null;
-                entry.Pending = true;
-            }
-
-            _runInBackground(() => Verify(path, entry));
-            return null;
+            lock (_gate) return entry.Verified ? entry.Publisher : null;
         }
         catch (Exception)
         {
@@ -108,7 +99,42 @@ public sealed class ApplicationPublisherCache
         }
     }
 
-    private void Verify(string path, Entry entry)
+    /// <summary>Relit la taille et les dates : un fichier inchangé garde son éditeur, un fichier remplacé repasse en
+    /// vérification.</summary>
+    private void Recheck(string path, PublisherCacheEntry entry)
+    {
+        ExecutableStamp? stamp;
+        try
+        {
+            stamp = _stamp(path);
+        }
+        catch (Exception)
+        {
+            stamp = null;
+        }
+
+        lock (_gate)
+        {
+            entry.Checking = false;
+            if (stamp == entry.Stamp) return;
+            entry.Verified = false;
+            entry.Publisher = null;
+            entry.Pending = true;
+        }
+
+        Verify(path, entry);
+    }
+
+    /// <summary>Au-delà de <see cref="MaxEntries"/>, on oublie les entrées au repos ; une vérification en cours reste.</summary>
+    private void ForgetIdle()
+    {
+        foreach (string key in _entries.Where(e => !e.Value.Pending && !e.Value.Checking).Select(e => e.Key).ToList())
+        {
+            _entries.Remove(key);
+        }
+    }
+
+    private void Verify(string path, PublisherCacheEntry entry)
     {
         string? publisher = null;
         ExecutableStamp? stamp = null;
@@ -179,4 +205,22 @@ public sealed class ApplicationPublisherCache
             return null;
         }
     }
+}
+
+/// <summary>Une entrée de <see cref="ApplicationPublisherCache"/>, qui seul s'en sert : lue et écrite sous son verrou.</summary>
+internal sealed class PublisherCacheEntry
+{
+    public ExecutableStamp? Stamp { get; set; }
+
+    public DateTimeOffset StampReadUtc { get; set; }
+
+    public string? Publisher { get; set; }
+
+    public bool Verified { get; set; }
+
+    /// <summary>Vérification Authenticode en cours.</summary>
+    public bool Pending { get; set; }
+
+    /// <summary>Relecture de la taille et des dates en cours.</summary>
+    public bool Checking { get; set; }
 }

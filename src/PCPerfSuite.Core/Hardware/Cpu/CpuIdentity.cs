@@ -21,6 +21,9 @@ public sealed record CpuIdentity
     /// <summary>Nom commercial lu dans le registre (« 13th Gen Intel(R) Core(TM) i5-13500T »), null s'il manque.</summary>
     public string? Name { get; init; }
 
+    /// <summary>Le nom du processeur est connu : sans lui, <see cref="Matches"/> ne reconnaît jamais le même processeur.</summary>
+    public bool HasName => IsKnownName(Name);
+
     public static CpuIdentity Of(CpuPlatform platform) => new()
     {
         Vendor = platform.Vendor.ToString(),

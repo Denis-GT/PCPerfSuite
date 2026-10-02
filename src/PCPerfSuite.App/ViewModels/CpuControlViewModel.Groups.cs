@@ -95,7 +95,7 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
         if (plan.PlanWrites.Count > 0)
         {
             PowerPlanWriteResult result = GroupPlanChanges.Write(plan.PlanWrites);
-            permanent = result.Settings.Any(s => s.Retained) || result.Succeeded;
+            permanent = CpuPlanReport.IsPermanent(result);
             AddPlanItems(result, items, restoring: false);
         }
 
@@ -136,33 +136,18 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
         return outcome.Report.Body + permanent;
     }
 
+    /// <summary>Les curseurs suivent ce que Windows a retenu ; le compte rendu vient de <see cref="CpuPlanReport"/>.</summary>
     private void AddPlanItems(PowerPlanWriteResult result, List<ReportItem> items, bool restoring)
     {
-        if (result.Settings.Count == 0 && !result.Succeeded)
-        {
-            items.Add(ReportItem.Refused(CpuGroupPlanner.PlanLabel, $"réglages du plan non écrits : {result.Error}"));
-            return;
-        }
-
         foreach (PowerPlanSettingResult setting in result.Settings)
         {
-            CpuPowerSetting definition = setting.Setting;
-            string label = definition.Label;
             if (setting.Ac is { } ac && setting.Dc is { } dc)
             {
-                PowerSettings.FirstOrDefault(p => p.Id == definition.Id)?.ShowRetained(ac, dc);
+                PowerSettings.FirstOrDefault(p => p.Id == setting.Setting.Id)?.ShowRetained(ac, dc);
             }
-
-            string value = setting.Ac is { } shown ? DescribeValue(definition, shown, setting.Dc) : "";
-            items.Add(setting switch
-            {
-                { Retained: true } => ReportItem.Applied(label, restoring ? $"« {label} » rendu à son origine ({value})" : $"« {label} » : {value}"),
-                { Ac: null } => new ReportItem(label, ReportItemStatus.NotReadBack, $"« {label} » envoyé, non relu"),
-                _ when !result.Succeeded => ReportItem.Refused(label, $"« {label} » refusé : {result.Error}"),
-                _ => new ReportItem(label, ReportItemStatus.Trimmed,
-                    $"« {label} » : Windows a retenu {value} au lieu de {DescribeValue(definition, setting.RequestedAc, setting.RequestedDc)}"),
-            });
         }
+
+        items.AddRange(CpuPlanReport.Items(result, restoring, DescribeValue));
     }
 
     private string DescribeValue(CpuPowerSetting setting, uint ac, uint? dc)

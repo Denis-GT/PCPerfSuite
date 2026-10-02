@@ -165,8 +165,12 @@ public static class CpuGroupPlanner
 
         if (checkIdentity && !CpuIdentity.Matches(capturedOn, state.Identity))
         {
-            string where = capturedOn is null ? "un processeur non identifié" : $"un autre processeur ({capturedOn.Describe()})";
-            items.Add(ReportItem.Ignored(WattsLabel, $"limites en watts ignorées : relevées sur {where}, elles ne se transposent pas"));
+            // Sans nom de ce côté-ci, ce n'est pas « un autre processeur » : c'est ce PC qui ne permet pas de le vérifier.
+            string why = !state.Identity.HasName
+                ? "le registre de Windows ne donne pas le nom de ce processeur, impossible de vérifier que c'est celui où elles ont été relevées"
+                : capturedOn is null ? "relevées sur un processeur non identifié, elles ne se transposent pas"
+                : $"relevées sur un autre processeur ({capturedOn.Describe()}), elles ne se transposent pas";
+            items.Add(ReportItem.Ignored(WattsLabel, $"limites en watts ignorées : {why}"));
             return null;
         }
 

@@ -23,6 +23,11 @@ public sealed record ForegroundApp(
 
     /// <summary>Nom affiché (« game »), ou « application inaccessible ».</summary>
     public string DisplayName => Path is { } path ? ApplicationPaths.DisplayName(path) : "application inaccessible";
+
+    /// <summary>Pourquoi le chemin manque, et ce que cela empêche (règle 3) ; null quand il est lu.</summary>
+    public string? PathUnavailableReason => Path is null
+        ? "chemin de l'exécutable illisible (processus protégé, ou application du Store suspendue) : aucune règle par application ne peut s'y appliquer, l'usage est déduit des charges et du plein écran"
+        : null;
 }
 
 /// <summary>Une fenêtre enfant : sa classe et son processus.</summary>
