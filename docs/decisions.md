@@ -148,8 +148,10 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   - Fermeture : `AutoProfileSwitcher.Stop` en tête (plus de bascule, écriture lancée sans attendre),
     `AutoProfileSwitcher.Dispose` en tout dernier (attente de l'écriture, 2 s au plus).
   - Les signaux absents (charge GPU jamais lue, aucune image RTSS) sont dits dans la page et dans la ligne du diagnostic.
-  - Point à confirmer ci-dessus, soumis à Denis le 02/10/2026 sans préférence de sa part : on garde « Appliquer au
-    démarrage » décoché après un incident qui suit une bascule, même cochée par l'utilisateur (prudence par défaut).
+  - Le point « À confirmer par Denis » ci-dessus est tranché le 02/10/2026 (Denis sans préférence, prudence par défaut) :
+    on garde la règle livrée. Après un incident qui suit l'application d'un groupe, par la bascule ou à la main, la case
+    « Appliquer au démarrage » est décochée dès que l'OC ou les watts du groupe sont ceux de l'onglet, même si
+    l'utilisateur l'avait cochée lui-même.
 - **Cause d'une absence** (#4) : une lecture « N/D » porte un `Unavailable` (`UnavailableCause` : `HardwareOrDriver`,
   `UnsupportedModel`, `MissingRights`, `src/PCPerfSuite.Core/Compatibility/UnavailableCause.cs`) et un texte, pour que
   le diagnostic (#12) range ce qui n'est pas mesurable sans réinventer les trois causes de la règle 3.

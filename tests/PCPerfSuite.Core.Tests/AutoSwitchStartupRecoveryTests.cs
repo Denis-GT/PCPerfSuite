@@ -91,7 +91,7 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
         Assert.True(suspension.GpuStartupUnchecked);
         Assert.False(_settings.Gpu.ApplyOverclockAtStartup);
 
-        // #9 : l'incident est au journal des bascules, sous le nom du groupe relu après la suspension.
+        // #9 : l'incident est au journal des bascules, sous le nom du groupe.
         AutoSwitchJournalEntry incident = Assert.Single(Usage().UnacknowledgedIncidents());
         Assert.Equal("exigeant", incident.GroupId);
         Assert.Equal("Jeu exigeant (auto)", incident.GroupName);
@@ -118,7 +118,9 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
 
         StartupRecoveryReport report = Relaunch(BlueScreenAfterTheSwitch());
 
+        // Qui que soit le demandeur, l'OC qui a planté est celui que l'onglet reposerait : la case est décochée.
         Assert.Contains("exigeant", _settings.ProfileGroups.Suspensions.Keys);
+        Assert.False(_settings.Gpu.ApplyOverclockAtStartup);
         Assert.Null(report.Handlers.Single(h => h.HandlerId == AutoSwitchRequester.Id).Note);
         Assert.False(File.Exists(UsagePath));
     }
@@ -135,7 +137,9 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
         Assert.Empty(_settings.ProfileGroups.Suspensions);
         Assert.True(_settings.Gpu.ApplyOverclockAtStartup);
         Assert.False(File.Exists(UsagePath));
-        Assert.Equal(SessionEntryState.Failed, Assert.Single(_journal.Read().Entries).State);
+        SessionJournalEntry closed = Assert.Single(_journal.Read().Entries);
+        Assert.Equal(SessionEntryState.Failed, closed.State);
+        Assert.Contains("arrêt normal de Windows", closed.Cause);
     }
 
     [Fact]
