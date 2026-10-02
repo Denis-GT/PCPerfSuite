@@ -103,7 +103,9 @@ public sealed partial class FanCurvesViewModel : IFanGroupTarget
         finally
         {
             _applyingProfile = false;
-            Persist();
+
+            // Transitoire : les courbes enregistrées sont celles mises de côté, déjà sur le disque ; rien à réécrire.
+            if (context.MakeStartupState) Persist();
         }
 
         var report = new DimensionReport(ProfileDimension.Fans, items, plan.Notes);

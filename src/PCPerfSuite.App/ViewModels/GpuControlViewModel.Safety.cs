@@ -185,7 +185,7 @@ public sealed partial class GpuControlViewModel
                 break;
             case ResumeAction.Reapply:
                 // L'état de démarrage revient : un groupe appliqué sans l'être n'est plus en place.
-                _overclockTransient = false;
+                SetOverclockTransient(false);
                 UpdateKeepOverclockOnExit();
                 ReapplySaved(saved, "Réveil de veille : réglages enregistrés réappliqués.");
                 break;

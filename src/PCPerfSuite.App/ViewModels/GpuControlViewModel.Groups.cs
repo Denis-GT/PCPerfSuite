@@ -14,8 +14,11 @@ namespace PCPerfSuite.App.ViewModels;
 public sealed partial class GpuControlViewModel : IGpuGroupTarget
 {
     /// <summary>L'overclock en place vient d'un groupe appliqué sans en faire l'état de démarrage : il n'est pas
-    /// enregistré, et il est rendu d'origine à la fermeture (D7). Retombe à faux dès qu'on le touche à la main.</summary>
+    /// enregistré, et il est rendu d'origine à la fermeture (D7). Retombe à faux quand un geste couvre tout l'onglet.</summary>
     private bool _overclockTransient;
+
+    /// <summary>Les réglages touchés à la main depuis ce groupe transitoire : seuls ceux-là sont enregistrés.</summary>
+    private GpuTouched _manualWhileTransient = GpuTouched.None;
 
     /// <summary>Bail de réglage et réglage d'un groupe en cours : la bannière de l'onglet.</summary>
     public TuningStatusViewModel Tuning { get; }
@@ -35,9 +38,13 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
     /// transitoire n'en fait pas partie.</summary>
     private void UpdateKeepOverclockOnExit() => _gpuControl.KeepOverclockOnExit = ApplyOverclockAtStartup && !_overclockTransient;
 
-    /// <summary>Une écriture à la main : refusée sous le bail d'un autre (l'affichage revient alors à ce que la carte a
-    /// vraiment), sinon elle redevient l'état de démarrage, même après un groupe appliqué sans l'être.</summary>
-    private bool RefuseManualWrite()
+    /// <summary>
+    /// Une écriture à la main : refusée sous le bail d'un autre (l'affichage revient alors à ce que la carte a vraiment).
+    /// Sinon, après un groupe appliqué sans en faire l'état de démarrage (D7), seul le réglage touché est enregistré : un
+    /// curseur de puissance ne fait pas des décalages transitoires du groupe l'overclock de l'onglet. Un geste qui couvre
+    /// tout l'onglet (<paramref name="touched"/> null : réinitialiser) en refait l'état de démarrage.
+    /// </summary>
+    private bool RefuseManualWrite(GpuTouched? touched = null)
     {
         if (Tuning.ManualWriteRefusal() is { } refusal)
         {
@@ -47,10 +54,18 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
             return true;
         }
 
-        _overclockTransient = false;
+        if (touched is null) SetOverclockTransient(false);
+        else if (_overclockTransient) _manualWhileTransient = _manualWhileTransient.Union(touched);
         UpdateKeepOverclockOnExit();
         return false;
     }
+
+    private void SetOverclockTransient(bool transient)
+    {
+        _overclockTransient = transient;
+        _manualWhileTransient = GpuTouched.None;
+    }
+
 
     public void FlushPendingManualWrites() => _applyDebounce.Flush();
 
@@ -103,9 +118,11 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
     {
         LoadPowerLimit();
         LoadOverclock();
-        _overclockTransient = !context.MakeStartupState;
+        SetOverclockTransient(!context.MakeStartupState);
         UpdateKeepOverclockOnExit();
-        Persist();
+
+        // Transitoire (bascule automatique) : rien de ce qui est enregistré ne change, settings.json n'est pas réécrit.
+        if (context.MakeStartupState) Persist();
     }
 
     private static ReportItem ToReportItem(GpuApplyItem item) => item.Status switch

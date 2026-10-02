@@ -480,7 +480,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(PowerLimitKey, () =>
         {
-            if (RefuseManualWrite()) return;
+            if (RefuseManualWrite(GpuTouched.None with { Power = true })) return;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { PowerLimitPercent = (float)PowerLimitPercent });
             OverclockStatus = report.AnyRefused
                 ? "Le pilote a refusé la limite de puissance."
@@ -501,7 +501,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(TemperatureLimitKey, () =>
         {
-            if (RefuseManualWrite()) return;
+            if (RefuseManualWrite(GpuTouched.None with { Temperature = true })) return;
             double limit = TemperatureLimitC;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(new GpuOverclockRequest { TemperatureLimitC = (int)Math.Round(limit) });
             OverclockStatus = report.AnyRefused
@@ -522,7 +522,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
         _applyDebounce.Schedule(VoltageKey, () =>
         {
-            if (RefuseManualWrite()) return;
+            if (RefuseManualWrite(GpuTouched.None with { Voltage = true })) return;
             GpuApplyReport report = _gpuControl.ApplyAndVerify(
                 new GpuOverclockRequest { Voltage = (int)Math.Round(VoltageValue), VoltageUnit = _voltageUnit });
             OverclockStatus = report.AnyRefused
@@ -552,7 +552,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     private void ApplyClockOffsetsNow()
     {
         if (!IsAvailable || _suppressApply || !IsClockOffsetSupported) return;
-        if (RefuseManualWrite()) return;
+        if (RefuseManualWrite(GpuTouched.None with { Core = true, Memory = true })) return;
 
         int core = (int)Math.Round(CoreOffsetMhz);
         int memory = (int)Math.Round(MemoryOffsetMhz);
@@ -751,8 +751,8 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
         GpuIdentity? identity = _gpuControl.Identity;
 
         // Un groupe appliqué sans en faire l'état de démarrage (bascule automatique) : les réglages enregistrés restent
-        // ceux d'avant.
-        bool writeValues = available && !_overclockTransient;
+        // ceux d'avant, sauf ceux touchés à la main depuis.
+        GpuTouched write = GpuTouched.ToSave(available, _overclockTransient, _manualWhileTransient);
 
         AppSettingsStore.Update(settings =>
         {
@@ -762,15 +762,19 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
 
             // Sans carte pilotable, on ne touche pas aux réglages d'overclock enregistrés : ils restent
             // valables pour la carte sur laquelle ils ont été faits.
-            if (!writeValues) return;
+            if (write == GpuTouched.None) return;
 
-            gpu.PowerLimitPercent = power;
-            gpu.CoreClockOffsetMhz = core;
-            gpu.MemoryClockOffsetMhz = memory;
-            gpu.TemperatureLimitC = temperature;
-            gpu.VoltageValue = voltage;
-            gpu.VoltageUnit = voltageUnit;
-            gpu.VoltageBoostPercent = null;
+            if (write.Power) gpu.PowerLimitPercent = power;
+            if (write.Core) gpu.CoreClockOffsetMhz = core;
+            if (write.Memory) gpu.MemoryClockOffsetMhz = memory;
+            if (write.Temperature) gpu.TemperatureLimitC = temperature;
+            if (write.Voltage)
+            {
+                gpu.VoltageValue = voltage;
+                gpu.VoltageUnit = voltageUnit;
+                gpu.VoltageBoostPercent = null;
+            }
+
             gpu.OverclockVendor = vendor;
             gpu.OverclockGpu = identity;
         });

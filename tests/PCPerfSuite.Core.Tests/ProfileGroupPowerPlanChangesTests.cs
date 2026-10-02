@@ -203,4 +203,18 @@ public class ProfileGroupPowerPlanChangesTests
         Assert.False(result.Succeeded);
         Assert.Equal(0, _plan.WriteCalls);
     }
+
+    [Theory]
+    [InlineData(false, "n'est pas lancé en administrateur")]
+    [InlineData(true, "stratégie de groupe")]
+    public void Un_refus_de_windows_dit_si_les_droits_sont_en_cause(bool administrator, string expected)
+    {
+        _plan.RefuseWrites = true;
+        var changes = new ProfileGroupPowerPlanChanges([Boost, Epp], hasBattery: false, _plan, _origins, () => administrator);
+
+        PowerPlanWriteResult result = changes.Write([new CpuPlanWrite(Epp, 80, 80)]);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(expected, result.Error);
+    }
 }

@@ -179,7 +179,9 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
 
         _wattsTransient = !context.MakeStartupState;
         UpdateKeepLimitsOnExit();
-        Persist();
+
+        // Transitoire (bascule automatique) : rien de ce qui est enregistré ne change, settings.json n'est pas réécrit.
+        if (context.MakeStartupState) Persist();
 
         const string label = CpuGroupPlanner.WattsLabel;
         if (after is null) return new ReportItem(label, ReportItemStatus.NotReadBack, "limites en watts envoyées, non relues");

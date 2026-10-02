@@ -53,6 +53,17 @@ public sealed record GpuTouched(bool Core, bool Memory, bool Power, bool Tempera
     public static GpuTouched None { get; } = new(false, false, false, false, false);
 
     public static GpuTouched All { get; } = new(true, true, true, true, true);
+
+    public GpuTouched Union(GpuTouched other)
+        => new(Core || other.Core, Memory || other.Memory, Power || other.Power, Temperature || other.Temperature, Voltage || other.Voltage);
+
+    /// <summary>
+    /// Ce que l'onglet GPU enregistre comme état de démarrage : tout ; rien sans carte pilotable (les valeurs restent
+    /// celles de la carte où elles ont été faites) ; après un groupe appliqué sans en faire l'état de démarrage (D7),
+    /// seulement ce que l'utilisateur a touché à la main depuis, et non les valeurs transitoires du groupe.
+    /// </summary>
+    public static GpuTouched ToSave(bool cardAvailable, bool transient, GpuTouched touchedSinceTransient)
+        => !cardAvailable ? None : transient ? touchedSinceTransient : All;
 }
 
 /// <summary>

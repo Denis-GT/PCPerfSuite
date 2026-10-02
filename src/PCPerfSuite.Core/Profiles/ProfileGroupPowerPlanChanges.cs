@@ -1,6 +1,7 @@
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.SystemChanges;
+using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.Profiles;
 
@@ -21,25 +22,36 @@ public interface IPowerPlanOriginStore
 }
 
 /// <summary>Origine gardée dans settings.json, sous <see cref="AppSettings.ProfileGroupPowerOrigins"/>, écrite par ce seul
-/// propriétaire.</summary>
+/// propriétaire. Relue une fois puis gardée en mémoire jusqu'à la prochaine écriture : une application de groupe la
+/// consulte plusieurs fois, et relire tout settings.json à chaque fois ne sert à rien.</summary>
 public sealed class AppSettingsPowerPlanOriginStore : IPowerPlanOriginStore
 {
+    private readonly object _gate = new();
+    private IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, uint>>? _cache;
+
     public IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, uint>> All
     {
         get
         {
-            var all = new Dictionary<Guid, IReadOnlyDictionary<string, uint>>();
-            foreach ((string scheme, Dictionary<string, uint>? values) in AppSettingsStore.Load().ProfileGroupPowerOrigins ?? new())
+            lock (_gate)
             {
-                if (values is { Count: > 0 } && Guid.TryParse(scheme, out Guid guid)) all[guid] = values;
-            }
+                if (_cache is { } cached) return cached;
 
-            return all;
+                var all = new Dictionary<Guid, IReadOnlyDictionary<string, uint>>();
+                foreach ((string scheme, Dictionary<string, uint>? values) in AppSettingsStore.Load().ProfileGroupPowerOrigins ?? new())
+                {
+                    if (values is { Count: > 0 } && Guid.TryParse(scheme, out Guid guid)) all[guid] = values;
+                }
+
+                _cache = all;
+                return all;
+            }
         }
     }
 
     public bool Remember(Guid scheme, IReadOnlyDictionary<string, uint> values)
-        => AppSettingsStore.TryUpdate(settings =>
+    {
+        bool saved = AppSettingsStore.TryUpdate(settings =>
         {
             settings.ProfileGroupPowerOrigins ??= new Dictionary<string, Dictionary<string, uint>>();
             string key = scheme.ToString("D");
@@ -51,9 +63,13 @@ public sealed class AppSettingsPowerPlanOriginStore : IPowerPlanOriginStore
 
             foreach ((string name, uint value) in values) noted.TryAdd(name, value);
         });
+        Invalidate();
+        return saved;
+    }
 
     public void Forget(Guid scheme, IReadOnlyCollection<string> keys)
-        => AppSettingsStore.Update(settings =>
+    {
+        AppSettingsStore.Update(settings =>
         {
             string key = scheme.ToString("D");
             if (settings.ProfileGroupPowerOrigins?.TryGetValue(key, out Dictionary<string, uint>? noted) != true || noted is null) return;
@@ -61,6 +77,13 @@ public sealed class AppSettingsPowerPlanOriginStore : IPowerPlanOriginStore
             foreach (string name in keys) noted.Remove(name);
             if (noted.Count == 0) settings.ProfileGroupPowerOrigins.Remove(key);
         });
+        Invalidate();
+    }
+
+    private void Invalidate()
+    {
+        lock (_gate) _cache = null;
+    }
 }
 
 /// <summary>Ce qu'un réglage du plan a retenu après une écriture. <paramref name="Ac"/> et <paramref name="Dc"/> null :
@@ -97,15 +120,19 @@ public sealed class ProfileGroupPowerPlanChanges : ISystemChangeOwner
     private readonly bool _hasBattery;
     private readonly IPowerPlanValues _plan;
     private readonly IPowerPlanOriginStore _origins;
+    private readonly Func<bool> _isAdministrator;
     private readonly object _gate = new();
 
+    /// <param name="isAdministrator">Pour les tests ; par défaut, le jeton du processus.</param>
     public ProfileGroupPowerPlanChanges(
-        IReadOnlyList<CpuPowerSetting> catalog, bool hasBattery, IPowerPlanValues? plan = null, IPowerPlanOriginStore? origins = null)
+        IReadOnlyList<CpuPowerSetting> catalog, bool hasBattery, IPowerPlanValues? plan = null, IPowerPlanOriginStore? origins = null,
+        Func<bool>? isAdministrator = null)
     {
         _catalog = catalog;
         _hasBattery = hasBattery;
         _plan = plan ?? PowerPlanValues.Instance;
         _origins = origins ?? new AppSettingsPowerPlanOriginStore();
+        _isAdministrator = isAdministrator ?? ElevationHelper.IsAdministrator;
     }
 
     public string Id => OwnerId;
@@ -196,7 +223,7 @@ public sealed class ProfileGroupPowerPlanChanges : ISystemChangeOwner
 
                     bool written = _plan.TryWrite(scheme, CpuPowerTuningService.SubGroup,
                         noted.Select(n => new PowerValueWrite(n.Setting.Guid, n.Ac, n.Dc)).ToList());
-                    if (!written) message = "Windows a refusé l'écriture (app lancée sans les droits administrateur ?).";
+                    if (!written) message = $"{Refusal("l'écriture")}.";
 
                     foreach ((CpuPowerSetting setting, uint ac, uint dc) in noted)
                     {
@@ -297,10 +324,17 @@ public sealed class ProfileGroupPowerPlanChanges : ISystemChangeOwner
         ForgetBackAtOrigin(scheme, results);
 
         string? error = !written
-            ? "Windows a refusé le réglage (app lancée sans les droits administrateur ?)"
+            ? Refusal("le réglage")
             : unknown.Count > 0 ? $"réglage inconnu de ce Windows : {string.Join(", ", unknown)}" : null;
         return new PowerPlanWriteResult(written && unknown.Count == 0, results, error, PlanLabel(scheme));
     }
+
+    /// <summary>Pourquoi Windows a refusé (règle 3) : sans administrateur, c'est la cause ; en administrateur, ce n'est
+    /// pas une question de droits, et l'utilisateur ne doit pas relancer l'app pour rien.</summary>
+    private string Refusal(string what)
+        => _isAdministrator()
+            ? $"Windows a refusé {what} alors que PCPerfSuite a les droits administrateur (plan verrouillé par une stratégie de groupe ou par l'utilitaire du fabricant ?)"
+            : $"Windows a refusé {what} : PCPerfSuite n'est pas lancé en administrateur";
 
     private void ForgetBackAtOrigin(Guid scheme, IEnumerable<PowerPlanSettingResult> results)
     {

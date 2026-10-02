@@ -193,4 +193,35 @@ public class GpuGroupPlannerTests
         Assert.False(GpuOverclockRaise.IsRaising(new GpuOverclockRequest { PowerLimitPercent = 100.3f, CoreOffsetMhz = -50 }, Overclock(), Power()));
         Assert.False(GpuOverclockRaise.IsRaising(new GpuOverclockRequest { TemperatureLimitC = 80 }, Overclock(), Power()));
     }
+
+    // ---- Ce que l'onglet enregistre (D7) ----
+
+    [Fact]
+    public void Apres_un_groupe_transitoire_un_curseur_n_enregistre_que_son_reglage()
+    {
+        // La bascule a posé le GPU d'origine sans en faire l'état de démarrage, puis la puissance est montée à la main :
+        // l'OC enregistré (cœur, mémoire) ne doit pas devenir +0.
+        GpuTouched power = GpuTouched.None with { Power = true };
+
+        GpuTouched saved = GpuTouched.ToSave(cardAvailable: true, transient: true, power);
+
+        Assert.True(saved.Power);
+        Assert.False(saved.Core);
+        Assert.False(saved.Memory);
+    }
+
+    [Fact]
+    public void Les_reglages_touches_depuis_le_groupe_transitoire_s_additionnent()
+    {
+        GpuTouched touched = (GpuTouched.None with { Power = true }).Union(GpuTouched.None with { Voltage = true });
+
+        Assert.Equal(GpuTouched.None with { Power = true, Voltage = true }, GpuTouched.ToSave(true, true, touched));
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    public void Hors_etat_transitoire_tout_est_enregistre_si_la_carte_repond(bool available, bool transient, bool all)
+        => Assert.Equal(all ? GpuTouched.All : GpuTouched.None, GpuTouched.ToSave(available, transient, GpuTouched.None));
 }
