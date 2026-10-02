@@ -54,6 +54,7 @@ public sealed partial class CpuControlViewModel
         }
 
         Status = message;
+        HardwareResynced?.Invoke();
     }
 
     /// <summary>Levé sur le fil de SystemEvents : la relecture touche l'interface, elle passe par son fil.</summary>
@@ -91,24 +92,39 @@ public sealed partial class CpuControlViewModel
                      + (snapshot.BurstWatts is { } burst ? $", {burst:0} W en pointe." : ".");
         }
 
-        switch (TuningResume.Decide(ApplyAtStartup, sameHardware: true, IsPowerLimitAvailable && RiskAccepted, _emergencyThisSession))
+        try
         {
-            case ResumeAction.SkipAfterEmergency:
-                Status += " Les limites enregistrées ne sont pas réappliquées : la sécurité thermique les a retirées pendant cette session.";
+            switch (TuningResume.Decide(ApplyAtStartup, sameHardware: true, IsPowerLimitAvailable && RiskAccepted, _emergencyThisSession))
+            {
+                case ResumeAction.SkipAfterEmergency:
+                    Status += " Les limites enregistrées ne sont pas réappliquées : la sécurité thermique les a retirées pendant cette session.";
+                    return;
+                case ResumeAction.ReadOnly:
+                    return;
+            }
+
+            // Sous le bail d'un autre (bench, recherche d'OC), c'est à lui de reposer ce qu'il veut : on relit seulement.
+            if (Tuning.ManualWriteRefusal() is { } refusal)
+            {
+                Status += $" Réapplication différée : {refusal}";
                 return;
-            case ResumeAction.ReadOnly:
-                return;
+            }
+
+            AppSettings settings = AppSettingsStore.Load();
+            if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
+
+            _suppressApply = true;
+            SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
+            BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
+            _suppressApply = false;
+
+            // L'état de démarrage revient : un groupe appliqué sans l'être n'est plus en place.
+            ApplyNow();
         }
-
-        AppSettings settings = AppSettingsStore.Load();
-        if (settings.Cpu.SustainedWatts is not { } storedSustained) return;
-
-        _suppressApply = true;
-        SustainedWatts = Math.Clamp(storedSustained, MinWatts, MaxWatts);
-        BurstWatts = Math.Clamp(settings.Cpu.BurstWatts ?? storedSustained, MinWatts, MaxWatts);
-        _suppressApply = false;
-
-        ApplyNow();
+        finally
+        {
+            HardwareResynced?.Invoke();
+        }
     }
 
     private void DisposeSafety()

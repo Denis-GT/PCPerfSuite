@@ -50,6 +50,39 @@ public class GpuIdentityTests
     public void Luid_IsNotCompared()
         => Assert.True(GpuIdentity.Matches(Rtx5070Ti with { Luid = 1 }, Rtx5070Ti with { Luid = 2 }));
 
+    [Fact]
+    public void IsSameCard_SameCard()
+        => Assert.True(GpuIdentity.IsSameCard(Rtx5070Ti, Rtx5070Ti with { }));
+
+    [Fact]
+    public void IsSameCard_VendorOnly_IsNotEnough()
+    {
+        // Une identité qui n'a que la marque ne dit pas de quelle carte il s'agit : des décalages ne s'y posent pas.
+        Assert.False(GpuIdentity.IsSameCard(new GpuIdentity(GpuVendor.Nvidia), Rtx5070Ti));
+        Assert.False(GpuIdentity.IsSameCard(Rtx5070Ti, new GpuIdentity(GpuVendor.Nvidia)));
+    }
+
+    [Fact]
+    public void IsSameCard_SameVendorOtherCard_IsRefused()
+        => Assert.False(GpuIdentity.IsSameCard(Rtx5070Ti, new GpuIdentity(GpuVendor.Nvidia, "NVIDIA GeForce RTX 4070", 0x10DE, 0x2786)));
+
+    [Fact]
+    public void IsSameCard_SameChipFromAnotherBoardPartner_IsRefused()
+        => Assert.False(GpuIdentity.IsSameCard(Rtx5070Ti, Rtx5070Ti with { PciSubsystemId = 0x51721462 }));
+
+    [Fact]
+    public void IsSameCard_DeviceIdOnBothSides_IsEnough()
+        => Assert.True(GpuIdentity.IsSameCard(
+            new GpuIdentity(GpuVendor.Amd, PciVendorId: 0x1002, PciDeviceId: 0x73BF),
+            new GpuIdentity(GpuVendor.Amd, "AMD Radeon RX 6800 XT", 0x1002, 0x73BF)));
+
+    [Fact]
+    public void IsSameCard_Null_IsRefused()
+    {
+        Assert.False(GpuIdentity.IsSameCard(null, Rtx5070Ti));
+        Assert.False(GpuIdentity.IsSameCard(Rtx5070Ti, null));
+    }
+
     [Theory]
     [InlineData("0x73BF", 0x73BFu)]
     [InlineData("73bf", 0x73BFu)]

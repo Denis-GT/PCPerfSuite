@@ -1,12 +1,15 @@
 <UserControl x:Class="PCPerfSuite.App.Views.GpuControlView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls">
+             xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
+             xmlns:views="clr-namespace:PCPerfSuite.App.Views">
 
     <ScrollViewer Padding="{StaticResource PagePadding}">
         <StackPanel MaxWidth="{StaticResource PageMaxWidth}">
             <controls:PageHeader Title="GPU"
                                  Subtitle="Overclocking façon MSI Afterburner pour les cartes NVIDIA (NVAPI), AMD Radeon (ADLX) et Intel Arc (IGCL) : décalage d'horloge cœur/mémoire, limite de puissance, limite de température et tension, avec profils enregistrés. Les plages autorisées sont celles annoncées par ton pilote, et chaque réglage refusé ou absent est signalé plutôt que silencieux. Le ventilateur du GPU se règle dans l'onglet « Ventilateurs », avec tous les autres."/>
+
+            <views:TuningBanner DataContext="{Binding Tuning}"/>
 
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding IsUnavailable, Converter={StaticResource BoolToVisibility}}">
@@ -123,7 +126,8 @@
                 </Border>
 
                 <!-- ============ Overclocking ============ -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <!-- Grisé tant qu'un autre tient le bail de réglage (bench, recherche d'OC…) : à part de CanOverclock. -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16" IsEnabled="{Binding Tuning.IsManualTuningAllowed}">
                     <StackPanel>
                         <TextBlock Text="Overclocking" Style="{StaticResource H2}"/>
                         <TextBox Text="Plages annoncées par le pilote. Tape une valeur puis valide avec Entrée (ou clique ailleurs) : elle s'applique quelques instants plus tard. Flèches haut/bas pour ajuster."
@@ -249,7 +253,7 @@
                 </Border>
 
                 <!-- ============ Profils ============ -->
-                <Border Style="{StaticResource Card}">
+                <Border Style="{StaticResource Card}" IsEnabled="{Binding Tuning.IsManualTuningAllowed}">
                     <StackPanel>
                         <TextBlock Text="Profils" Style="{StaticResource H2}"/>
                         <TextBox Text="Enregistre les réglages actuels sous un nom pour y revenir en un clic (un profil du même nom est remplacé)."

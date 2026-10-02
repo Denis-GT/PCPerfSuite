@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:PCPerfSuite.App.Controls"
-             xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels">
+             xmlns:vm="clr-namespace:PCPerfSuite.App.ViewModels"
+             xmlns:views="clr-namespace:PCPerfSuite.App.Views">
 
     <UserControl.Resources>
         <!-- Une carte par ventilateur. Elle doit tenir dans une demi-largeur de page (deux colonnes) : les rangées
@@ -254,6 +255,8 @@
             <controls:PageHeader Title="Ventilateurs"
                                  Subtitle="Tous les ventilateurs pilotables au même endroit, rangés par catégorie : ceux de la carte mère et ceux du GPU. Courbe température → vitesse appliquée en continu tant que PCPerfSuite tourne. En mode Auto, le firmware (BIOS ou VBIOS) reprend la main ; à la fermeture de l'app, tous les ventilateurs repassent automatiquement en Auto."/>
 
+            <views:TuningBanner DataContext="{Binding Tuning}"/>
+
             <Border Style="{StaticResource CalloutWarn}" Margin="0,0,0,16"
                     Visibility="{Binding Fans.Count, Converter={StaticResource ZeroCountToVisibility}}">
                 <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}"
@@ -263,7 +266,8 @@
             <!-- ============ Profils ============ -->
             <!-- Même carte que les profils de Réglages CPU. En haut de page : avec plusieurs ventilateurs, la page est
                  longue, et une carte en bas passerait inaperçue. -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,16"
+            <!-- Profils et ventilateurs grisés tant qu'un autre tient le bail de réglage (bench, recherche d'OC…). -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16" IsEnabled="{Binding Tuning.IsManualTuningAllowed}"
                     Visibility="{Binding ShowProfiles, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
                     <TextBlock Text="Profils" Style="{StaticResource H2}"/>
@@ -339,7 +343,7 @@
                 </StackPanel>
             </Border>
 
-            <ItemsControl ItemsSource="{Binding Groups}">
+            <ItemsControl ItemsSource="{Binding Groups}" IsEnabled="{Binding Tuning.IsManualTuningAllowed}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:FanGroupViewModel}">
                         <StackPanel Margin="0,0,0,10">

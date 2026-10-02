@@ -5,6 +5,7 @@ using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.Profiles;
 
 namespace PCPerfSuite.App.ViewModels;
 
@@ -20,6 +21,9 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     private readonly CpuPowerTuningService _service;
     private readonly CpuPowerSetting _setting;
     private readonly Action<string> _report;
+
+    /// <summary>Pourquoi une écriture manuelle est refusée (bail de réglage tenu par un autre), null si elle est permise.</summary>
+    private readonly Func<string?> _manualRefusal;
 
     /// <summary>Écrire un réglage d'alimentation réapplique le plan d'alimentation entier au système
     /// (PowerSetActiveScheme) : c'est l'écriture la plus lourde de l'app, et un curseur en lèverait une
@@ -55,11 +59,13 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     [ObservableProperty] private double batteryValue;
 
     public CpuPowerSettingViewModel(
-        CpuPowerTuningService service, CpuPowerSetting setting, uint onAc, uint onBattery, Action<string> report)
+        CpuPowerTuningService service, CpuPowerSetting setting, uint onAc, uint onBattery, Action<string> report,
+        Func<string?> manualRefusal)
     {
         _service = service;
         _setting = setting;
         _report = report;
+        _manualRefusal = manualRefusal;
         ShowBattery = service.HasBattery;
 
         _suppressWrite = true;
@@ -133,14 +139,8 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
         return true;
     }
 
-    /// <summary>Ramène une valeur venue d'un profil dans ce que ce réglage accepte ici : une option de
-    /// liste absente de cette machine est refusée plutôt que rabotée (un « mode boost 4 » ramené à 2
-    /// appliquerait un réglage que personne n'a demandé), une valeur numérique est bornée.</summary>
-    private uint? Sanitize(uint value)
-    {
-        if (_setting.Choices is { } choices) return choices.Any(c => c.Value == value) ? value : null;
-        return (uint)Math.Clamp(value, _setting.Min, _setting.Max);
-    }
+    /// <summary>Voir <see cref="CpuPowerSetting.Sanitize"/>.</summary>
+    private uint? Sanitize(uint value) => _setting.Sanitize(value);
 
     private void Write()
     {
@@ -154,6 +154,14 @@ public sealed partial class CpuPowerSettingViewModel : ObservableObject
     private void WriteNow()
     {
         if (_suppressWrite) return;
+
+        // Bail tenu par un autre (bench, recherche d'OC) : on n'écrit pas, et l'affichage revient à ce que Windows a.
+        if (_manualRefusal() is { } refusal)
+        {
+            ReloadFromWindows();
+            _report($"« {Label} » non modifié : {refusal}");
+            return;
+        }
 
         uint ac = (uint)Math.Round(AcValue);
         uint battery = ShowBattery ? (uint)Math.Round(BatteryValue) : ac;
@@ -323,19 +331,24 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     [ObservableProperty] private double? maxClockMhz;
     [ObservableProperty] private double? loadPercent;
 
-    public CpuControlViewModel(CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo, CoreParkingViewModel cores)
+    public CpuControlViewModel(
+        CpuControlService cpu, MonitoringViewModel monitoring, PawnIoItemViewModel pawnIo, CoreParkingViewModel cores,
+        TuningStatusViewModel tuning)
     {
         _cpu = cpu;
         Cores = cores;
         selectedSection = Sections[0];
         _monitoring = monitoring;
         PawnIo = pawnIo;
+        Tuning = tuning;
         _powerTuning = new CpuPowerTuningService(cpu.Platform);
+        _identity = CpuIdentity.Of(cpu.Platform);
+        GroupPlanChanges = new ProfileGroupPowerPlanChanges(_powerTuning.GetSettings(), _powerTuning.HasBattery);
 
         AppSettings settings = AppSettingsStore.Load();
         applyAtStartup = settings.Cpu.ApplyAtStartup;
         riskAccepted = settings.Cpu.RiskAccepted;
-        _cpu.KeepLimitsOnExit = applyAtStartup;
+        UpdateKeepLimitsOnExit();
 
         CpuName = _cpu.Platform.Name;
         PlatformText = $"{_cpu.Platform.VendorLabel} · {_cpu.Backend.Description}";
@@ -418,7 +431,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
             if (!_powerTuning.TryRead(setting, out uint onAc, out uint onBattery)) continue;
 
             PowerSettings.Add(new CpuPowerSettingViewModel(
-                _powerTuning, setting, onAc, onBattery, message => PowerSettingsStatus = message));
+                _powerTuning, setting, onAc, onBattery, message => PowerSettingsStatus = message, Tuning.ManualWriteRefusal));
         }
 
         if (PowerSettings.Count == 0)
@@ -491,7 +504,7 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
 
     partial void OnApplyAtStartupChanged(bool value)
     {
-        _cpu.KeepLimitsOnExit = value;
+        UpdateKeepLimitsOnExit();
 
         // Recocher la case après un déclenchement de la sécurité, c'est redemander ces limites : le réveil les repose.
         if (value && !_suppressApply) _emergencyThisSession = false;
@@ -507,6 +520,11 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     private void ApplyNow()
     {
         if (_suppressApply || !IsPowerLimitAvailable || !RiskAccepted) return;
+        if (RefuseManualWrite()) return;
+
+        // Une limite posée à la main redevient l'état de démarrage, même après un groupe appliqué sans l'être.
+        _wattsTransient = false;
+        UpdateKeepLimitsOnExit();
 
         Status = _cpu.TrySetPowerLimits((float)SustainedWatts, HasBurstLimit ? (float)BurstWatts : null, out string message)
             ? message
@@ -531,6 +549,10 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         // Une application encore en attente réécrirait la limite juste après le retour aux valeurs
         // d'origine : on l'abandonne.
         _applyDebounce.Cancel(PowerLimitKey);
+        if (RefuseManualWrite()) return;
+
+        _wattsTransient = false;
+        UpdateKeepLimitsOnExit();
 
         bool ok = _cpu.TryRestoreDefaults(out string message);
         Status = ok ? message : $"Retour aux limites d'origine refusé : {message}";
@@ -590,35 +612,9 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
     {
         if (profile is null) return;
 
-        CpuProfile model = profile.Model;
-        int applied = 0;
-        int skipped = 0;
-
-        foreach ((string id, CpuProfilePowerValue value) in model.PowerSettings)
-        {
-            CpuPowerSettingViewModel? setting = PowerSettings.FirstOrDefault(s => s.Id == id);
-            if (setting is null || !setting.ApplyFromProfile(value))
-            {
-                skipped++;
-                continue;
-            }
-
-            applied++;
-        }
-
-        var parts = new List<string>
-        {
-            applied == 0
-                ? "aucun réglage d'alimentation applicable"
-                : Plural(applied, "réglage d'alimentation appliqué", "réglages d'alimentation appliqués"),
-        };
-
-        if (skipped > 0) parts.Add(Plural(skipped, "ignoré, absent de ce PC", "ignorés, absents de ce PC"));
-
-        string watts = ApplyProfileWatts(model);
-        if (watts.Length > 0) parts.Add(watts);
-
-        ProfileStatus = $"Profil « {profile.Name} » : {string.Join(" · ", parts)}.";
+        // Même chemin qu'un groupe de profils, sans contrôle d'identité : un profil de l'onglet n'en porte pas, il est
+        // supposé fait sur ce processeur-ci, comme avant.
+        ProfileStatus = $"Profil « {profile.Name} » : {ApplyTabProfile(profile.Model)}.";
     }
 
     [RelayCommand]
@@ -635,28 +631,6 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         Profiles.Remove(profile);
         ProfileStatus = $"Profil « {profile.Name} » supprimé.";
         PersistProfiles();
-    }
-
-    /// <summary>Volet « watts » d'un profil. Renvoie ce qu'il y a à en dire, ou une chaîne vide si le
-    /// profil n'en portait pas.</summary>
-    private string ApplyProfileWatts(CpuProfile model)
-    {
-        if (model.SustainedWatts is not { } sustained) return "";
-        if (!IsPowerLimitAvailable) return "limites en watts ignorées, ce PC ne les expose pas";
-        if (!RiskAccepted) return "limites en watts ignorées, l'avertissement n'a pas encore été accepté";
-
-        // La limite soutenue d'abord : la poser pousse la limite de pointe si elle passait en dessous,
-        // et c'est ensuite celle du profil qui doit avoir le dernier mot.
-        _suppressApply = true;
-        SustainedWatts = Math.Clamp(sustained, MinWatts, MaxWatts);
-        if (HasBurstLimit) BurstWatts = Math.Clamp(model.BurstWatts ?? sustained, MinWatts, MaxWatts);
-        _suppressApply = false;
-
-        // Sans passer par le débounce : appliquer un profil est un geste ponctuel dont on veut voir
-        // l'effet — et le message de relecture — tout de suite.
-        _applyDebounce.Cancel(PowerLimitKey);
-        ApplyNow();
-        return $"limites posées à {SustainedWatts:0} W";
     }
 
     /// <summary>Résumé d'un profil dans les termes de CETTE machine : un réglage que ce PC n'expose pas
@@ -746,10 +720,18 @@ public sealed partial class CpuControlViewModel : ObservableObject, IDisposable,
         bool applyAtStartup = ApplyAtStartup;
         bool riskAccepted = RiskAccepted;
 
+        // Un groupe appliqué sans en faire l'état de démarrage (bascule automatique) : les limites enregistrées restent
+        // celles d'avant.
+        bool writeValues = !_wattsTransient;
+
         AppSettingsStore.Update(settings =>
         {
-            settings.Cpu.SustainedWatts = sustained;
-            settings.Cpu.BurstWatts = burst;
+            if (writeValues)
+            {
+                settings.Cpu.SustainedWatts = sustained;
+                settings.Cpu.BurstWatts = burst;
+            }
+
             settings.Cpu.ApplyAtStartup = applyAtStartup;
             settings.Cpu.RiskAccepted = riskAccepted;
         });

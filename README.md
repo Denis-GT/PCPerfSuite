@@ -13,13 +13,13 @@ sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles
 | Section | Pages |
 |---|---|
 | **Surveiller** | Monitoring, Processus, Overlay |
-| **Régler** | Processeur, GPU, Ventilateurs, Profils *(bientôt disponible)*, OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
+| **Régler** | Processeur, GPU, Ventilateurs, Profils (Groupes ; Automatique *bientôt disponible*), OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
 | **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
 | **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils, Mémoire *(bientôt disponible)* |
 
 **Paramètres** est en bas de la barre. Une page qui grossit reçoit des sous-onglets en pastilles
-(comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes) plutôt qu'une entrée de
-plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, Boîte à outils, et le
+(comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes, ou Profils : Groupes, Automatique) plutôt qu'une entrée de
+plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, Boîte à outils, Profils, et le
 diagnostic de Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
 tourne que tant que sa page est affichée : l'app démarre plus vite, même lancée dans la zone de
 notification. Le relevé des capteurs (Monitoring, overlay, ventilateurs, limites) tourne, lui, dès
@@ -414,6 +414,40 @@ combien de ventilateurs sont branchés sur un hub (un seul fil de vitesse remont
 commande les pilote tous) ; si un ventilateur sans fil de vitesse est présent ou non ; et, sans
 nom, si un connecteur porte une pompe. Paramètres › Compatibilité de ce PC détaille ce qui a été
 détecté sur ta machine.
+
+## Groupes de profils *(expérimental)*
+
+Régler › Profils › Groupes réunit les réglages du processeur, de la carte graphique et de la
+ventilation sous un nom, appliqués d'un clic. Pas encore vérifié sur une vraie machine.
+
+- **Créer** : « Enregistrer l'état actuel » relit ce que le matériel a vraiment (une case par
+  dimension ; la ventilation, une fois les ventilateurs relevés). « Modifier » compose chaque
+  dimension : la garder, ne pas y toucher, la remettre d'origine, reprendre l'état actuel d'un
+  onglet ou l'un de ses profils. « Régler dans l'onglet » applique le groupe et ouvre l'onglet :
+  on ajuste, puis « Mettre à jour le groupe ».
+- **Appliquer** passe toujours par les onglets Processeur, GPU et Ventilateurs, avec leurs
+  sécurités. Le rapport dit, dimension par dimension, ce qui a été posé, rogné, refusé ou ignoré,
+  et pourquoi. Des watts ou un overclock relevés sur un autre processeur ou une autre carte (même de
+  la même marque) ne sont pas posés. Sans l'avertissement CPU accepté, les watts sont ignorés ; sans
+  la renonciation Intel, l'overclock aussi. Sur un portable, seuls les ventilateurs de la carte
+  graphique se règlent (par son pilote).
+- **Ordre** : quand le groupe monte en puissance, les ventilateurs d'abord ; quand il descend, le
+  processeur et la carte graphique d'abord.
+- **Permanent** : les réglages du plan d'alimentation (mode boost, états min et max, préférence
+  performance/économie) restent après la fermeture. Leur origine est notée, et Paramètres ›
+  Compatibilité de ce PC › « Tout rétablir » la rend. Les watts, l'overclock et les ventilateurs
+  sont rendus d'origine en quittant, sauf « Appliquer au démarrage » coché dans leur onglet.
+- **Démarrage** : appliquer un groupe en fait les dernières valeurs des onglets ; ce sont leurs
+  cases « Appliquer au démarrage » qui décident de ce qui est reposé au lancement. La page montre le
+  dernier groupe appliqué, « conforme » ou ce qui a changé depuis.
+- **Prudence** : un groupe qui relève l'overclock du GPU ou les watts est surveillé 30 minutes. Un
+  arrêt anormal, un écran bleu, un redémarrage de cause inconnue ou un pilote graphique relancé
+  (TDR) pendant ce temps le suspend, et décoche « Appliquer au démarrage » pour ce qu'il avait
+  relevé. Le réappliquer demande une confirmation.
+- **Bail de réglage** : quand un autre module pilote les réglages (bench, recherche d'OC, bascule
+  automatique à venir), les onglets affichent « Réglages pilotés par… depuis… », leurs commandes
+  sont grisées, et appliquer un groupe est refusé avec la raison. Les sécurités thermiques agissent
+  toujours.
 
 ## Boîte à outils
 

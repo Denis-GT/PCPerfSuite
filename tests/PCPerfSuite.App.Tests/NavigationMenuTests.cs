@@ -80,10 +80,10 @@ public class NavigationMenuTests
     {
         IReadOnlyList<NavEntry> entries = NavigationMenu.Build(DeliveredPages(), isDesktop: true);
 
-        NavEntry profiles = Assert.Single(entries, e => e.Key == PageKeys.Profiles);
-        Assert.True(profiles.IsComingSoon);
-        Assert.Equal("Profils", profiles.ComingSoon!.Title);
-        Assert.NotEmpty(profiles.ComingSoon.Bullets);
+        NavEntry autoOverclock = Assert.Single(entries, e => e.Key == PageKeys.AutoOverclock);
+        Assert.True(autoOverclock.IsComingSoon);
+        Assert.Equal("OC automatique", autoOverclock.ComingSoon!.Title);
+        Assert.NotEmpty(autoOverclock.ComingSoon.Bullets);
 
         Assert.False(Assert.Single(entries, e => e.Key == PageKeys.Monitoring).IsComingSoon);
     }
@@ -92,12 +92,12 @@ public class NavigationMenuTests
     public void Build_DeliveredPage_UsesItsViewModel()
     {
         Dictionary<string, object> pages = DeliveredPages();
-        var profiles = new object();
-        pages[PageKeys.Profiles] = profiles;
+        var autoOverclock = new object();
+        pages[PageKeys.AutoOverclock] = autoOverclock;
 
-        NavEntry entry = Assert.Single(NavigationMenu.Build(pages, isDesktop: true), e => e.Key == PageKeys.Profiles);
+        NavEntry entry = Assert.Single(NavigationMenu.Build(pages, isDesktop: true), e => e.Key == PageKeys.AutoOverclock);
 
-        Assert.Same(profiles, entry.ViewModel);
+        Assert.Same(autoOverclock, entry.ViewModel);
         Assert.False(entry.IsComingSoon);
     }
 

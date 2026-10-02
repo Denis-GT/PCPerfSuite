@@ -11,6 +11,7 @@ using PCPerfSuite.Core.Hardware.Displays;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Installations;
 using PCPerfSuite.Core.PowerSettings.Animations;
+using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemChanges;
@@ -75,6 +76,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public CpuControlViewModel Cpu => _cpu;
     public OverlayViewModel Overlay => _overlay;
 
+    /// <summary>Bail de réglage : un seul pilote automatique des réglages CPU, GPU et ventilation à la fois (groupes de
+    /// profils, bascule automatique, bench, recherche d'OC). Partagé par les trois onglets et la page Profils.</summary>
+    private readonly TuningLease _tuningLease = new();
+
+    /// <summary>Bannière « Réglages pilotés par… » des onglets Processeur, GPU et Ventilateurs.</summary>
+    public TuningStatusViewModel Tuning { get; }
+
+    /// <summary>Prudence au démarrage des groupes de profils (journal de session, 30 min après une application risquée).</summary>
+    private readonly ProfileGroupProbation _groupProbation;
+
+    /// <summary>Page Profils : groupes de profils CPU + GPU + ventilation.</summary>
+    public ProfileGroupsViewModel Profiles { get; }
+
     /// <summary>Entrées de la barre latérale, dans l'ordre de <see cref="NavigationMenu.Pages"/> : MainWindow les
     /// range sous leurs en-têtes de section.</summary>
     public ObservableCollection<NavEntry> NavItems { get; }
@@ -111,14 +125,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(StartupRecoveryReport startupRecovery)
     {
         StartupRecovery = startupRecovery;
+        Tuning = new TuningStatusViewModel(_tuningLease);
         _monitoring = new MonitoringViewModel(_hardware);
         _processes = new ProcessesViewModel(_monitoring);
-        _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring);
-        _gpu = new GpuControlViewModel(_gpuControl, _monitoring);
+        _fans = new FanCurvesViewModel(_hardware, _gpuControl, _monitoring, Tuning);
+        // Prudence au démarrage des groupes : le GPU réapplique ses réglages dans son constructeur. Si ce sont ceux, risqués,
+        // du dernier groupe appliqué, c'est une nouvelle application de ce groupe : sa période probatoire s'ouvre avant.
+        _groupProbation = new ProfileGroupProbation(SessionJournal.Current, TimeProvider.System);
+        if (ProfileGroupStartupCheck.Evaluate(Core.PowerSettings.AppSettingsStore.Load()) is { } startupRisk)
+        {
+            _groupProbation.Begin(startupRisk.GroupId, ProfileGroupProbation.StartupAction, startupRisk.GpuRaised, startupRisk.WattsRaised, madeStartupState: true);
+        }
+
+        _gpu = new GpuControlViewModel(_gpuControl, _monitoring, Tuning);
         CpuPlatform platform = _cpuControl.Platform;
         _coreParking = new CoreParkingService(platform.IsHybrid, platform.HasBattery);
         SystemChanges.Register(_coreParking);
-        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform));
+        _cpu = new CpuControlViewModel(_cpuControl, _monitoring, _installations.PawnIo, new CoreParkingViewModel(_coreParking, platform), Tuning);
+        SystemChanges.Register(_cpu.GroupPlanChanges);
         _hardware.PreferredGpuVendor = _gpuControl.Vendor;
         _hardware.PreferredGpuName = _gpuControl.GetSnapshot()?.Name;
         _overlay = new OverlayViewModel(_monitoring);
@@ -138,7 +162,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new WindowsEventsRowProvider());
         _compatibilityRows.Add(new SessionJournalRowProvider(startupRecovery, SessionJournal.Current));
         _compatibilityRows.Add(new WindowsAnimationsRowProvider(animations));
+        var applier = new ProfileGroupApplier(_cpu, _gpu, _fans, _tuningLease, _groupProbation, TimeProvider.System);
+        Profiles = new ProfileGroupsViewModel(applier, _cpu, _gpu, _fans, _tuningLease, Tuning, startupRecovery, Navigate,
+            _cpuControl, _gpuControl);
+
         _compatibilityRows.Add(new ToolboxRowProvider(_toolCatalog));
+        _compatibilityRows.Add(new ProfileGroupsRowProvider(() => Profiles.Store, _tuningLease, () => Profiles.DiagnosticStatus));
 
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
@@ -159,6 +188,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             [PageKeys.Cleanup] = Cleanup,
             [PageKeys.Storage] = Storage,
             [PageKeys.Toolbox] = Toolbox,
+            [PageKeys.Profiles] = Profiles,
         };
         // Seul un PC de bureau avéré perd les pages des portables : sur un châssis indéterminé, la page reste et dira
         // elle-même ce qu'elle trouve.
@@ -225,6 +255,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Toolbox.OnWindowActivated();
     }
 
+    /// <summary>Ouvre une page du menu par sa clé (« Régler dans l'onglet » de la page Profils).</summary>
+    private void Navigate(string key)
+    {
+        if (NavItems.FirstOrDefault(e => e.Key == key) is { } entry) SelectedNavItem = entry;
+    }
+
     /// <summary>Bouton "Paramètres" : la liste se désélectionne, pour qu'un seul élément paraisse actif.</summary>
     [RelayCommand]
     private void ShowAppSettings()
@@ -243,6 +279,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
         DisposeSafely(Toolbox.Dispose, nameof(Toolbox));
+        DisposeSafely(Profiles.Dispose, nameof(Profiles));
         // Le relevé s'arrête AVANT le retour des ventilateurs au BIOS : il lisait encore la puce des
         // ventilateurs pendant qu'on la leur rendait, et LibreHardwareMonitor abandonne alors l'écriture
         // sans le dire (voir HardwareMonitorService.RunWithIsaBus). Les abonnés qui se désabonnent ensuite
@@ -252,6 +289,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DisposeSafely(_gpu.Dispose, nameof(_gpu));
         DisposeSafely(_cpu.Dispose, nameof(_cpu));
         DisposeSafely(_overlay.Dispose, nameof(_overlay));
+        DisposeSafely(Tuning.Dispose, nameof(Tuning));
         DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
         DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
         DisposeSafely(_hardware.Dispose, nameof(_hardware));

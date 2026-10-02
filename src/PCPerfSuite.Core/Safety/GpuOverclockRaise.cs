@@ -1,5 +1,6 @@
 using System.Globalization;
 using PCPerfSuite.Core.Hardware;
+using PCPerfSuite.Core.Hardware.Gpu;
 
 namespace PCPerfSuite.Core.Safety;
 
@@ -40,6 +41,23 @@ public static class GpuOverclockRaise
 
         return power is { PowerLimitSupported: true }
                && power.PowerLimitPercent > power.PowerLimitDefaultPercent + PowerTolerancePercent;
+    }
+
+    /// <summary>
+    /// Vrai si la demande relève un réglage au-dessus de son origine, selon les mêmes règles que <see cref="IsRaised"/>,
+    /// en ne regardant que les champs demandés. Les origines viennent de la relecture de la carte ; une limite dont
+    /// l'origine n'est pas lue compte comme relevée dès qu'elle est demandée au-dessus de 100 % (puissance), par prudence.
+    /// </summary>
+    public static bool IsRaising(GpuOverclockRequest request, GpuOverclockSnapshot? overclock, GpuControlSnapshot? power)
+    {
+        if (request.CoreOffsetMhz is > 0 || request.MemoryOffsetMhz is > 0) return true;
+        if (request.TemperatureLimitC is { } temperature && overclock is { TemperatureLimitSupported: true }
+            && temperature > overclock.TemperatureLimitDefaultC) return true;
+        if (request.Voltage is { } voltage && overclock is { VoltageSupported: true } && voltage > overclock.VoltageDefault) return true;
+
+        if (request.PowerLimitPercent is not { } percent) return false;
+        float origin = power is { PowerLimitSupported: true } ? power.PowerLimitDefaultPercent : 100f;
+        return percent > origin + PowerTolerancePercent;
     }
 
     /// <summary>Ce que la carte a relu, en clair : « cœur +0 MHz, mémoire +0 MHz, puissance 100 % ».</summary>

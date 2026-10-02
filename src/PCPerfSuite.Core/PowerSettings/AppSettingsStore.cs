@@ -7,6 +7,7 @@ using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.Installations;
 using PCPerfSuite.Core.Overlay;
+using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.SystemInfo;
 
 namespace PCPerfSuite.Core.PowerSettings;
@@ -81,6 +82,14 @@ public sealed class AppSettings
     /// (« menu-animation »…), retenu juste avant la première écriture de l'app et retiré quand le réglage revient à
     /// cette valeur. Une clé présente veut donc dire : modifié par PCPerfSuite.</summary>
     public Dictionary<string, bool> OriginalAnimationValues { get; set; } = new();
+
+    /// <summary>Groupes de profils CPU + GPU + ventilation (page Profils), écrits par la page seule.</summary>
+    public ProfileGroupsSettings ProfileGroups { get; set; } = new();
+
+    /// <summary>Valeurs d'origine des réglages du plan d'alimentation qu'un groupe de profils a changés : clé = GUID du
+    /// plan, puis « réglage/ac|dc » (voir <see cref="ProfileGroupPowerPlanChanges"/>, seul à l'écrire). Une clé
+    /// présente veut dire : modifié par un groupe, à rendre par « Tout rétablir ».</summary>
+    public Dictionary<string, Dictionary<string, uint>> ProfileGroupPowerOrigins { get; set; } = new();
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>

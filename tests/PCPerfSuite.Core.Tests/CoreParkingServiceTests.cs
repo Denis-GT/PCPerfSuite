@@ -28,6 +28,18 @@ internal sealed class FakePowerPlan : IPowerPlanValues
 
     public (uint Ac, uint Dc) Get(Guid scheme, CoreParkingSetting setting) => _values[(scheme, setting.Guid)];
 
+    /// <summary>Pour les réglages qui ne sont pas du parking (plan d'alimentation des groupes de profils).</summary>
+    public FakePowerPlan Set(Guid scheme, Guid setting, uint ac, uint dc)
+    {
+        _values[(scheme, setting)] = (ac, dc);
+        return this;
+    }
+
+    public (uint Ac, uint Dc) Get(Guid scheme, Guid setting) => _values[(scheme, setting)];
+
+    /// <summary>Appelé à chaque écriture, avant qu'elle ne se fasse : pour vérifier ce qui était noté à ce moment-là.</summary>
+    public Action? BeforeWrite { get; set; }
+
     public Guid? ActiveScheme() => Active;
 
     public string? FriendlyName(Guid scheme)
@@ -44,6 +56,7 @@ internal sealed class FakePowerPlan : IPowerPlanValues
     public bool TryWrite(Guid scheme, Guid subGroup, IReadOnlyList<PowerValueWrite> writes)
     {
         WriteCalls++;
+        BeforeWrite?.Invoke();
         if (RefuseWrites) return false;
 
         foreach (PowerValueWrite write in writes)
