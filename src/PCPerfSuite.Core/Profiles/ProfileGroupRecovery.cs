@@ -53,6 +53,43 @@ public static class ProfileGroupIncidentPolicy
             entry.Action);
     }
 
+    /// <summary>
+    /// L'incident, imputé au groupe de la ligne et, s'il y a lieu, au groupe précédent dont elle avait repris l'OC GPU ou
+    /// les watts encore en place (<see cref="ProbationCarry"/>) : c'est peut-être lui qui a fait planter le PC. Vide si
+    /// la ligne n'est pas suivie d'un incident.
+    /// </summary>
+    public static IReadOnlyList<ProfileGroupIncidentDecision> EvaluateAll(RecoveredEntry recovered)
+    {
+        if (Evaluate(recovered) is not { } decision) return [];
+
+        SessionJournalEntry entry = recovered.Entry;
+        if (!entry.Values.TryGetValue(ProfileGroupProbation.CarriedGroupKey, out string? carriedId) || carriedId.Length == 0) return [decision];
+
+        var carried = new ProfileGroupIncidentDecision(
+            carriedId,
+            decision.Cause,
+            Yes(entry, ProfileGroupProbation.CarriedGpuKey),
+            Yes(entry, ProfileGroupProbation.CarriedWattsKey),
+            Yes(entry, ProfileGroupProbation.CarriedStartupStateKey),
+            decision.Action);
+
+        // Le même groupe réappliqué : une seule décision, qui réunit ce qu'il avait relevé les deux fois.
+        if (string.Equals(carriedId, decision.GroupId, StringComparison.OrdinalIgnoreCase))
+        {
+            return
+            [
+                decision with
+                {
+                    GpuRaised = decision.GpuRaised || carried.GpuRaised,
+                    WattsRaised = decision.WattsRaised || carried.WattsRaised,
+                    MadeStartupState = decision.MadeStartupState || carried.MadeStartupState,
+                },
+            ];
+        }
+
+        return [decision, carried];
+    }
+
     /// <summary>Le premier TDR journalisé pendant la période probatoire qui commence à <paramref name="since"/>.</summary>
     public static Incident? Tdr(IEnumerable<Incident> incidents, DateTimeOffset since)
         => incidents
@@ -99,16 +136,22 @@ public sealed class ProfileGroupRecoveryHandler : IStartupRecoveryHandler
             .ToList();
         if (decisions.Count == 0) return null;
 
+        // Chaque ligne vise son groupe, et le groupe précédent dont elle avait repris ce qui restait relevé.
+        List<ProfileGroupIncidentDecision> targets = entries.SelectMany(ProfileGroupIncidentPolicy.EvaluateAll).ToList();
+
         DateTimeOffset now = _time.GetUtcNow();
         bool cpuUnchecked = false, gpuUnchecked = false;
-        int suspended = 0;
+        var suspended = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         _update(settings =>
         {
             settings.ProfileGroups ??= new ProfileGroupsSettings();
-            settings.ProfileGroups.Suspensions ??= new Dictionary<string, ProfileGroupSuspension>();
 
-            foreach (ProfileGroupIncidentDecision decision in decisions)
+            // Bloc édité à la main ou écrit par une autre version (« Groups »: null…) : sans cela, Find lèverait avant
+            // l'enregistrement, et « Appliquer au démarrage » resterait coché.
+            settings.ProfileGroups.Normalize();
+
+            foreach (ProfileGroupIncidentDecision decision in targets)
             {
                 // La case est décochée quand le groupe avait fait l'état de démarrage, ou quand ce qu'il avait relevé est
                 // exactement ce que l'onglet reposera (groupe de jeu généré par la bascule automatique, #9).
@@ -124,19 +167,20 @@ public sealed class ProfileGroupRecoveryHandler : IStartupRecoveryHandler
 
                 if (decision.GroupId is not { } id || settings.ProfileGroups.Find(id) is null) continue;
 
+                suspended.Add(id);
+                ProfileGroupSuspension? earlier = settings.ProfileGroups.Suspensions.GetValueOrDefault(id);
                 settings.ProfileGroups.Suspensions[id] = new ProfileGroupSuspension
                 {
                     SinceUtc = now,
                     Cause = decision.Cause,
-                    CpuStartupUnchecked = cpu,
-                    GpuStartupUnchecked = gpu,
+                    CpuStartupUnchecked = cpu || earlier?.CpuStartupUnchecked == true,
+                    GpuStartupUnchecked = gpu || earlier?.GpuStartupUnchecked == true,
                 };
-                suspended++;
             }
         });
 
         var parts = new List<string> { $"{decisions.Count} application(s) de groupe suivie(s) d'un incident ({decisions[0].Cause})" };
-        if (suspended > 0) parts.Add($"{suspended} groupe(s) suspendu(s)");
+        if (suspended.Count > 0) parts.Add($"{suspended.Count} groupe(s) suspendu(s)");
         if (cpuUnchecked || gpuUnchecked)
         {
             string tabs = string.Join(" et ", new[] { cpuUnchecked ? "Processeur" : null, gpuUnchecked ? "GPU" : null }.OfType<string>());
@@ -182,9 +226,13 @@ public static class ProfileGroupStartupCheck
     /// </summary>
     public static bool MatchesSavedGpu(ProfileGroupGpuPart? part, GpuControlSettings saved)
         => part is { ParsedKind: ProfilePartKind.Values, Values: { } values }
-           && (values.CoreClockOffsetMhz != 0 || values.MemoryClockOffsetMhz != 0)
+           && GpuOverclockRaise.IsRaisedProfile(values)
            && values.CoreClockOffsetMhz == saved.CoreClockOffsetMhz
-           && values.MemoryClockOffsetMhz == saved.MemoryClockOffsetMhz;
+           && values.MemoryClockOffsetMhz == saved.MemoryClockOffsetMhz
+           && (values.PowerLimitPercent is not { } power || (saved.PowerLimitPercent is { } p && Math.Abs(p - power) <= 0.5f))
+           && (values.TemperatureLimitC is not { } temperature || temperature == saved.TemperatureLimitC)
+           && (values.GetVoltage() is not { } voltage
+               || (saved.GetVoltage() is { } stored && stored.Value == voltage.Value && stored.Unit == voltage.Unit));
 
     /// <summary>Les watts de la partie processeur du groupe sont ceux que l'onglet Processeur a enregistrés.</summary>
     public static bool MatchesSavedWatts(ProfileGroupCpuPart? part, CpuControlSettings saved)

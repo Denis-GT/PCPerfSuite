@@ -4,6 +4,7 @@ using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Fans;
 using PCPerfSuite.Core.Hardware.Gpu;
 using PCPerfSuite.Core.PowerSettings;
+using PCPerfSuite.Core.Safety;
 
 namespace PCPerfSuite.Core.Profiles;
 
@@ -409,7 +410,7 @@ public static class UsageProfileGenerator
         }
 
         SavedTabTuning saved = input.Saved;
-        if (saved.GpuApplyAtStartup && saved.GpuOverclock is { } oc && IsRaised(oc))
+        if (saved.GpuApplyAtStartup && saved.GpuOverclock is { } oc && GpuOverclockRaise.IsRaisedProfile(oc))
         {
             if (GpuIdentity.IsSameCard(saved.GpuIdentity, input.Gpu.Identity))
             {
@@ -425,10 +426,6 @@ public static class UsageProfileGenerator
                         + "« Modifier » ce groupe permet d'y mettre un profil de l'onglet GPU.");
         return null;
     }
-
-    private static bool IsRaised(GpuOverclockProfile profile)
-        => profile.CoreClockOffsetMhz > 0 || profile.MemoryClockOffsetMhz > 0 || profile.PowerLimitPercent > 100
-           || profile.GetVoltage() is { Value: > 0 };
 
     private static string DescribeOverclock(GpuOverclockProfile profile)
     {

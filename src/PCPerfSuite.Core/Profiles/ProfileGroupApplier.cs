@@ -137,8 +137,14 @@ public sealed class ProfileGroupApplier
         bool probationOpen = false;
         if (gpuRisk || wattsRisk)
         {
+            // Ce que la période en cours surveille et que ce groupe ne règle pas reste en place : la nouvelle le reprend.
+            ProbationCarry? carried = Probation.CarryOver(
+                touchesGpu: gpuPlan?.TouchesCard == true,
+                touchesWatts: cpuPlan is { TouchesWatts: true } or { RestoreWatts: true },
+                gpuRaisedNow: _gpu.IsRaised,
+                wattsRaisedNow: _cpu.IsRaised);
             probationOpen = Probation.Begin(group.Id, ProfileGroupProbation.ApplyAction, gpuRisk, wattsRisk, options.MakeStartupState,
-                options.RequesterId);
+                options.RequesterId, carried);
             if (!probationOpen)
             {
                 // Règle du journal de session : une opération risquée ne commence pas sans sa ligne sur le disque.
@@ -150,42 +156,10 @@ public sealed class ProfileGroupApplier
         }
 
         var reports = new List<DimensionReport>();
-        CpuApplyOutcome? cpuOutcome = null;
-        GpuApplyOutcome? gpuOutcome = null;
-        FanApplyOutcome? fanOutcome = null;
-
-        void ApplyFans()
-        {
-            if (fanPlan is null) return;
-            fanOutcome = _fans.Apply(fanPlan, context);
-            reports.Add(fanOutcome.Report);
-        }
-
-        void ApplyCpuAndGpu()
-        {
-            if (cpuPlan is not null)
-            {
-                cpuOutcome = _cpu.Apply(cpuPlan, context);
-                reports.Add(cpuOutcome.Report);
-            }
-
-            if (gpuPlan is not null)
-            {
-                gpuOutcome = _gpu.Apply(gpuPlan, context);
-                reports.Add(gpuOutcome.Report);
-            }
-        }
-
-        if (order == ApplyOrder.FansFirst)
-        {
-            ApplyFans();
-            ApplyCpuAndGpu();
-        }
-        else
-        {
-            ApplyCpuAndGpu();
-            ApplyFans();
-        }
+        FanApplyOutcome? fanOutcome = order == ApplyOrder.FansFirst ? ApplyFans(fanPlan, context, reports) : null;
+        CpuApplyOutcome? cpuOutcome = ApplyCpu(cpuPlan, context, reports);
+        GpuApplyOutcome? gpuOutcome = ApplyGpu(gpuPlan, context, reports);
+        if (order != ApplyOrder.FansFirst) fanOutcome = ApplyFans(fanPlan, context, reports);
 
         bool gpuRaisedNow = _gpu.IsRaised;
         bool wattsRaisedNow = _cpu.IsRaised;
@@ -214,6 +188,30 @@ public sealed class ProfileGroupApplier
         };
 
         return new ProfileGroupApplyResult(report, active);
+    }
+
+    private FanApplyOutcome? ApplyFans(FanGroupPlan? plan, ProfileGroupApplyContext context, List<DimensionReport> reports)
+    {
+        if (plan is null) return null;
+        FanApplyOutcome outcome = _fans.Apply(plan, context);
+        reports.Add(outcome.Report);
+        return outcome;
+    }
+
+    private CpuApplyOutcome? ApplyCpu(CpuGroupPlan? plan, ProfileGroupApplyContext context, List<DimensionReport> reports)
+    {
+        if (plan is null) return null;
+        CpuApplyOutcome outcome = _cpu.Apply(plan, context);
+        reports.Add(outcome.Report);
+        return outcome;
+    }
+
+    private GpuApplyOutcome? ApplyGpu(GpuGroupPlan? plan, ProfileGroupApplyContext context, List<DimensionReport> reports)
+    {
+        if (plan is null) return null;
+        GpuApplyOutcome outcome = _gpu.Apply(plan, context);
+        reports.Add(outcome.Report);
+        return outcome;
     }
 
     private ProfileGroupApplyResult Refused(ProfileGroup group, string reason)

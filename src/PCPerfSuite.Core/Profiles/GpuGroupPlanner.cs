@@ -22,6 +22,9 @@ public sealed record GpuGroupPlan(
 {
     public bool HasWork => Request is not null || RestoreOrigin;
 
+    /// <summary>Le groupe règle la carte : il pose quelque chose, ou ses valeurs sont déjà en place.</summary>
+    public bool TouchesCard => HasWork || (Touched is { } touched && touched != GpuTouched.None);
+
     /// <summary>Les réglages relus, réduits à ce que le groupe règle : l'état « retenu » à comparer ensuite.</summary>
     public GpuRetainedValues Retain(GpuRetainedValues readBack)
     {

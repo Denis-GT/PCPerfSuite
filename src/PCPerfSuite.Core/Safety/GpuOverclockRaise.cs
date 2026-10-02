@@ -60,6 +60,18 @@ public static class GpuOverclockRaise
         return percent > origin + PowerTolerancePercent;
     }
 
+    /// <summary>
+    /// Vrai si un profil enregistré relève un réglage, sans relire la carte : décalage cœur ou mémoire positif, limite de
+    /// puissance au-dessus de 100 %, tension positive. La limite de température n'y entre pas : son origine dépend de la
+    /// carte, seule une relecture la connaît (<see cref="IsRaising"/>). C'est la définition que suivent le générateur des
+    /// groupes de jeu, la reprise après incident et le blocage d'un groupe qui partage l'OC d'un groupe suspendu : un OC
+    /// fait de puissance ou de tension seules doit être reconnu partout.
+    /// </summary>
+    public static bool IsRaisedProfile(GpuOverclockProfile profile)
+        => profile.CoreClockOffsetMhz > 0 || profile.MemoryClockOffsetMhz > 0
+           || profile.PowerLimitPercent > 100 + PowerTolerancePercent
+           || profile.GetVoltage() is { Value: > 0 };
+
     /// <summary>Ce que la carte a relu, en clair : « cœur +0 MHz, mémoire +0 MHz, puissance 100 % ».</summary>
     public static string DescribeReadBack(GpuOverclockSnapshot? overclock, GpuControlSnapshot? power)
     {

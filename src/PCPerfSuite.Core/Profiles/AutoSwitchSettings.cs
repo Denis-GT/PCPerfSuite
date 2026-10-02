@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Processes;
+using PCPerfSuite.Core.Safety;
 
 namespace PCPerfSuite.Core.Profiles;
 
@@ -220,12 +222,24 @@ public static class UsageGroupResolver
     {
         bool sameOverclock = suspended.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } a }
                              && group.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } b }
-                             && (a.CoreClockOffsetMhz > 0 || a.MemoryClockOffsetMhz > 0)
-                             && a.CoreClockOffsetMhz == b.CoreClockOffsetMhz
-                             && a.MemoryClockOffsetMhz == b.MemoryClockOffsetMhz;
+                             && GpuOverclockRaise.IsRaisedProfile(a)
+                             && SameOverclock(a, b);
         bool sameWatts = suspended.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } x }
                          && group.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } y }
                          && Math.Abs(x - y) <= 1f;
         return sameOverclock || sameWatts;
     }
+
+    /// <summary>Les deux profils portent les mêmes réglages de carte (puissance, température et tension comprises).</summary>
+    private static bool SameOverclock(GpuOverclockProfile a, GpuOverclockProfile b)
+        => a.CoreClockOffsetMhz == b.CoreClockOffsetMhz
+           && a.MemoryClockOffsetMhz == b.MemoryClockOffsetMhz
+           && (a.PowerLimitPercent, b.PowerLimitPercent) switch
+           {
+               (null, null) => true,
+               ({ } x, { } y) => Math.Abs(x - y) <= 0.5f,
+               _ => false,
+           }
+           && a.TemperatureLimitC == b.TemperatureLimitC
+           && a.GetVoltage() == b.GetVoltage();
 }
