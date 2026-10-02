@@ -196,8 +196,8 @@ public sealed class UsageHistory
     public bool ChangedOnLoad { get; private set; }
 
     /// <summary>Le fichier contient des données datées après l'heure de la lecture : l'horloge de Windows retarde (pile du
-    /// BIOS, heure pas encore synchronisée). Rien n'a été élagué ; <see cref="Prune"/> n'élague pas non plus tant que
-    /// c'est le cas dans la session.</summary>
+    /// BIOS, heure pas encore synchronisée). Élaguer d'après elle n'écarte que ce qui est vraiment ancien ; le drapeau sert
+    /// au message, et retombe quand l'heure a rattrapé l'historique.</summary>
     public bool ClockBehind { get; private set; }
 
     public IReadOnlyList<AutoSwitchJournalEntry> Journal => _journal;
@@ -214,7 +214,7 @@ public sealed class UsageHistory
     /// Reprend un fichier lu : valeurs assainies, doublons fusionnés, ce qui a plus de 30 jours écarté. Le plafond de
     /// <see cref="MaxApps"/> applications vaut aussi pour ce que l'app n'a pas écrit elle-même (fichier gonflé ou retouché).
     /// Des données datées après <paramref name="now"/> disent que c'est l'horloge de ce lancement qui retarde (pile du
-    /// BIOS, heure pas encore synchronisée), pas le fichier : rien n'est alors écarté ni élagué (<see cref="ClockBehind"/>).
+    /// BIOS, heure pas encore synchronisée), pas le fichier : elles sont gardées telles quelles (<see cref="ClockBehind"/>).
     /// Limite connue : des données écrites pendant que l'horloge avançait, puis corrigée, restent jusqu'à ce que l'heure
     /// les rattrape.
     /// </summary>
@@ -224,8 +224,8 @@ public sealed class UsageHistory
         if (file is null) return history;
 
         bool changed = false;
-        string lastDay = history.DateKey(now);
         DateTimeOffset latest = now + RetentionClock.Tolerance;
+        string lastDay = history.DateKey(latest);
         history.ClockBehind = (file.Days ?? []).Any(d => d is not null && TryParseDate(d.Date, out _) && string.CompareOrdinal(d.Date, lastDay) > 0)
                               || (file.Apps ?? []).Any(a => a is not null && a.LastSeenUtc > latest)
                               || (file.Journal ?? []).Any(e => e is not null && e.TimeUtc > latest);
@@ -290,7 +290,9 @@ public sealed class UsageHistory
         }
 
         history._journal.Sort((a, b) => a.TimeUtc.CompareTo(b.TimeUtc));
-        if (!history.ClockBehind) history.Prune(now);
+        // Une horloge en retard n'écarte rien de récent (tout est plus jeune que now − 30 j) : l'élagage reste sûr, et la
+        // rétention vaut encore pour les vieilles données d'un fichier dont une ligne est datée dans le futur.
+        history.Prune(now);
         history.ChangedOnLoad = changed || history.IsDirty;
         history.IsDirty = false;
         return history;
@@ -410,12 +412,10 @@ public sealed class UsageHistory
         IsDirty = true;
     }
 
-    /// <summary>Écarte ce qui a plus de 30 jours. Rien tant que l'horloge retarde sur l'historique (<see cref="ClockBehind"/>) :
-    /// élaguer d'après elle effacerait des jours bien réels.</summary>
+    /// <summary>Écarte ce qui a plus de 30 jours. Une horloge en retard (<see cref="ClockBehind"/>) n'écarte que moins.</summary>
     public void Prune(DateTimeOffset now)
     {
-        if (ClockBehind && now < LatestData() - RetentionClock.Tolerance) return;
-        ClockBehind = false;
+        if (ClockBehind && now >= LatestData() - RetentionClock.Tolerance) ClockBehind = false;
 
         DateTimeOffset limit = now - Retention;
         string firstDay = DateKey(limit);

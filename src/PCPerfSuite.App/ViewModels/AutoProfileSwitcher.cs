@@ -665,7 +665,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
         _history = loaded;
         _historyReadProblem = loaded.ClockBehind
-            ? "daté après l'heure de Windows, qui retarde (pile du BIOS, heure pas encore synchronisée) : rien n'est élagué tant qu'elle n'est pas remise à l'heure"
+            ? "contient des données datées après l'heure de Windows, qui retarde (pile du BIOS, heure pas encore synchronisée) : elles sont gardées, seul ce qui est vraiment ancien est élagué"
             : read.Problem;
 
         IReadOnlyList<AutoSwitchJournalEntry> incidents = _history.UnacknowledgedIncidents();
@@ -693,6 +693,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         TimeZoneInfo zone = _time.LocalTimeZone;
         Task.Run(() => UsageHistory.FromRead(UsageHistoryStore.Read(path), now, zone)).ContinueWith(task =>
         {
+            if (task.Exception is { } ex) CrashLog.Record(ex, "bascule automatique : élagage de l'historique");
             if (!task.IsCompletedSuccessfully || task.Result is not { ChangedOnLoad: true } pruned) return;
             try
             {

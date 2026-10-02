@@ -175,6 +175,21 @@ public sealed class ProbationCarryTests : IDisposable
     }
 
     [Fact]
+    public void Un_groupe_pose_par_la_bascule_puis_reapplique_a_la_main_reste_une_bascule()
+    {
+        Dictionary<string, string> values = WattsLineCarryingOc();
+        values[ProfileGroupProbation.CarriedGroupKey] = "watts";
+        values[ProfileGroupProbation.RequesterKey] = ProfileGroupRequesters.Manual;
+        values[ProfileGroupProbation.CarriedRequesterKey] = AutoSwitchRequester.Id;
+
+        ProfileGroupIncidentDecision merged = Assert.Single(ProfileGroupIncidentPolicy.EvaluateAll(Recovered(values)));
+
+        Assert.Equal(AutoSwitchRequester.Id, merged.RequesterId);
+        Assert.True(merged.GpuRaised);
+        Assert.True(merged.WattsRaised);
+    }
+
+    [Fact]
     public void Une_ligne_d_avant_sans_reprise_ne_vise_que_son_groupe()
     {
         Dictionary<string, string> values = WattsLineCarryingOc();

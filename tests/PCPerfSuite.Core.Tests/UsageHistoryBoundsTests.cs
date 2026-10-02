@@ -89,6 +89,24 @@ public sealed class UsageHistoryBoundsTests : IDisposable
     }
 
     [Fact]
+    public void Une_ligne_datee_dans_le_futur_ne_suspend_pas_la_retention_des_vieilles_donnees()
+    {
+        // Une session passée à une date avancée, puis l'heure corrigée : le vieux jour part quand même.
+        var file = new UsageHistoryFile
+        {
+            Days = [Day("2026-08-01"), Day("2026-09-30")],
+            Apps = [new UsageAppRecord { Path = Game, LastSeenUtc = T0.AddYears(1), Seconds = new() }],
+        };
+
+        UsageHistory history = UsageHistory.FromFile(file, T0, TimeZoneInfo.Utc);
+
+        Assert.True(history.ClockBehind);
+        Assert.True(history.ChangedOnLoad);
+        Assert.Equal(1, history.DaysWithData);
+        Assert.Single(history.Apps);
+    }
+
+    [Fact]
     public void Ce_qui_a_plus_de_30_jours_dans_le_fichier_est_a_reecrire_meme_bascule_desactivee()
     {
         var file = new UsageHistoryFile

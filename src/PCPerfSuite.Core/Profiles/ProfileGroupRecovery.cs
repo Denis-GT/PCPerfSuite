@@ -86,7 +86,10 @@ public static class ProfileGroupIncidentPolicy
                     GpuRaised = decision.GpuRaised || carried.GpuRaised,
                     WattsRaised = decision.WattsRaised || carried.WattsRaised,
                     MadeStartupState = decision.MadeStartupState || carried.MadeStartupState,
-                    RequesterId = decision.RequesterId ?? carried.RequesterId,
+                    // Posé une fois par la bascule : l'incident lui revient aussi (journal des bascules).
+                    RequesterId = decision.RequesterId == AutoSwitchRequester.Id || carried.RequesterId == AutoSwitchRequester.Id
+                        ? AutoSwitchRequester.Id
+                        : decision.RequesterId ?? carried.RequesterId,
                 },
             ];
         }
