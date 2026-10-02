@@ -206,4 +206,93 @@ public sealed class AutoSwitchSessionTests
 
         Assert.Equal(AutoSwitchState.Busy, Decide().State);
     }
+
+    [Fact]
+    public void Une_bascule_en_erreur_n_est_retentee_qu_une_fois()
+    {
+        Desktop(61);
+        SwitchWith(_ => null);
+        Desktop(121);
+        SwitchWith(_ => null);
+
+        // Plus d'essai toutes les 2 min (écritures, journal, bulle) : le groupe est tenu pour traité, et la page le dit.
+        Desktop(121);
+        AutoSwitchDecision decision = Decide();
+        Assert.False(decision.ShouldSwitch);
+        Assert.Contains("n'a pas pu être posé", decision.Text);
+
+        // Un changement d'usage relance la bascule.
+        Gaming(200);
+        Assert.True(Decide().ShouldSwitch);
+    }
+
+    [Fact]
+    public void Un_reglage_pendant_la_sortie_d_un_jeu_vaut_pour_l_usage_qui_vient()
+    {
+        Desktop(61);
+        Gaming(200);
+        SwitchWith(g => Report(g));
+
+        // 20 s après avoir quitté le jeu, l'utilisateur baisse ses ventilateurs : la sortie, par paliers (exigeant, léger,
+        // bureautique), n'est pas encore confirmée.
+        Desktop(20);
+        Assert.NotNull(_classifier.Pending);
+        _session.OnManualWrite("réglage manuel dans l'onglet Ventilateurs", _now, _store);
+
+        // La sortie se confirme pendant la pause (la bascule décide à chaque relevé) : le réglage lui revient.
+        for (int i = 0; i < 400; i += 10)
+        {
+            Desktop(10);
+            Decide();
+        }
+
+        Assert.Equal(ProfileGroupUsage.Office, _classifier.Current!.Usage);
+        Desktop((int)AutoSwitchPolicy.ManualPause.TotalSeconds);
+        Assert.Equal(AutoSwitchState.Idle, Decide().State);
+    }
+
+    [Fact]
+    public void Un_jeu_lance_pendant_la_pause_rebascule_a_la_fin()
+    {
+        Desktop(61);
+        Gaming(200);
+        SwitchWith(g => Report(g));
+        Desktop(20);
+        _session.OnManualWrite("réglage manuel dans l'onglet Ventilateurs", _now, _store);
+
+        // Sortie du jeu confirmée, puis un autre jeu lancé avant la fin de la pause : ce n'est plus la même transition.
+        for (int i = 0; i < 300; i += 10)
+        {
+            Desktop(10);
+            Decide();
+        }
+
+        for (int i = 0; i < 300; i += 10)
+        {
+            Gaming(10);
+            Decide();
+        }
+
+        // La pause (10 min) est finie : le jeu, monté pendant la pause, n'a pas été adopté.
+        Gaming(10);
+        Assert.False(_session.IsManuallyPaused(_now));
+        Assert.True(Decide().ShouldSwitch);
+    }
+
+    [Fact]
+    public void Au_reveil_une_adoption_faite_sur_un_groupe_pose_par_la_bascule_ne_vaut_plus()
+    {
+        // La bascule a posé la bureautique sans en faire l'état de démarrage, puis une courbe a été retouchée à la main.
+        Desktop(61);
+        SwitchWith(g => Report(g));
+        _session.OnManualWrite("réglage manuel dans l'onglet Ventilateurs", _now, _store);
+        _session.EndManualPause();
+
+        // Au réveil, les onglets reposent leur état de démarrage, pas la bureautique : elle doit être reposée.
+        _session.OnResume(_now);
+        Assert.Null(_session.LastHandled);
+
+        Desktop(121);
+        Assert.Same(_office, Decide().Group);
+    }
 }

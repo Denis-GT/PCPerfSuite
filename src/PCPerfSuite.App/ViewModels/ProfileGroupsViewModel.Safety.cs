@@ -172,6 +172,10 @@ public sealed partial class ProfileGroupsViewModel
         string cause = $"pilote graphique relancé (TDR) {minutes} min après l'application";
         Probation.Fail(cause);
 
+        // Plus aucune hausse automatique de l'OC dans la session : un autre groupe aux valeurs voisines ne doit pas être
+        // posé par la bascule sur un pilote qui vient de planter.
+        _gpu.NoteDriverReset();
+
         ProbationCarry owner = current.GpuRaised
             ? new ProbationCarry(current.GroupId, current.GpuRaised, current.WattsRaised, current.MadeStartupState)
             : current.Carried ?? new ProbationCarry(current.GroupId, false, current.WattsRaised, current.MadeStartupState);

@@ -165,6 +165,9 @@ public sealed class UsageHistory
     public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
     public const int MaxApps = 200;
     public const int MaxJournal = 200;
+
+    /// <summary>Usage noté pour une règle qui vise un groupe sans usage : ces relevés ne servent à aucun groupe généré.</summary>
+    public const string RuleUsageKey = "regle";
     public static readonly TimeSpan MaxObservationWeight = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan ObservationGap = TimeSpan.FromSeconds(60);
 
@@ -178,25 +181,52 @@ public sealed class UsageHistory
     private Dictionary<string, JsonElement>? _extension;
     private DateTimeOffset? _lastObservationUtc;
 
+    /// <summary>Clé du jour de la dernière minute demandée : un relevé par seconde n'a pas à refaire la conversion de
+    /// fuseau et le formatage.</summary>
+    private long _dateKeyMinute = long.MinValue;
+    private string _dateKey = "";
+
     public UsageHistory(TimeZoneInfo? zone = null) => _zone = zone ?? TimeZoneInfo.Local;
 
     /// <summary>Modifié depuis le dernier <see cref="MarkSaved"/>.</summary>
     public bool IsDirty { get; private set; }
 
+    /// <summary>La lecture a écarté ou corrigé quelque chose (trop ancien, daté dans le futur, au-delà des plafonds) : le
+    /// fichier sur le disque est à réécrire.</summary>
+    public bool ChangedOnLoad { get; private set; }
+
     public IReadOnlyList<AutoSwitchJournalEntry> Journal => _journal;
 
     public IReadOnlyCollection<UsageAppRecord> Apps => _apps.Values;
 
-    /// <summary>Reprend un fichier lu : valeurs assainies, doublons fusionnés, ce qui a plus de 30 jours écarté.</summary>
+    /// <summary>L'historique d'une lecture, ou null si le fichier existe mais n'a pas pu être lu (<see
+    /// cref="UsageHistoryRead.Failed"/>) : il ne faut alors rien relever ni enregistrer, sinon le premier enregistrement
+    /// écraserait le fichier intact par un historique vide.</summary>
+    public static UsageHistory? FromRead(UsageHistoryRead read, DateTimeOffset now, TimeZoneInfo? zone = null)
+        => read.Failed ? null : FromFile(read.File, now, zone);
+
+    /// <summary>
+    /// Reprend un fichier lu : valeurs assainies, doublons fusionnés, ce qui a plus de 30 jours écarté. Les plafonds et la
+    /// rétention valent aussi pour ce que l'app n'a pas écrit elle-même (fichier gonflé ou retouché) : au plus
+    /// <see cref="MaxApps"/> applications, et rien de daté dans le futur (une horloge qui avait sauté en avant, puis été
+    /// corrigée, laisserait sinon des données que la rétention n'atteint jamais).
+    /// </summary>
     public static UsageHistory FromFile(UsageHistoryFile? file, DateTimeOffset now, TimeZoneInfo? zone = null)
     {
         var history = new UsageHistory(zone);
         if (file is null) return history;
 
+        bool changed = false;
+        string lastDay = history.DateKey(now);
         history._extension = file.ExtensionData;
         foreach (UsageDayRecord? day in file.Days ?? [])
         {
             if (day is null || !TryParseDate(day.Date, out _) || string.IsNullOrWhiteSpace(day.Usage) || !Positive(day.Seconds)) continue;
+            if (string.CompareOrdinal(day.Date, lastDay) > 0)
+            {
+                changed = true;
+                continue;
+            }
 
             UsageDayRecord target = history.Day(day.Date, day.Usage.Trim());
             target.Seconds += day.Seconds;
@@ -228,7 +258,14 @@ public sealed class UsageHistory
                 history._apps[path] = target;
             }
 
-            if (app.LastSeenUtc > target.LastSeenUtc) target.LastSeenUtc = app.LastSeenUtc;
+            DateTimeOffset seen = app.LastSeenUtc;
+            if (seen > now)
+            {
+                seen = now;
+                changed = true;
+            }
+
+            if (seen > target.LastSeenUtc) target.LastSeenUtc = seen;
             if (Positive(app.FullscreenSeconds)) target.FullscreenSeconds += app.FullscreenSeconds;
             foreach ((string usage, double seconds) in app.Seconds ?? new())
             {
@@ -237,14 +274,31 @@ public sealed class UsageHistory
             }
         }
 
+        if (history._apps.Count > MaxApps)
+        {
+            foreach (UsageAppRecord old in history._apps.Values.OrderByDescending(a => a.LastSeenUtc).Skip(MaxApps).ToList())
+            {
+                history._apps.Remove(old.Path);
+            }
+
+            changed = true;
+        }
+
         foreach (AutoSwitchJournalEntry? entry in file.Journal ?? [])
         {
             if (entry is null || string.IsNullOrWhiteSpace(entry.Kind)) continue;
+            if (entry.TimeUtc > now)
+            {
+                entry.TimeUtc = now;
+                changed = true;
+            }
+
             history._journal.Add(entry);
         }
 
         history._journal.Sort((a, b) => a.TimeUtc.CompareTo(b.TimeUtc));
         history.Prune(now);
+        history.ChangedOnLoad = changed || history.IsDirty;
         history.IsDirty = false;
         return history;
     }
@@ -462,7 +516,15 @@ public sealed class UsageHistory
     }
 
     private string DateKey(DateTimeOffset utc)
-        => TimeZoneInfo.ConvertTime(utc, _zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    {
+        // Les décalages de fuseau sont des minutes entières : la clé ne change pas à l'intérieur d'une minute UTC.
+        long minute = utc.UtcTicks / TimeSpan.TicksPerMinute;
+        if (minute == _dateKeyMinute) return _dateKey;
+
+        _dateKey = TimeZoneInfo.ConvertTime(utc, _zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        _dateKeyMinute = minute;
+        return _dateKey;
+    }
 
     private static bool TryParseDate(string? text, out DateOnly date)
         => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
@@ -504,6 +566,10 @@ public sealed record UsageHistoryRead(UsageHistoryFile File, string? Problem, bo
 /// </summary>
 public static class UsageHistoryStore
 {
+    /// <summary>Bien au-delà de ce que les plafonds permettent (quelques centaines de Ko) : au-dessus, le fichier n'a pas
+    /// été écrit par l'app, et le charger en entier ne sert à rien.</summary>
+    public const long MaxFileBytes = 4 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = false };
 
     public static UsageHistoryRead Read(string path)
@@ -511,6 +577,11 @@ public static class UsageHistoryStore
         try
         {
             if (!File.Exists(path)) return new UsageHistoryRead(new UsageHistoryFile(), null);
+            if (new FileInfo(path).Length > MaxFileBytes)
+            {
+                TryBackupUnreadable(path);
+                return new UsageHistoryRead(new UsageHistoryFile(), "fichier anormalement gros, mis de côté (.corrupt)");
+            }
 
             ReadOnlySpan<byte> bytes = File.ReadAllBytes(path);
 
@@ -537,6 +608,18 @@ public static class UsageHistoryStore
     }
 
     public static byte[] Serialize(UsageHistoryFile file) => JsonSerializer.SerializeToUtf8Bytes(file, WriteOptions);
+
+    /// <summary>
+    /// Élague le fichier sans charger la bascule : la rétention de 30 jours vaut aussi quand elle est désactivée, le
+    /// fichier gardant sinon indéfiniment les chemins d'exécutables relevés avant. Ne réécrit que si quelque chose a été
+    /// écarté, et jamais un fichier qui n'a pas pu être lu. Null si tout va bien, sinon la raison. Hors du fil d'interface.
+    /// </summary>
+    public static string? Prune(string path, DateTimeOffset now, TimeZoneInfo? zone = null)
+    {
+        UsageHistoryRead read = Read(path);
+        if (UsageHistory.FromRead(read, now, zone) is not { } history) return read.Problem;
+        return history.ChangedOnLoad ? Write(path, history.Serialize()) : read.Problem;
+    }
 
     /// <summary>Écrit le fichier ; null si tout s'est bien passé, sinon la raison.</summary>
     public static string? Write(string path, byte[] json)

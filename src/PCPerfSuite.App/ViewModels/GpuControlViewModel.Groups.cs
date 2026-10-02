@@ -34,6 +34,13 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
     /// <summary>La sécurité thermique a retiré l'overclock pendant cette session.</summary>
     public bool EmergencyThisSession => _emergencyThisSession;
 
+    /// <summary>Le pilote graphique a été relancé (TDR) pendant une période d'essai de cette session : plus aucune hausse
+    /// automatique de l'OC jusqu'à la relance de l'app (une hausse demandée à la main reste possible).</summary>
+    private bool _driverResetThisSession;
+
+    /// <summary>Noté par la page Profils quand un TDR échoue une période d'essai.</summary>
+    public void NoteDriverReset() => _driverResetThisSession = true;
+
     /// <summary>D7 : seul l'overclock dont « Appliquer au démarrage » est coché reste en place à la fermeture, et un état
     /// transitoire n'en fait pas partie.</summary>
     private void UpdateKeepOverclockOnExit() => _gpuControl.KeepOverclockOnExit = ApplyOverclockAtStartup && !_overclockTransient;
@@ -78,7 +85,8 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
 
     public GpuTargetState ReadState()
         => new(IsAvailable, IsAvailable ? null : UnavailableMessage, CanOverclock, _gpuControl.Identity,
-            IsAvailable ? _gpuControl.GetOverclock() : null, IsAvailable ? _gpuControl.GetSnapshot() : null, _emergencyThisSession);
+            IsAvailable ? _gpuControl.GetOverclock() : null, IsAvailable ? _gpuControl.GetSnapshot() : null, _emergencyThisSession,
+            _driverResetThisSession);
 
     public string Describe(GpuOverclockProfile profile) => new GpuProfileViewModel(profile).Summary;
 

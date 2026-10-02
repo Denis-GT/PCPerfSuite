@@ -8,7 +8,26 @@ namespace PCPerfSuite.Core.Profiles;
 /// </summary>
 public sealed class AutoSwitchSession
 {
+    /// <summary>Après autant d'applications en erreur de suite pour la même cible, elle est tenue pour traitée : on ne
+    /// réessaie pas toutes les 2 min (écritures, journal, bulle) un groupe que l'application n'arrive pas à poser.</summary>
+    public const int MaxFailedAttempts = 2;
+
     private readonly UsageClassifier _classifier;
+
+    /// <summary>L'adoption a eu lieu sur un groupe posé par la bascule, donc transitoire : au réveil, les onglets reposent
+    /// leur état de démarrage à la place, et l'adoption ne vaut plus.</summary>
+    private bool _adoptedOverSwitch;
+
+    /// <summary>
+    /// Le sens du changement d'usage déjà en attente au moment du réglage manuel : -1 s'il descendait (sortie d'un jeu,
+    /// qui passe par paliers d'exigeant à léger puis à la bureautique), +1 s'il montait, 0 sans changement en attente. Les
+    /// paliers qui le prolongent pendant la pause sont adoptés : l'utilisateur réglait pour ce qui venait, pas pour ce qui
+    /// finissait. Un changement dans l'autre sens (un jeu lancé pendant la pause) rebasculera, lui, à la fin de la pause.
+    /// </summary>
+    private int _adoptDirection;
+
+    private UsageTarget? _failedTarget;
+    private int _failedAttempts;
 
     public AutoSwitchSession(UsageClassifier classifier, DateTimeOffset launchUtc)
     {
@@ -46,19 +65,29 @@ public sealed class AutoSwitchSession
         _classifier.Reset();
         LastHandled = null;
         LastHandledAdopted = false;
+        _adoptedOverSwitch = false;
+        _adoptDirection = 0;
         DateTimeOffset warmup = now + AutoSwitchPolicy.EnableWarmup;
         if (WarmupUntilUtc < warmup) WarmupUntilUtc = warmup;
     }
 
     /// <summary>
     /// Réveil : les onglets reposent leur état de démarrage, le groupe posé n'est plus en place et le verdict d'avant ne
-    /// vaut plus rien. Une cible adoptée après un réglage manuel est gardée : l'état reposé par les onglets est justement
-    /// ce réglage, et seul un changement d'usage rebasculera.
+    /// vaut plus rien. Une cible adoptée après un réglage manuel est gardée si l'état reposé par les onglets est ce
+    /// réglage ; pas si l'adoption s'est faite sur un groupe que la bascule avait posé sans en faire l'état de démarrage :
+    /// les onglets reposent alors autre chose, et la bascule doit reposer le groupe de l'usage.
     /// </summary>
     public void OnResume(DateTimeOffset now)
     {
         _classifier.Reset();
-        if (!LastHandledAdopted) LastHandled = null;
+        if (!LastHandledAdopted || _adoptedOverSwitch)
+        {
+            LastHandled = null;
+            LastHandledAdopted = false;
+            _adoptedOverSwitch = false;
+        }
+
+        _adoptDirection = 0;
         WarmupUntilUtc = now + AutoSwitchPolicy.LaunchWarmup;
     }
 
@@ -69,9 +98,15 @@ public sealed class AutoSwitchSession
         bool started = !IsManuallyPaused(now);
         ManualPauseUntilUtc = now + AutoSwitchPolicy.ManualPause;
         ManualPauseSource = source;
+        _adoptDirection = _classifier.Pending is { } pending && _classifier.Current is { } current
+                          && Rank(pending.Target) is { } to && Rank(current.Target) is { } from
+            ? Math.Sign(to - from)
+            : 0;
 
         if (_classifier.Current is { } verdict && UsageGroupResolver.Resolve(store, verdict.Target).Group is { } group)
         {
+            // Sur un groupe posé par la bascule (transitoire), ou sur une adoption qui l'était déjà.
+            _adoptedOverSwitch = LastHandled is not null && (!LastHandledAdopted || _adoptedOverSwitch);
             LastHandled = new AutoSwitchHandled(verdict.Target, group.Id, group.Revision);
             LastHandledAdopted = true;
         }
@@ -84,6 +119,7 @@ public sealed class AutoSwitchSession
     {
         ManualPauseUntilUtc = null;
         ManualPauseSource = null;
+        _adoptDirection = 0;
     }
 
     public void Lock(string reason) => LockReason = reason;
@@ -96,9 +132,21 @@ public sealed class AutoSwitchSession
     {
         UsageVerdict? verdict = _classifier.Current;
         choice = verdict is null ? UsageGroupChoice.None : UsageGroupResolver.Resolve(store, verdict.Target);
+
+        // Le changement d'usage qui était en cours au moment du réglage manuel se confirme pendant la pause : le réglage
+        // lui revient, au lieu d'être écrasé à la fin de la pause alors que l'usage n'a pas changé depuis.
+        if (_adoptDirection != 0 && LastHandledAdopted && IsManuallyPaused(now) && verdict is { } confirmed
+            && LastHandled is { } adoptedBefore && confirmed.Target != adoptedBefore.Target
+            && Rank(confirmed.Target) is { } rankNow && Rank(adoptedBefore.Target) is { } rankBefore
+            && Math.Sign(rankNow - rankBefore) == _adoptDirection
+            && choice.Group is { } adopted)
+        {
+            LastHandled = new AutoSwitchHandled(confirmed.Target, adopted.Id, adopted.Revision);
+        }
+
         return AutoSwitchPolicy.Decide(new AutoSwitchContext(
             enabled, now, WarmupUntilUtc, verdict, choice, LastHandled, LastSwitchUtc, LockReason, leaseText,
-            ManualPauseUntilUtc, ManualPauseSource, groupTuning, Switching || pageApplying));
+            ManualPauseUntilUtc, ManualPauseSource, groupTuning, Switching || pageApplying, LastHandledAdopted));
     }
 
     /// <summary>Une bascule commence : le délai entre deux bascules part de maintenant, même si elle échoue.</summary>
@@ -110,15 +158,40 @@ public sealed class AutoSwitchSession
 
     /// <summary>
     /// Fin d'une bascule. Seule une application qui n'a pas été refusée en bloc tient la cible pour traitée (même si des
-    /// parties ont été refusées : on ne réessaie pas en boucle) ; refusée (bail pris entre-temps…) ou en erreur
-    /// (<paramref name="report"/> null), elle sera retentée après le délai entre deux bascules.
+    /// parties ont été refusées : on ne réessaie pas en boucle) ; refusée (bail pris entre-temps…), elle sera retentée
+    /// après le délai entre deux bascules. En erreur (<paramref name="report"/> null), elle est retentée une fois, puis
+    /// tenue pour traitée (<see cref="MaxFailedAttempts"/>) jusqu'au prochain changement d'usage. Vrai si elle sera
+    /// retentée.
     /// </summary>
-    public void EndSwitch(UsageTarget target, ProfileGroup group, ProfileGroupReport? report)
+    public bool EndSwitch(UsageTarget target, ProfileGroup group, ProfileGroupReport? report)
     {
         Switching = false;
-        if (report is null || report.WasRefused) return;
+        if (report is null)
+        {
+            _failedAttempts = _failedTarget == target ? _failedAttempts + 1 : 1;
+            _failedTarget = target;
+            if (_failedAttempts < MaxFailedAttempts) return true;
+        }
+        else
+        {
+            _failedTarget = null;
+            _failedAttempts = 0;
+            if (report.WasRefused) return true;
+        }
 
-        LastHandled = new AutoSwitchHandled(target, group.Id, group.Revision);
+        LastHandled = new AutoSwitchHandled(target, group.Id, group.Revision, Failed: report is null);
         LastHandledAdopted = false;
+        _adoptedOverSwitch = false;
+        _adoptDirection = 0;
+        return false;
     }
+
+    /// <summary>L'exigence d'un usage : bureautique, jeu léger, jeu exigeant ; null pour une règle vers un groupe.</summary>
+    private static int? Rank(UsageTarget target) => target.Usage switch
+    {
+        ProfileGroupUsage.Office => 0,
+        ProfileGroupUsage.LightGaming => 1,
+        ProfileGroupUsage.HeavyGaming => 2,
+        _ => null,
+    };
 }

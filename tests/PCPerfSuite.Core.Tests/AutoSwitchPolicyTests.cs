@@ -155,6 +155,49 @@ public sealed class AutoSwitchPolicyTests
     }
 
     [Fact]
+    public void Un_groupe_pose_reste_en_place_quand_une_autre_cible_y_mene()
+    {
+        // Une règle visait « heavy » ; l'usage reconnu ensuite (jeu exigeant) se résout aussi en « heavy » : rien à reposer.
+        var handled = new AutoSwitchHandled(new UsageTarget(null, "heavy"), "heavy", Heavy.Revision);
+
+        Assert.Equal(AutoSwitchState.Idle, AutoSwitchPolicy.Decide(Context(handled: handled)).State);
+    }
+
+    [Fact]
+    public void Un_groupe_adopte_apres_un_reglage_manuel_ne_vaut_que_pour_sa_cible()
+    {
+        var handled = new AutoSwitchHandled(new UsageTarget(null, "heavy"), "heavy", Heavy.Revision);
+
+        Assert.True(AutoSwitchPolicy.Decide(Context(handled: handled) with { LastHandledAdopted = true }).ShouldSwitch);
+    }
+
+    [Fact]
+    public void Le_journal_classe_chaque_issue_d_une_application()
+    {
+        DimensionReport applied = new(ProfileDimension.Gpu, [ReportItem.Applied("cœur", "cœur +150")], []);
+        DimensionReport refused = new(ProfileDimension.Gpu, [ReportItem.Refused("cœur", "overclock refusé par le pilote")], []);
+
+        AutoSwitchApplyOutcome error = AutoSwitchReports.Outcome(null);
+        Assert.Equal(AutoSwitchJournalKinds.Refused, error.Kind);
+        Assert.Equal([AutoSwitchReports.UnexpectedError], error.NotApplied);
+
+        AutoSwitchApplyOutcome lease = AutoSwitchReports.Outcome(new ProfileGroupApplyResult(
+            ProfileGroupReport.Refused(Heavy, T0, "réglages pilotés par le bench"), null));
+        Assert.Equal(AutoSwitchJournalKinds.Refused, lease.Kind);
+        Assert.Equal(["réglages pilotés par le bench"], lease.NotApplied);
+
+        AutoSwitchApplyOutcome nothing = AutoSwitchReports.Outcome(new ProfileGroupApplyResult(
+            new ProfileGroupReport("heavy", "Jeu", T0, ApplyOrder.FansFirst, [refused], null, []), null));
+        Assert.Equal(AutoSwitchJournalKinds.Refused, nothing.Kind);
+        Assert.Equal(["Carte graphique : overclock refusé par le pilote"], nothing.NotApplied);
+
+        AutoSwitchApplyOutcome landed = AutoSwitchReports.Outcome(new ProfileGroupApplyResult(
+            new ProfileGroupReport("heavy", "Jeu", T0, ApplyOrder.FansFirst, [applied], null, []), null));
+        Assert.Equal(AutoSwitchJournalKinds.Switch, landed.Kind);
+        Assert.Empty(landed.NotApplied);
+    }
+
+    [Fact]
     public void Les_signaux_absents_sont_dits_avec_leur_consequence()
     {
         string none = UsageReasons.DescribeSignals(gpuLoadRead: false, rtssSeen: false);

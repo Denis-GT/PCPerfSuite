@@ -150,7 +150,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
                 ? generated is { Groups.Count: > 0 } g
                     ? $"Bascule activée : {g.Groups.Count} groupe(s) générés, modifiables par « Modifier »."
                     : _switcher.GenerationProblem is { } problem ? $"Bascule activée, mais {problem}." : "Bascule activée."
-                : "Bascule désactivée : le groupe en place le reste jusqu'à la fermeture ; plus rien n'est relevé.";
+                : "Bascule désactivée : le groupe en place le reste jusqu'à la fermeture ; plus rien n'est relevé. L'historique déjà relevé reste sur ce PC (30 jours au plus) : « Effacer l'historique » le supprime.";
         }
         catch (Exception ex)
         {
@@ -361,7 +361,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     {
         if (_switcher.History is not { } history)
         {
-            HistoryText = !_switcher.IsEnabled ? "Historique : rien n'est relevé tant que la bascule est désactivée."
+            HistoryText = !_switcher.IsEnabled ? "Historique : rien n'est relevé tant que la bascule est désactivée ; ce qui l'a été avant reste sur ce PC 30 jours au plus, « Effacer l'historique » le supprime."
                 : _switcher.HistoryProblem is { } loadProblem ? $"Historique : usage.json {loadProblem}."
                 : "Historique : chargement…";
             RefinementText = null;

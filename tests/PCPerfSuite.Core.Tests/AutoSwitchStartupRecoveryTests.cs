@@ -43,13 +43,28 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
         Name = name,
         Usage = usage,
         Origin = ProfileGroupOrigin.Generated,
-        Gpu = ProfileGroupEditor.GpuValues(new GpuOverclockProfile { CoreClockOffsetMhz = SavedCoreOffset }, null),
+        Gpu = ProfileGroupEditor.GpuValues(new GpuOverclockProfile { CoreClockOffsetMhz = SavedCoreOffset }, ProfileGroupTestData.Rtx),
     };
 
-    /// <summary>Ce que fait la bascule quand elle pose un groupe qui relève l'OC : une période probatoire à son nom.</summary>
-    private void SwitchTo(string groupId, string? requester = AutoSwitchRequester.Id)
+    /// <summary>Ce que fait la bascule quand elle pose un groupe qui relève l'OC : l'orchestrateur, avec les options de la
+    /// bascule, ouvre une période probatoire à son nom. Une régression dans ces options (demandeur « manuel », état de
+    /// démarrage) casse ces tests.</summary>
+    private async Task SwitchToAsync(string groupId)
+    {
+        var targets = new FakeTargets();
+        var applier = new ProfileGroupApplier(targets.Cpu, targets.Gpu, targets.Fans, new TuningLease(_clock),
+            new ProfileGroupProbation(_journal, _clock), _clock);
+
+        ProfileGroupApplyResult result = await applier.ApplyAsync(_settings.ProfileGroups.Find(groupId)!, ProfileGroupApplyOptions.ForAutoSwitch());
+
+        Assert.True(result.Active!.GpuRaised);
+        Assert.False(result.Active.MadeStartupState);
+    }
+
+    /// <summary>Une ligne écrite avant #9, sans demandeur.</summary>
+    private void OpenProbationWithoutRequester(string groupId)
         => Assert.True(new ProfileGroupProbation(_journal, _clock).Begin(groupId, ProfileGroupProbation.ApplyAction,
-            gpuRaised: true, wattsRaised: false, madeStartupState: false, requesterId: requester));
+            gpuRaised: true, wattsRaised: false, madeStartupState: false));
 
     /// <summary>Lancement suivant, après un redémarrage de Windows à T0 + 5 min, avec les gestionnaires dans l'ordre
     /// inverse des étapes : c'est l'étape qui décide de l'ordre d'appel.</summary>
@@ -75,9 +90,9 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
     private UsageHistory Usage() => UsageHistory.FromFile(UsageHistoryStore.Read(UsagePath).File, _clock.GetUtcNow());
 
     [Fact]
-    public void Un_ecran_bleu_apres_une_bascule_passe_par_les_groupes_puis_par_la_bascule()
+    public async Task Un_ecran_bleu_apres_une_bascule_passe_par_les_groupes_puis_par_la_bascule()
     {
-        SwitchTo("exigeant");
+        await SwitchToAsync("exigeant");
 
         StartupRecoveryReport report = Relaunch(BlueScreenAfterTheSwitch());
 
@@ -114,7 +129,7 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
     [Fact]
     public void Un_groupe_applique_a_la_main_est_suspendu_sans_ligne_au_journal_des_bascules()
     {
-        SwitchTo("exigeant", requester: null);
+        OpenProbationWithoutRequester("exigeant");
 
         StartupRecoveryReport report = Relaunch(BlueScreenAfterTheSwitch());
 
@@ -126,9 +141,9 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
     }
 
     [Fact]
-    public void Un_redemarrage_propre_ne_suspend_rien_et_n_ecrit_rien()
+    public async Task Un_redemarrage_propre_ne_suspend_rien_et_n_ecrit_rien()
     {
-        SwitchTo("exigeant");
+        await SwitchToAsync("exigeant");
 
         Relaunch(
             new SystemEventRecord(SystemEventKind.CleanShutdown, 13, T0.AddMinutes(4)),
@@ -143,9 +158,9 @@ public sealed class AutoSwitchStartupRecoveryTests : IDisposable
     }
 
     [Fact]
-    public void Un_usage_json_verrouille_n_empeche_pas_la_suspension()
+    public async Task Un_usage_json_verrouille_n_empeche_pas_la_suspension()
     {
-        SwitchTo("exigeant");
+        await SwitchToAsync("exigeant");
         File.WriteAllText(UsagePath, "{}");
 
         StartupRecoveryReport report;

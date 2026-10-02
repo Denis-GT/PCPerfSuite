@@ -104,6 +104,21 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   - Limites connues : une app tuée de l'extérieur laisse la période probatoire ouverte (même limite que le journal) ;
     au lancement, si la ligne `demarrage` ne peut pas être écrite, les onglets reposent quand même leur état (leurs
     cases font foi) ; une partie GPU ou des watts relevés sur un autre matériel ne sont pas posés, même de même marque.
+  - Après la /review-max de lot-c (02/10/2026, corrections demandées par Denis) :
+    - Une période qui en remplace une autre reprend ce que la précédente surveillait et que le nouveau groupe ne règle
+      pas (OC GPU ou watts encore relevés), avec le groupe à qui il revient (`ProbationCarry`, clés `repris-*` de la
+      ligne) : la reprise au lancement et le TDR en session visent ce groupe-là. Une période qui ne peut pas être
+      écrite laisse la précédente ouverte.
+    - Un OC fait de puissance ou de tension seules est un OC partout : `GpuOverclockRaise.IsRaisedProfile`, seule
+      définition pour le générateur, `MatchesSavedGpu` (cinq réglages comparés) et le blocage d'un groupe jumeau.
+    - Un journal Système illisible pendant la période n'est jamais pris pour « aucun TDR » (`ProbationWatch`) : la
+      période est close « non vérifiée » à son terme, et la page le dit.
+    - « Régler dans l'onglet » demande la confirmation d'un groupe suspendu, comme « Appliquer » ; la levée d'une
+      suspension est enregistrée tout de suite.
+    - Après un groupe transitoire (D7), un curseur de l'onglet GPU n'enregistre que son réglage (`GpuTouched.ToSave`) ;
+      « Réinitialiser » refait de tout l'onglet l'état de démarrage. Une application transitoire ne réécrit plus
+      settings.json dans les onglets.
+    - Renommer un groupe n'est pas une modification de ses réglages : ni révision, ni « modifié à la main ».
 - **Bascule automatique** (#9, décisions de Denis du 01/10/2026) :
   - Groupes générés dès l'activation (seulement ceux qui manquent) ; l'affinage d'après l'historique n'est que proposé
     (« Régénérer », au bout de 3 jours), et ne touche jamais un groupe `EditedByUser`.
@@ -121,9 +136,13 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
     bascule, transitoire, remplace `Active` sans y toucher (repli sur `Active` pour un fichier d'avant).
   - Pause propre à #9 : 10 min après un geste manuel (`TuningStatusViewModel.NoteManualWrite`, levé au geste, pas à
     l'écriture différée), et l'usage en cours est adopté ; le bail reste le seul moyen pour une autre fonction de
-    suspendre la bascule.
+    suspendre la bascule. Depuis le 02/10/2026 (relecture) : si un changement d'usage était en cours au geste (sortie
+    d'un jeu, par paliers), les paliers qui le prolongent pendant la pause sont adoptés aussi ; un changement dans
+    l'autre sens rebascule à la fin de la pause.
   - Verrou après `CpuControlService.EmergencyRestored` ou la sécurité thermique GPU, jusqu'à « Déverrouiller » ou la
-    relance ; les planificateurs de #8 refusent en plus toute hausse automatique dans la session.
+    relance ; les planificateurs de #8 refusent en plus toute hausse automatique dans la session. Depuis le 02/10/2026
+    (relecture) : ~~verrou réservé à la sécurité thermique~~ un TDR pendant une période d'essai verrouille aussi, et
+    aucun OC GPU automatique n'est reposé dans la session (`GpuTargetState.DriverResetThisSession`).
   - Mode éco : CpuLoad, Fps, Battery, et Gpu sauf sur batterie hors jeu ; jamais le groupe Cpu (coûteux) : la
     température CPU n'entre dans l'historique que si un autre besoin la lit déjà.
   - `usage.json` v1 (`AppDataPaths.UsageFile`) : agrégats par jour et par usage (histogrammes à 1 °C → p50/p95), 200
@@ -139,12 +158,22 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
     groupe suspendu n'est plus posé (`UsageGroupResolver.SuspendedBy`). À confirmer par Denis : la case décochée est
     celle que l'utilisateur avait cochée lui-même.
   - Réveil et réactivation : le verdict d'avant est oublié (`UsageClassifier.Reset`) ; démarrage de 35 s à l'activation ;
-    une adoption après un réglage manuel est gardée au réveil. L'état du moteur vit dans `AutoSwitchSession` (pur, testé).
+    une adoption après un réglage manuel est gardée au réveil ~~dans tous les cas~~, sauf si elle s'est faite sur un
+    groupe posé par la bascule (transitoire : les onglets reposent autre chose au réveil ; 02/10/2026, relecture). L'état
+    du moteur vit dans `AutoSwitchSession` (pur, testé). Une application en erreur n'est retentée qu'une fois, puis la
+    cible est tenue pour traitée jusqu'au prochain changement d'usage ; un groupe posé reste « en place » quelle que soit
+    la cible qui y mène (règle, puis usage).
   - Mode éco : la bascule ne demande ses groupes que toutes les 5 s ; chaque mesure est pondérée depuis sa propre lecture,
     et une mesure de moins de 10 s vaut pour les signes instantanés. Sur batterie, le GPU n'est interrogé que si RTSS
     mesure des images, en plein écran exclusif ou jeu déjà reconnu.
   - usage.json intact mais illisible un instant : rien n'est relevé ni écrit, nouvel essai 5 min plus tard ; l'élagage à
-    30 jours a lieu à chaque enregistrement ; « Effacer l'historique » supprime aussi `usage.json.corrupt`.
+    30 jours a lieu à chaque enregistrement ; « Effacer l'historique » supprime aussi `usage.json.corrupt`. Depuis le
+    02/10/2026 (relecture) : l'élagage a aussi lieu au lancement bascule désactivée (`UsageHistoryStore.Prune`) ; à la
+    lecture, plafonds appliqués à ce que l'app n'a pas écrit (4 Mo, 200 applications, rien de daté dans le futur) ; un
+    saut d'horloge en avant pendant la session n'efface pas l'historique (`RetentionClock`). Une horloge déjà fausse au
+    lancement ne se distingue pas d'une vraie absence : la rétention l'emporte.
+  - Mode éco, depuis le 02/10/2026 (relecture) : le délai de 5 s ne repart qu'une fois relus tous les groupes demandés
+    par la bascule (`EcoSampleGate`) ; l'overlay qui relit la charge CPU chaque seconde ne le fait plus repartir.
   - Fermeture : `AutoProfileSwitcher.Stop` en tête (plus de bascule, écriture lancée sans attendre),
     `AutoProfileSwitcher.Dispose` en tout dernier (attente de l'écriture, 2 s au plus).
   - Les signaux absents (charge GPU jamais lue, aucune image RTSS) sont dits dans la page et dans la ligne du diagnostic.

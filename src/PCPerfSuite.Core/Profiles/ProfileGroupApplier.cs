@@ -15,7 +15,14 @@ public sealed record ProfileGroupApplyOptions(
     bool IsManual,
     bool MakeStartupState = true,
     TuningLeaseHandle? Lease = null,
-    TimeSpan? FansWait = null);
+    TimeSpan? FansWait = null)
+{
+    /// <summary>Les options de la bascule automatique : demandeur « bascule-auto » (la reprise au lancement reconnaît
+    /// ainsi ses bascules), pas un clic de l'utilisateur (aucune hausse après une sécurité thermique), et sans en faire
+    /// l'état de démarrage (D7 : rendu à la fermeture).</summary>
+    public static ProfileGroupApplyOptions ForAutoSwitch()
+        => new(AutoSwitchRequester.Id, AutoSwitchRequester.Label, IsManual: false, MakeStartupState: false);
+}
 
 /// <summary>Le rapport, et l'état retenu à mémoriser comme groupe actif (null si rien n'a été posé).</summary>
 public sealed record ProfileGroupApplyResult(ProfileGroupReport Report, ProfileGroupActiveState? Active);

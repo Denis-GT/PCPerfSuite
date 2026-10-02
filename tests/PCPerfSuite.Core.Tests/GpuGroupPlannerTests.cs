@@ -194,6 +194,19 @@ public class GpuGroupPlannerTests
         Assert.False(GpuOverclockRaise.IsRaising(new GpuOverclockRequest { TemperatureLimitC = 80 }, Overclock(), Power()));
     }
 
+    [Fact]
+    public void Apres_un_tdr_dans_la_session_aucune_hausse_automatique_n_est_posee()
+    {
+        GpuTargetState state = Gpu() with { DriverResetThisSession = true };
+
+        GpuGroupPlan automatic = GpuGroupPlanner.Plan(GpuPart(Oc()), state, isManual: false);
+        GpuGroupPlan manual = GpuGroupPlanner.Plan(GpuPart(Oc()), state, isManual: true);
+
+        Assert.Null(automatic.Request);
+        Assert.Contains(automatic.Items, i => i.Text.Contains("TDR"));
+        Assert.NotNull(manual.Request);
+    }
+
     // ---- Ce que l'onglet enregistre (D7) ----
 
     [Fact]

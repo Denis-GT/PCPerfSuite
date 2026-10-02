@@ -71,7 +71,7 @@ public sealed record GpuTouched(bool Core, bool Memory, bool Power, bool Tempera
 /// pilotable, sans la renonciation Intel, ni sur une autre carte, même de la même marque
 /// (<see cref="GpuIdentity.IsSameCard"/>) ; la tension seulement dans la même unité (50 % ≠ 50 mV) ; chaque valeur
 /// bornée à la plage de la carte, et le bornage dit ; jamais une hausse demandée par un pilote automatique après une
-/// sécurité thermique dans la session.
+/// sécurité thermique ou un TDR dans la session.
 /// </summary>
 public static class GpuGroupPlanner
 {
@@ -215,10 +215,11 @@ public static class GpuGroupPlanner
         ]);
 
         bool raises = GpuOverclockRaise.IsRaising(request, now, state.Power);
-        if (raises && state.EmergencyThisSession && !isManual)
+        if (raises && !isManual && (state.EmergencyThisSession || state.DriverResetThisSession))
         {
-            items.Add(ReportItem.Refused(DimensionReport.Title(ProfileDimension.Gpu),
-                "overclock non reposé : la sécurité thermique l'a retiré pendant cette session"));
+            items.Add(ReportItem.Refused(DimensionReport.Title(ProfileDimension.Gpu), state.EmergencyThisSession
+                ? "overclock non reposé : la sécurité thermique l'a retiré pendant cette session"
+                : "overclock non reposé : le pilote graphique a été relancé (TDR) pendant cette session"));
             return new GpuGroupPlan(ProfilePartKind.Values, null, false, items, notes, PowerTrend.Same, false);
         }
 

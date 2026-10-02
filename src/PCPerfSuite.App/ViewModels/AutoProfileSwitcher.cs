@@ -23,10 +23,11 @@ namespace PCPerfSuite.App.ViewModels;
 /// rapport, pas d'état de démarrage (rendu à la fermeture, D7 ; le plan d'alimentation, lui, reste), prudence au
 /// démarrage (période probatoire, demandeur « bascule-auto »). Jamais de contournement de l'accord de risque CPU ni de la
 /// renonciation Intel : les planificateurs refusent, le journal le dit.</item>
-/// <item>Verrouillée après une sécurité thermique CPU ou GPU ; en pause sous le bail d'un autre demandeur, pendant le
-/// réglage d'un groupe dans un onglet et 10 min après un réglage manuel (l'usage en cours est alors « adopté »).</item>
+/// <item>Verrouillée après une sécurité thermique CPU ou GPU, ou un TDR pendant une période d'essai ; en pause sous le
+/// bail d'un autre demandeur, pendant le réglage d'un groupe dans un onglet et 10 min après un réglage manuel (l'usage en
+/// cours est alors « adopté »).</item>
 /// <item>Rien n'est relevé ni enregistré tant qu'elle est désactivée (chemins d'exécutables : données personnelles,
-/// jamais au diagnostic ni au journal de session).</item>
+/// jamais au diagnostic ni au journal de session) ; ce qui l'a été avant reste élagué à 30 jours.</item>
 /// </list>
 /// Arrêtée en tête de MainViewModel.Dispose, avant le relevé et les onglets.
 /// </summary>
@@ -54,7 +55,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private readonly GpuControlService _gpuService;
     private readonly bool _hasBattery;
     private readonly Dispatcher _dispatcher;
-    private readonly TimeProvider _time = TimeProvider.System;
+    private readonly TimeProvider _time;
+    private readonly RetentionClock _retention;
+    private readonly EcoSampleGate _eco = new(EcoSampleInterval);
 
     private readonly ForegroundAppReader _reader = new();
     private readonly ApplicationPublisherCache _publishers = new();
@@ -74,7 +77,6 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private double _lastFps;
     private bool _gpuLoadEverRead;
     private bool _rtssFpsSeen;
-    private DateTimeOffset _lastEcoSampleUtc;
 
     /// <summary>Règle trouvée pour l'application au premier plan, recalculée seulement quand l'application, les règles, les
     /// groupes ou un éditeur vérifié changent.</summary>
@@ -94,7 +96,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         TuningStatusViewModel tuning,
         CpuControlService cpuService,
         GpuControlService gpuService,
-        bool hasBattery)
+        bool hasBattery,
+        TimeProvider? time = null)
     {
         _monitoring = monitoring;
         _profiles = profiles;
@@ -107,9 +110,11 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _gpuService = gpuService;
         _hasBattery = hasBattery;
         _dispatcher = Dispatcher.CurrentDispatcher;
+        _time = time ?? TimeProvider.System;
 
         _settings = LoadSettings();
         DateTimeOffset now = _time.GetUtcNow();
+        _retention = new RetentionClock(now);
         _session = new AutoSwitchSession(new UsageClassifier(), now);
         _lastSaveUtc = now;
         Decision = _settings.Enabled
@@ -125,6 +130,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _publishers.Resolved += () => Interlocked.Increment(ref _publishersVersion);
 
         if (_settings.Enabled) LoadHistory();
+        else PruneStoredHistory(now);
     }
 
     // ---- Ce que la page et le diagnostic lisent ----
@@ -191,10 +197,13 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// </summary>
     public void AddRequiredGroups(ISet<SensorGroup> into)
     {
-        if (_monitoring.IsBackgroundMode && _time.GetUtcNow() - _lastEcoSampleUtc < EcoSampleInterval) return;
+        if (_monitoring.IsBackgroundMode && !_eco.IsDue(_time.GetUtcNow())) return;
 
         bool looksLikeGame = CurrentApp is { IsExclusiveFullscreen: true } || _lastFps > 0 || Classifier.Current?.Target.IsGaming == true;
-        BackgroundSensorNeeds.AddForAutoSwitch(into, _settings.Enabled && !_disposed, _hasBattery, _onBattery, looksLikeGame);
+        var mine = new HashSet<SensorGroup>();
+        BackgroundSensorNeeds.AddForAutoSwitch(mine, _settings.Enabled && !_disposed, _hasBattery, _onBattery, looksLikeGame);
+        _eco.Requested(mine);
+        into.UnionWith(mine);
     }
 
     // ---- Relevé ----
@@ -216,7 +225,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             if (read.Contains(SensorGroup.Fps)) _lastFps = fps ?? 0;
             if (gpuLoad is not null) _gpuLoadEverRead = true;
             if (fps > 0) _rtssFpsSeen = true;
-            if (_monitoring.IsBackgroundMode && read.Contains(SensorGroup.CpuLoad)) _lastEcoSampleUtc = _time.GetUtcNow();
+            if (_monitoring.IsBackgroundMode) _eco.OnRead(read, _time.GetUtcNow());
             if (snapshot.Battery is { } battery) _onBattery = !battery.PowerOnline;
             else if (!_hasBattery) _onBattery = false;
 
@@ -263,7 +272,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
         string usage = verdict.Target.Usage
                        ?? (verdict.Target.GroupId is { } id ? _profiles.Store.Find(id)?.Usage : null)
-                       ?? "regle";
+                       ?? UsageHistory.RuleUsageKey;
         float? cpuTemp = read.Contains(SensorGroup.Cpu) ? snapshot.Cpu.PackageTempC : null;
         float? gpuTemp = read.Contains(SensorGroup.Gpu) ? snapshot.Gpu?.CoreTempC : null;
         _history.Record(new UsageObservation(now, usage, cpuLoad, gpuLoad, cpuTemp, gpuTemp, _onBattery, CurrentApp?.Path,
@@ -311,23 +320,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             report = result?.Report;
             if (_disposed) return;
 
-            if (result is null)
-            {
-                entry.Kind = AutoSwitchJournalKinds.Refused;
-                entry.NotApplied = ["erreur inattendue pendant l'application"];
-            }
-            else if (result.Report.WasRefused)
-            {
-                // Rien de posé (bail pris entre-temps…) : la cible n'est pas tenue pour traitée, elle sera retentée
-                // après le délai entre deux bascules.
-                entry.Kind = AutoSwitchJournalKinds.Refused;
-                entry.NotApplied = [result.Report.Refusal!];
-            }
-            else
-            {
-                entry.Kind = result.Report.AnyLanded ? AutoSwitchJournalKinds.Switch : AutoSwitchJournalKinds.Refused;
-                entry.NotApplied = AutoSwitchReports.NotApplied(result.Report);
-            }
+            AutoSwitchApplyOutcome outcome = AutoSwitchReports.Outcome(result);
+            entry.Kind = outcome.Kind;
+            entry.NotApplied = outcome.NotApplied;
 
             _history?.AddJournal(entry);
             NotifySwitch(entry);
@@ -338,7 +333,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         }
         finally
         {
-            // Une application refusée en bloc (bail pris entre-temps) ou en erreur sera retentée après le délai.
+            // Refusée en bloc (bail pris entre-temps) : retentée après le délai ; en erreur : retentée une fois, pas plus.
             _session.EndSwitch(verdict.Target, group, report);
             if (!_disposed)
             {
@@ -386,23 +381,32 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         if (_disposed || !_settings.Enabled) return;
 
         string name = _profiles.Store.Find(groupId)?.Name ?? "un groupe";
+        DateTimeOffset now = _time.GetUtcNow();
+
+        // Un TDR pendant la période d'essai : l'OC est instable, et un autre groupe aux valeurs voisines ne doit pas être
+        // posé d'office sur un pilote qui vient de planter. Comme après une sécurité thermique, la bascule se verrouille
+        // (et les planificateurs refusent toute hausse automatique de l'OC dans la session).
+        string lockReason = $"incident pendant la période d'essai de « {name} » : {cause}";
+        _session.Lock(lockReason);
         _history?.AddJournal(new AutoSwitchJournalEntry
         {
-            TimeUtc = _time.GetUtcNow(),
+            TimeUtc = now,
             Kind = AutoSwitchJournalKinds.Incident,
             GroupId = groupId,
             GroupName = name,
             Reason = $"{cause} : groupe suspendu, la bascule n'y reviendra pas d'elle-même",
             Acknowledged = true,
         });
-        RaiseNotify("Bascule : groupe suspendu", $"« {name} » : {cause}. La bascule n'y reviendra pas d'elle-même.");
-        SaveHistory(_time.GetUtcNow());
+        _history?.AddJournal(new AutoSwitchJournalEntry { TimeUtc = now, Kind = AutoSwitchJournalKinds.Lock, Reason = lockReason });
+        RaiseNotify("Bascule verrouillée", $"« {name} » : {cause}. Groupe suspendu, et plus aucune bascule avant « Déverrouiller » ou la relance de l'app.");
+        SaveHistory(now);
+        Evaluate(now);
         RaiseChanged();
     }
 
-    private void OnCpuEmergency(string message) => OnEmergency($"processeur : {message}");
+    private void OnCpuEmergency(string message) => OnEmergency($"sécurité thermique du processeur : {message}");
 
-    private void OnGpuEmergency(string message) => OnEmergency($"carte graphique : {message}");
+    private void OnGpuEmergency(string message) => OnEmergency($"sécurité thermique de la carte graphique : {message}");
 
     /// <summary>Levé sur le fil de la sécurité thermique : la suite passe par l'interface.</summary>
     private void OnEmergency(string reason)
@@ -418,7 +422,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
                 DateTimeOffset now = _time.GetUtcNow();
                 _history?.AddJournal(new AutoSwitchJournalEntry { TimeUtc = now, Kind = AutoSwitchJournalKinds.Lock, Reason = reason });
-                RaiseNotify("Bascule verrouillée", $"Sécurité thermique ({reason}) : plus aucune bascule avant « Déverrouiller » ou la relance de l'app.");
+                RaiseNotify("Bascule verrouillée", $"{char.ToUpperInvariant(reason[0])}{reason[1..]}. Plus aucune bascule avant « Déverrouiller » ou la relance de l'app.");
                 SaveHistory(now);
                 Evaluate(now);
             });
@@ -560,8 +564,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         RaiseChanged();
     }
 
-    /// <summary>« Déverrouiller » : la bascule reprend après une sécurité thermique. Les planificateurs de #8 refusent
-    /// encore toute hausse automatique dans la session.</summary>
+    /// <summary>« Déverrouiller » : la bascule reprend après une sécurité thermique ou un TDR. Les planificateurs de #8
+    /// refusent encore toute hausse automatique dans la session (de l'OC GPU seulement, après un TDR).</summary>
     public void Unlock()
     {
         _session.Unlock();
@@ -643,7 +647,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _historyLoading = false;
         if (_disposed) return;
 
-        if (read.Failed)
+        UsageHistory? loaded = _history ?? UsageHistory.FromRead(read, _time.GetUtcNow());
+        if (loaded is null)
         {
             // Fichier intact mais illisible pour l'instant : on ne relève ni n'enregistre rien, sinon le premier enregistrement
             // écraserait 30 jours d'historique. Nouvel essai plus tard.
@@ -653,7 +658,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             return;
         }
 
-        _history ??= UsageHistory.FromFile(read.File, _time.GetUtcNow());
+        _history = loaded;
         _historyReadProblem = read.Problem;
 
         IReadOnlyList<AutoSwitchJournalEntry> incidents = _history.UnacknowledgedIncidents();
@@ -670,14 +675,33 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         RaiseChanged();
     }
 
+    /// <summary>Bascule désactivée : usage.json n'est pas chargé, mais la rétention de 30 jours vaut encore pour ce qui a
+    /// été relevé avant (chemins d'exécutables). Hors du fil d'interface ; rien n'est réécrit s'il n'y a rien à écarter.</summary>
+    private static void PruneStoredHistory(DateTimeOffset now)
+    {
+        string path = AppDataPaths.Current.UsageFile;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                UsageHistoryStore.Prune(path, now);
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Record(ex, "bascule automatique : élagage de l'historique");
+            }
+        });
+    }
+
     private void SaveHistory(DateTimeOffset now)
     {
         if (_history is not { IsDirty: true } history) return;
 
         try
         {
-            // La rétention de 30 jours vaut aussi pour une app qui reste ouverte des semaines (veille chaque soir).
-            history.Prune(now);
+            // La rétention de 30 jours vaut aussi pour une app qui reste ouverte des semaines (veille chaque soir) ; une
+            // horloge qui saute en avant pendant la session n'efface pas tout pour autant.
+            history.Prune(_retention.PruneTime(now));
             _writer.Save(history.Serialize());
             history.MarkSaved();
             _lastSaveUtc = now;

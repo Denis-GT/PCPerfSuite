@@ -93,6 +93,8 @@ public interface ICpuGroupTarget : IProfileGroupTarget
 
 /// <summary>L'état de la carte, relu au moment de planifier. <paramref name="UnavailableReason"/> : pourquoi rien ne se
 /// règle (sans administrateur, pilote muet…), dans les termes de ce PC.</summary>
+/// <param name="DriverResetThisSession">Le pilote graphique a été relancé (TDR) pendant une période d'essai de cette
+/// session : un overclock instable, qu'aucun pilote automatique ne doit reposer avant la relance de l'app.</param>
 public sealed record GpuTargetState(
     bool IsAvailable,
     string? UnavailableReason,
@@ -100,7 +102,8 @@ public sealed record GpuTargetState(
     GpuIdentity? Identity,
     GpuOverclockSnapshot? Overclock,
     GpuControlSnapshot? Power,
-    bool EmergencyThisSession)
+    bool EmergencyThisSession,
+    bool DriverResetThisSession = false)
 {
     /// <summary>L'état actuel, comme l'enregistrerait l'onglet GPU.</summary>
     public GpuOverclockProfile ToProfile(string name) => new()

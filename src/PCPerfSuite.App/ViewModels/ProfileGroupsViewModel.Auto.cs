@@ -17,8 +17,7 @@ public sealed partial class ProfileGroupsViewModel
     /// démarrage (D7 : rendu à la fermeture). Null si une erreur inattendue l'a empêché.</summary>
     public async Task<ProfileGroupApplyResult?> ApplyForAutoSwitchAsync(ProfileGroup group)
     {
-        ProfileGroupApplyResult? result = await RunApplyAsync(group,
-            new ProfileGroupApplyOptions(AutoSwitchRequester.Id, AutoSwitchRequester.Label, IsManual: false, MakeStartupState: false));
+        ProfileGroupApplyResult? result = await RunApplyAsync(group, ProfileGroupApplyOptions.ForAutoSwitch());
         if (_loaded && IsPageShown) Refresh();
         return result;
     }

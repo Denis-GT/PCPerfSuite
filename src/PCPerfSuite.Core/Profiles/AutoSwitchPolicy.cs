@@ -4,14 +4,17 @@ namespace PCPerfSuite.Core.Profiles;
 
 /// <summary>Ce que la bascule a traité en dernier : la cible et la version du groupe posé (ou adopté après un réglage
 /// manuel). Une bascule n'a lieu que si la cible du moment en diffère.</summary>
-public sealed record AutoSwitchHandled(UsageTarget Target, string GroupId, int Revision);
+/// <param name="Failed">Le groupe n'a pas pu être posé (applications en erreur à la suite) : tenu pour traité, il n'est
+/// pas retenté avant un changement d'usage ou de groupe.</param>
+public sealed record AutoSwitchHandled(UsageTarget Target, string GroupId, int Revision, bool Failed = false);
 
 /// <summary>État de la bascule, pour la page et le diagnostic.</summary>
 public enum AutoSwitchState
 {
     Off,
 
-    /// <summary>Verrouillée après une sécurité thermique, jusqu'à « Déverrouiller » ou la relance de l'app.</summary>
+    /// <summary>Verrouillée après une sécurité thermique ou un TDR pendant une période d'essai, jusqu'à « Déverrouiller » ou
+    /// la relance de l'app.</summary>
     Locked,
 
     /// <summary>Une application de groupe est en cours (page ou bascule).</summary>
@@ -32,11 +35,12 @@ public enum AutoSwitchState
 
 /// <summary>Tout ce que la politique regarde, relu à chaque relevé.</summary>
 /// <param name="WarmupUntilUtc">Pas de bascule avant : laisse les onglets reposer leur état au lancement (fans, watts).</param>
-/// <param name="LockReason">Sécurité thermique de la session, null sans.</param>
+/// <param name="LockReason">Ce qui a verrouillé la bascule dans la session (sécurité thermique, TDR), null sans.</param>
 /// <param name="LeaseText">« Réglages pilotés par le bench… » quand un autre demandeur tient le bail, null sinon.</param>
 /// <param name="ManualPauseUntilUtc">Fin de la pause après un réglage manuel.</param>
 /// <param name="GroupTuning">Un groupe est en cours de réglage dans un onglet (« Régler dans l'onglet »).</param>
 /// <param name="Applying">La page ou la bascule applique un groupe.</param>
+/// <param name="LastHandledAdopted">La dernière cible traitée a été adoptée après un réglage manuel, pas posée.</param>
 public sealed record AutoSwitchContext(
     bool Enabled,
     DateTimeOffset NowUtc,
@@ -50,7 +54,8 @@ public sealed record AutoSwitchContext(
     DateTimeOffset? ManualPauseUntilUtc,
     string? ManualPauseSource,
     bool GroupTuning,
-    bool Applying);
+    bool Applying,
+    bool LastHandledAdopted = false);
 
 /// <summary>La décision : l'état, ce qu'on en dit (sans nom d'application), et le groupe à poser pour une bascule.</summary>
 public sealed record AutoSwitchDecision(AutoSwitchState State, string Text, ProfileGroup? Group = null)
@@ -62,15 +67,17 @@ public sealed record AutoSwitchDecision(AutoSwitchState State, string Text, Prof
 /// Décide, en logique pure, si la bascule automatique pose un groupe maintenant. Dans l'ordre :
 /// <list type="number">
 /// <item>désactivée ;</item>
-/// <item>verrouillée après une sécurité thermique CPU ou GPU dans la session (en plus, les planificateurs de #8 refusent
-/// toute hausse automatique après une sécurité) ;</item>
+/// <item>verrouillée après une sécurité thermique CPU ou GPU, ou un TDR pendant une période d'essai, dans la session (en
+/// plus, les planificateurs de #8 refusent toute hausse automatique après une sécurité, et tout OC GPU automatique après
+/// un TDR) ;</item>
 /// <item>une application de groupe en cours ;</item>
 /// <item>en pause tant qu'un autre demandeur tient le bail de réglage (bench, vérification ou recherche d'OC) : c'est le
 /// seul moyen pour une autre fonction de suspendre la bascule ;</item>
 /// <item>en pause pendant le réglage d'un groupe dans un onglet, et pendant <see cref="ManualPause"/> après un réglage
 /// manuel (pause propre à la bascule) ;</item>
 /// <item>attente du démarrage, d'un verdict, d'un groupe pour l'usage, d'un groupe non suspendu après un incident ;</item>
-/// <item>rien à faire si le groupe de la cible, dans sa version actuelle, est celui traité en dernier ;</item>
+/// <item>rien à faire si le groupe de la cible, dans sa version actuelle, est celui posé en dernier (ou celui adopté pour
+/// cette même cible après un réglage manuel) ;</item>
 /// <item>au plus une bascule toutes les <see cref="MinInterval"/>.</item>
 /// </list>
 /// Délais expérimentaux.
@@ -90,7 +97,7 @@ public static class AutoSwitchPolicy
         if (c.LockReason is { } lockReason)
         {
             return new AutoSwitchDecision(AutoSwitchState.Locked,
-                $"Verrouillée après une sécurité thermique ({lockReason}) : aucune bascule jusqu'à « Déverrouiller » ou la relance de l'app.");
+                $"Verrouillée ({lockReason}) : aucune bascule jusqu'à « Déverrouiller » ou la relance de l'app.");
         }
 
         if (c.Applying) return new AutoSwitchDecision(AutoSwitchState.Busy, "Application d'un groupe en cours.");
@@ -122,10 +129,16 @@ public static class AutoSwitchPolicy
                 $"{usage} : le groupe « {group.Name} » {why} ; aucune bascule vers lui tant que la suspension n'est pas levée.");
         }
 
-        if (c.LastHandled is { } handled && handled.Target == verdict.Target
+        // Un groupe posé par la bascule est en place quelle que soit la cible qui y mène (une règle, puis l'usage qu'elle
+        // désignait) : le reposer à l'identique ne ferait que rouvrir une période d'essai. Un groupe adopté après un réglage
+        // manuel, lui, ne vaut que pour la cible du moment : c'est le réglage manuel qui est en place, pas le groupe.
+        if (c.LastHandled is { } handled && (handled.Target == verdict.Target || !c.LastHandledAdopted)
             && string.Equals(handled.GroupId, group.Id, StringComparison.OrdinalIgnoreCase) && handled.Revision == group.Revision)
         {
-            return new AutoSwitchDecision(AutoSwitchState.Idle, $"{usage} : groupe « {group.Name} » en place.");
+            return handled.Failed
+                ? new AutoSwitchDecision(AutoSwitchState.Waiting,
+                    $"{usage} : « {group.Name} » n'a pas pu être posé ({AutoSwitchSession.MaxFailedAttempts} essais en erreur) ; nouvel essai au prochain changement d'usage ou de groupe.")
+                : new AutoSwitchDecision(AutoSwitchState.Idle, $"{usage} : groupe « {group.Name} » en place.");
         }
 
         if (c.LastSwitchUtc is { } last && c.NowUtc >= last && c.NowUtc - last < MinInterval)
@@ -150,9 +163,28 @@ public static class AutoSwitchPolicy
     }
 }
 
+/// <summary>La ligne du journal des bascules pour une application : bascule, ou refus, et ce qui n'a pas été posé.</summary>
+public sealed record AutoSwitchApplyOutcome(string Kind, List<string> NotApplied);
+
 /// <summary>Ce que le journal des bascules retient d'un rapport d'application.</summary>
 public static class AutoSwitchReports
 {
+    public const string UnexpectedError = "erreur inattendue pendant l'application";
+
+    /// <summary>
+    /// Une application en erreur (<paramref name="result"/> null), refusée en bloc (bail pris entre-temps…) ou dont rien
+    /// n'a été posé est un refus ; sinon une bascule, avec les réglages laissés de côté.
+    /// </summary>
+    public static AutoSwitchApplyOutcome Outcome(ProfileGroupApplyResult? result)
+    {
+        if (result is null) return new AutoSwitchApplyOutcome(AutoSwitchJournalKinds.Refused, [UnexpectedError]);
+
+        ProfileGroupReport report = result.Report;
+        if (report.WasRefused) return new AutoSwitchApplyOutcome(AutoSwitchJournalKinds.Refused, [report.Refusal ?? "refusé"]);
+
+        return new AutoSwitchApplyOutcome(report.AnyLanded ? AutoSwitchJournalKinds.Switch : AutoSwitchJournalKinds.Refused, NotApplied(report));
+    }
+
     /// <summary>Les réglages refusés ou laissés de côté, par dimension, avec leur raison (« Carte graphique : overclock
     /// non posé, … ») ; les rapports des planificateurs ne nomment aucune application.</summary>
     public static List<string> NotApplied(ProfileGroupReport report)
