@@ -1,7 +1,9 @@
 using System.Windows.Threading;
 using Microsoft.Win32;
+using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
+using PCPerfSuite.Core.PowerSettings;
 using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.Safety.Events;
 
@@ -32,6 +34,10 @@ public sealed partial class ProfileGroupsViewModel
 
     /// <summary>TDR vu pendant la période probatoire de cette session.</summary>
     private ProfileGroupWarning? _sessionWarning;
+
+    /// <summary>Un groupe vient d'être suspendu pendant la session (TDR pendant sa période probatoire), avec la cause :
+    /// la bascule automatique (#9) le note à son journal et prévient. Sur le fil d'interface.</summary>
+    public event Action<string, string>? GroupSuspended;
 
     private ProfileGroupProbation Probation => _applier.Probation;
 
@@ -138,14 +144,22 @@ public sealed partial class ProfileGroupsViewModel
         string cause = $"pilote graphique relancé (TDR) {minutes} min après l'application";
         Probation.Fail(cause);
 
+        // Comme au lancement (ProfileGroupRecoveryHandler) : la case est décochée si le groupe avait fait l'état de
+        // démarrage, ou si ce qu'il avait relevé est exactement ce que l'onglet reposera (groupe de jeu généré par la
+        // bascule automatique).
+        AppSettings saved = AppSettingsStore.Load();
+        ProfileGroup? applied = _store.Find(current.GroupId);
+        bool gpuIsSaved = ProfileGroupStartupCheck.MatchesSavedGpu(applied?.Gpu, saved.Gpu);
+        bool wattsAreSaved = ProfileGroupStartupCheck.MatchesSavedWatts(applied?.Cpu, saved.Cpu);
+
         bool gpuUnchecked = false, cpuUnchecked = false;
-        if (current.MadeStartupState && current.GpuRaised && _gpu.ApplyOverclockAtStartup)
+        if ((current.MadeStartupState || gpuIsSaved) && current.GpuRaised && _gpu.ApplyOverclockAtStartup)
         {
             _gpu.ApplyOverclockAtStartup = false;
             gpuUnchecked = true;
         }
 
-        if (current.MadeStartupState && current.WattsRaised && _cpu.ApplyAtStartup)
+        if ((current.MadeStartupState || wattsAreSaved) && current.WattsRaised && _cpu.ApplyAtStartup)
         {
             _cpu.ApplyAtStartup = false;
             cpuUnchecked = true;
@@ -164,6 +178,16 @@ public sealed partial class ProfileGroupsViewModel
                 Acknowledged = true,
             };
             Persist();
+
+            try
+            {
+                GroupSuspended?.Invoke(group.Id, cause);
+            }
+            catch (Exception ex)
+            {
+                // Un abonné en échec ne doit pas empêcher l'avertissement de la page.
+                CrashLog.Record(ex, "groupe suspendu : abonné");
+            }
         }
 
         var tabs = new List<string>();

@@ -34,6 +34,9 @@ public partial class MainWindow : Window
         _tray.Activated += RestoreFromTray;
         _tray.MenuRequested += OpenTrayMenu;
 
+        // Bascule automatique de profils : une bulle discrète à chaque bascule (désactivable dans Profils › Automatique).
+        _viewModel.AutoSwitch.Notify += (title, text) => _tray.ShowHint(title, text);
+
         RestoreWindowBounds();
 
         Closing += OnClosing;

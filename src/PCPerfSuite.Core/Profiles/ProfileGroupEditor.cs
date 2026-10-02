@@ -93,11 +93,12 @@ public static class ProfileGroupEditor
         return copy;
     }
 
-    /// <summary>Retire un groupe, et avec lui son état actif et sa suspension.</summary>
+    /// <summary>Retire un groupe, et avec lui son état actif, son état de démarrage et sa suspension.</summary>
     public static bool Delete(ProfileGroupsSettings settings, string groupId)
     {
         int removed = settings.Groups.RemoveAll(g => string.Equals(g.Id, groupId, StringComparison.OrdinalIgnoreCase));
         if (string.Equals(settings.Active?.GroupId, groupId, StringComparison.OrdinalIgnoreCase)) settings.Active = null;
+        if (string.Equals(settings.StartupState?.GroupId, groupId, StringComparison.OrdinalIgnoreCase)) settings.StartupState = null;
         settings.Suspensions.Remove(groupId);
         return removed > 0;
     }

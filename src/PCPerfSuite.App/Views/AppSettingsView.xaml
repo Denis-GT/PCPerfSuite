@@ -51,7 +51,7 @@
                             <TextBlock Text="Mode éco en arrière-plan"
                                        Style="{StaticResource Body}" FontSize="14" FontWeight="SemiBold"/>
                             <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0"
-                                     Text="Quand la fenêtre est réduite ou dans la zone de notification, seuls les capteurs utiles à l'overlay, aux courbes de ventilation et aux sécurités thermiques sont relus, et l'interface ne se met plus à jour : l'app consomme le moins possible. Les graphiques reprennent à la réouverture."/>
+                                     Text="Quand la fenêtre est réduite ou dans la zone de notification, seuls les capteurs utiles à l'overlay, aux courbes de ventilation, aux sécurités thermiques et à la bascule automatique de profils sont relus, et l'interface ne se met plus à jour : l'app consomme le moins possible. Les graphiques reprennent à la réouverture."/>
                         </StackPanel>
                         <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
                                   IsChecked="{Binding EcoModeWhenHidden}"/>

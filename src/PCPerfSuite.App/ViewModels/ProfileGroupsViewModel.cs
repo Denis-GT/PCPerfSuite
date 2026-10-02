@@ -16,7 +16,7 @@ public sealed record ProfileGroupsSection(string Key, string Title);
 
 /// <summary>
 /// Page « Profils » (Régler) : les groupes de profils CPU + GPU + ventilation (#8), appliqués d'un clic, modifiés à la
-/// main ; le sous-onglet « Automatique » attend la bascule selon l'usage (#9).
+/// main ; le sous-onglet « Automatique » montre la bascule selon l'usage (#9, <see cref="AutoProfilesViewModel"/>).
 ///
 /// Seule cette page écrit le bloc ProfileGroups de settings.json (hors suspensions posées au lancement par
 /// <see cref="ProfileGroupRecoveryHandler"/>). Les onglets Processeur, GPU et Ventilateurs restent propriétaires de
@@ -52,16 +52,24 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
     [ObservableProperty] private ProfileGroupsSection selectedSection;
 
-    /// <summary>La bascule automatique selon l'usage (#9), pas encore livrée.</summary>
-    public ComingSoonViewModel Automatic { get; } = new(
-        "Automatique",
-        "La bascule entre trois groupes selon l'usage du PC, en préparation.",
-        new[]
-        {
-            "Trois groupes générés : bureautique, jeu léger, jeu exigeant.",
-            "Bascule selon ce qui tourne au premier plan, désactivable.",
-            "Chaque groupe généré reste modifiable à la main ici, dans « Groupes ».",
-        });
+    /// <summary>Sous-onglet « Automatique » : la bascule selon l'usage (#9), posée par MainViewModel une fois la bascule
+    /// construite (elle dépend de cette page).</summary>
+    public AutoProfilesViewModel? Automatic { get; private set; }
+
+    public void AttachAutomatic(AutoProfilesViewModel automatic)
+    {
+        Automatic = automatic;
+        OnPropertyChanged(nameof(Automatic));
+        UpdateAutomaticShown();
+    }
+
+    /// <summary>Le sous-onglet ne relève en direct que page affichée et sous-onglet choisi.</summary>
+    private void UpdateAutomaticShown()
+    {
+        if (Automatic is { } automatic) automatic.IsPageShown = IsPageShown && SelectedSection?.Key == "auto";
+    }
+
+    partial void OnSelectedSectionChanged(ProfileGroupsSection value) => UpdateAutomaticShown();
 
     public TuningStatusViewModel Tuning { get; }
 
@@ -162,6 +170,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
     partial void OnIsPageShownChanged(bool value)
     {
+        UpdateAutomaticShown();
         if (!value) return;
 
         // La première ouverture construit la liste ; chaque ouverture remet les résumés et la conformité à jour (un
@@ -346,31 +355,48 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
         bool liftSuspension = item.IsConfirmingApply;
         item.IsConfirmingApply = false;
-        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, makeStartupState);
+        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState));
         if (result is null) return;
 
         if (liftSuspension && result.Active is not null) _store.Suspensions.Remove(item.Id);
         Refresh();
     }
 
-    /// <summary>Applique par l'orchestrateur, puis mémorise l'état retenu comme groupe actif.</summary>
-    private async Task<ProfileGroupApplyResult?> RunApplyAsync(ProfileGroup group, bool makeStartupState)
+    private static ProfileGroupApplyOptions ManualOptions(bool makeStartupState)
+        => new(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true, MakeStartupState: makeStartupState);
+
+    /// <summary>Applique par l'orchestrateur, puis mémorise l'état retenu comme groupe actif (et comme état de démarrage
+    /// s'il l'est devenu). Un clic de l'utilisateur est un réglage à la main : la bascule automatique se met en
+    /// pause.</summary>
+    private async Task<ProfileGroupApplyResult?> RunApplyAsync(ProfileGroup group, ProfileGroupApplyOptions options)
     {
         IsApplying = true;
         try
         {
-            ProfileGroupApplyResult result = await _applier.ApplyAsync(group,
-                new ProfileGroupApplyOptions(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true, MakeStartupState: makeStartupState));
+            if (options.IsManual) Tuning.NoteManualWrite($"groupe « {group.Name} » appliqué à la main");
+            ProfileGroupApplyResult result = await _applier.ApplyAsync(group, options);
 
             LastReport = result.Report.Describe();
             Status = result.Report.Title;
             if (result.Active is { } active)
             {
-                _store.Active = active;
+                _store.Remember(active);
                 Persist();
             }
 
-            CheckConformity();
+            if (options.IsManual || IsPageShown)
+            {
+                CheckConformity();
+            }
+            else
+            {
+                // Bascule automatique, page cachée : pas de relecture du matériel pour un affichage que personne ne voit ;
+                // la conformité sera vérifiée à la prochaine ouverture de la page.
+                RefreshActive();
+                ConformityText = null;
+                _conformityCheckedUtc = null;
+            }
+
             return result;
         }
         catch (Exception ex)
@@ -582,7 +608,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         if (item is null) return;
 
         item.IsEditing = false;
-        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, makeStartupState: true);
+        ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState: true));
         if (result is null || result.Report.WasRefused) return;
 
         _tuning = (item.Id, dimension);
@@ -744,6 +770,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         IsApplying = true;
         try
         {
+            Tuning.NoteManualWrite("carte graphique rendue d'origine à la main");
             ProfileGroupApplyResult result = await _applier.ApplyAsync(origin,
                 new ProfileGroupApplyOptions(ProfileGroupRequesters.Manual, RequesterLabel, IsManual: true));
             Status = result.Report.WasRefused ? result.Report.Title : $"Carte graphique : {result.Report.Find(ProfileDimension.Gpu)?.Body ?? "rien à changer"}.";
@@ -803,6 +830,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         _cpu.HardwareResynced -= OnHardwareResynced;
         _gpu.HardwareResynced -= OnHardwareResynced;
         _testLease?.Dispose();
+        Automatic?.Dispose();
         DisposeSafety();
     }
 }

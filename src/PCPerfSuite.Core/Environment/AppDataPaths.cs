@@ -52,6 +52,10 @@ public sealed class AppDataPaths
     /// <summary>Journal de session : opérations risquées en cours, reprises au lancement (SessionJournal, StartupRecovery).</summary>
     public string SessionJournalFile => InRoot("journal-session.jsonl");
 
+    /// <summary>Historique d'usage de la bascule automatique (#9) : agrégats par jour, applications vues, journal des
+    /// bascules (UsageHistory). Hors de settings.json, réécrit en entier à chaque enregistrement.</summary>
+    public string UsageFile => InRoot("usage.json");
+
     private string InRoot(string name) => Path.Combine(Root, name);
 }
 

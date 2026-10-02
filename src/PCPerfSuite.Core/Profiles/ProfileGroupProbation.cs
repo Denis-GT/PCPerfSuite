@@ -28,6 +28,11 @@ public sealed class ProfileGroupProbation
     public const string WattsKey = "watts";
     public const string StartupStateKey = "etat-demarrage";
 
+    /// <summary>Qui a appliqué le groupe (« manuel », « onglet », « bascule-auto »…) : la bascule automatique (#9)
+    /// reconnaît ainsi au lancement les incidents qui ont suivi une de ses bascules. Absent d'une ligne écrite avant #9,
+    /// et de celle de l'état reposé au lancement.</summary>
+    public const string RequesterKey = "demandeur";
+
     /// <summary>Délai après lequel un incident n'est plus imputé au groupe (décision de Denis, prompt #8).</summary>
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(30);
 
@@ -51,17 +56,21 @@ public sealed class ProfileGroupProbation
     /// Ouvre la période d'une application risquée, en clôturant la précédente. Faux si la ligne n'a pas pu être écrite
     /// sur le disque : l'appelant ne doit alors pas poser ce qui est risqué (docs/decisions.md, journal de session).
     /// </summary>
-    public bool Begin(string groupId, string action, bool gpuRaised, bool wattsRaised, bool madeStartupState)
+    /// <param name="requesterId">Demandeur en kebab-case (<see cref="RequesterKey"/>) ; null : non noté.</param>
+    public bool Begin(string groupId, string action, bool gpuRaised, bool wattsRaised, bool madeStartupState, string? requesterId = null)
     {
         Close();
 
-        SessionOperation operation = _journal.Begin(Component, action, new Dictionary<string, string>
+        var values = new Dictionary<string, string>
         {
             [GroupKey] = groupId,
             [GpuKey] = gpuRaised ? "oui" : "non",
             [WattsKey] = wattsRaised ? "oui" : "non",
             [StartupStateKey] = madeStartupState ? "oui" : "non",
-        });
+        };
+        if (!string.IsNullOrWhiteSpace(requesterId)) values[RequesterKey] = requesterId;
+
+        SessionOperation operation = _journal.Begin(Component, action, values);
 
         if (!operation.IsDurable)
         {

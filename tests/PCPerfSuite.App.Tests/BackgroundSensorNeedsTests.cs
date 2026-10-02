@@ -20,6 +20,30 @@ public class BackgroundSensorNeedsTests
         return groups;
     }
 
+    private static HashSet<SensorGroup> ForAutoSwitch(bool enabled, bool hasBattery = false, bool onBattery = false, bool game = false)
+    {
+        var groups = new HashSet<SensorGroup>();
+        BackgroundSensorNeeds.AddForAutoSwitch(groups, enabled, hasBattery, onBattery, game);
+        return groups;
+    }
+
+    [Fact]
+    public void AutoSwitch_Disabled_NeedsNothing()
+        => Assert.Empty(ForAutoSwitch(enabled: false, hasBattery: true, game: true));
+
+    [Fact]
+    public void AutoSwitch_OnDesktop_ReadsLoadsFpsAndGpu_NeverTheCostlyCpuGroup()
+        => Assert.Equal(new[] { SensorGroup.CpuLoad, SensorGroup.Gpu, SensorGroup.Fps }, ForAutoSwitch(enabled: true).OrderBy(g => g));
+
+    [Fact]
+    public void AutoSwitch_OnBattery_LeavesTheGpuAloneUnlessAGameIsShown()
+    {
+        Assert.Equal(new[] { SensorGroup.CpuLoad, SensorGroup.Fps, SensorGroup.Battery },
+            ForAutoSwitch(enabled: true, hasBattery: true, onBattery: true).OrderBy(g => g));
+        Assert.Contains(SensorGroup.Gpu, ForAutoSwitch(enabled: true, hasBattery: true, onBattery: true, game: true));
+        Assert.Contains(SensorGroup.Gpu, ForAutoSwitch(enabled: true, hasBattery: true, onBattery: false));
+    }
+
     [Fact]
     public void Overlay_Disabled_NeedsNothing()
     {

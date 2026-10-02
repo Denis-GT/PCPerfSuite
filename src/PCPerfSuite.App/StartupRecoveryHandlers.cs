@@ -16,7 +16,11 @@ internal static class StartupRecoveryHandlers
         // Groupes de profils (#8) : suspend un groupe suivi d'un incident, et décoche « Appliquer au démarrage ».
         new ProfileGroupRecoveryHandler(),
 
-        // Les recherches d'OC (#15, #14), l'essai d'écran (#17), le test combiné (#11), le bench (#10) et la bascule
-        // automatique (#9) inscriront ici leur gestionnaire.
+        // Bascule automatique (#9) : note au journal des bascules un incident qui a suivi une bascule (le groupe, lui,
+        // est suspendu par le gestionnaire des groupes), pour prévenir au lancement.
+        new AutoSwitchRecoveryHandler(),
+
+        // Les recherches d'OC (#15, #14), l'essai d'écran (#17), le test combiné (#11) et le bench (#10) inscriront ici
+        // leur gestionnaire.
     ];
 }

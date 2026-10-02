@@ -214,6 +214,16 @@ public sealed class ProfileGroupApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task Le_demandeur_est_note_dans_la_periode_probatoire()
+    {
+        await _applier.ApplyAsync(Group(gpuCore: 150), Manual with { RequesterId = "bascule-auto", MakeStartupState = false });
+
+        SessionJournalEntry entry = Assert.Single(_journal.Read().Entries);
+        Assert.Equal("bascule-auto", entry.Values[ProfileGroupProbation.RequesterKey]);
+        Assert.Equal("non", entry.Values[ProfileGroupProbation.StartupStateKey]);
+    }
+
+    [Fact]
     public async Task Sans_journal_les_parties_risquees_ne_sont_pas_posees()
     {
         Directory.CreateDirectory(_dir.File("dossier"));

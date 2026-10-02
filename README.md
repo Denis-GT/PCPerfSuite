@@ -13,7 +13,7 @@ sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles
 | Section | Pages |
 |---|---|
 | **Surveiller** | Monitoring, Processus, Overlay |
-| **Régler** | Processeur, GPU, Ventilateurs, Profils (Groupes ; Automatique *bientôt disponible*), OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
+| **Régler** | Processeur, GPU, Ventilateurs, Profils (Groupes, Automatique), OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
 | **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
 | **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils, Mémoire *(bientôt disponible)* |
 
@@ -28,8 +28,10 @@ le lancement.
 Les fichiers de l'app sont réunis dans `%LOCALAPPDATA%\PCPerfSuite` : `settings.json`
 (réglages), `erreurs.log` (erreurs inattendues), `diagnostic-ventilateurs.log` (état de la puce
 des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU AMD
-(`adlx-plantage.temoin`) et le journal de session (`journal-session.jsonl` : opérations risquées en
-cours, reprises au lancement suivant, gardées 30 jours). Ce que la Boîte à outils télécharge passe par
+(`adlx-plantage.temoin`), le journal de session (`journal-session.jsonl` : opérations risquées en
+cours, reprises au lancement suivant, gardées 30 jours) et, une fois la bascule automatique activée,
+son historique (`usage.json` : temps et températures par usage, applications vues, journal des
+bascules, 30 jours, jamais transmis). Ce que la Boîte à outils télécharge passe par
 `%ProgramData%\PCPerfSuite`, que seuls les administrateurs peuvent modifier : `Installations\` pour un
 fichier en cours de vérification, `Tools\` pour les outils portables, et, pour tous les comptes du PC,
 le dernier catalogue en ligne accepté (`catalogue-outils.json` et sa signature) avec le plus haut numéro
@@ -445,9 +447,52 @@ ventilation sous un nom, appliqués d'un clic. Pas encore vérifié sur une vrai
   (TDR) pendant ce temps le suspend, et décoche « Appliquer au démarrage » pour ce qu'il avait
   relevé. Le réappliquer demande une confirmation.
 - **Bail de réglage** : quand un autre module pilote les réglages (bench, recherche d'OC, bascule
-  automatique à venir), les onglets affichent « Réglages pilotés par… depuis… », leurs commandes
-  sont grisées, et appliquer un groupe est refusé avec la raison. Les sécurités thermiques agissent
-  toujours.
+  automatique le temps d'appliquer un groupe), les onglets affichent « Réglages pilotés par…
+  depuis… », leurs commandes sont grisées, et appliquer un groupe est refusé avec la raison. Les
+  sécurités thermiques agissent toujours.
+
+## Profils automatiques selon l'usage *(expérimental)*
+
+Régler › Profils › Automatique bascule seule entre trois groupes : **bureautique**, **jeu léger** et
+**jeu exigeant**. Désactivée par défaut ; tant qu'elle l'est, rien n'est relevé. Seuils et délais pas
+encore vérifiés sur une vraie machine.
+
+- **Détection** : un moteur déterministe et explicable décide, sans IA générative. Il regarde
+  l'application au premier plan (son exécutable, lu sans ouvrir plus qu'un accès en lecture limité),
+  le plein écran, les charges du processeur et de la carte graphique, les images mesurées par RTSS
+  s'il tourne, et le secteur ou la batterie. Entrée en jeu après environ 30 s tenues, sortie après
+  2 min sans signe de jeu (un menu en plein écran reste du jeu), au plus une bascule toutes les
+  2 min. Une charge processeur lourde et longue hors jeu (compilation, rendu) va au jeu exigeant ;
+  sur batterie, le jeu exigeant est ramené au jeu léger. PCPerfSuite et la barre des tâches au
+  premier plan ne comptent pas.
+- **Règles par application** : prioritaires. Une application (chemin complet par défaut, nom seul
+  pour une application qui change de dossier à chaque mise à jour, éditeur facultatif) vise un usage
+  ou un groupe précis ; à choisir parmi les applications vues ou par « Parcourir… ».
+- **Groupes** : générés à l'activation, modifiables par « Modifier » comme tout groupe ; un groupe
+  fait à la main pour un usage l'emporte. Ventilation : courbes Silencieux, Équilibré ou Perf, décalées
+  d'après les températures relevées, seulement pour les ventilateurs déjà en courbe ou en manuel (une
+  case prend en main ceux laissés au BIOS ; sur un portable, seule la ventilation de la carte
+  graphique). Processeur : préférence performance/économie par usage, watts réduits en bureautique
+  quand l'onglet sait les régler. Carte graphique : d'origine en bureautique ; en jeu, l'overclock
+  enregistré dans l'onglet GPU avec « Appliquer au démarrage », sur la même carte (l'OC automatique le
+  remplacera). Rien n'est inventé. Après quelques jours, la page propose « Régénérer » pour affiner ;
+  un groupe modifié à la main n'est jamais écrasé.
+- **Garde-fous** : chaque bascule passe par les onglets et leurs sécurités (accord de risque CPU,
+  renonciation Intel, autre matériel : la partie est refusée et le journal le dit). Verrouillée après
+  une sécurité thermique, jusqu'à « Déverrouiller » ou la relance. En pause pendant que le bench ou
+  une recherche d'OC tient les réglages, et 10 min après un réglage à la main (l'usage en cours garde
+  alors ce réglage). Quand une bascule relève l'overclock du GPU ou les watts, un arrêt anormal, un
+  écran bleu ou un pilote graphique relancé dans les 30 min suspend le groupe, et tout groupe qui porte
+  le même réglage : la bascule n'y revient pas d'elle-même, et le signale. Si ce réglage est celui que
+  l'onglet repose au démarrage, sa case « Appliquer au démarrage » est décochée.
+- **Fermeture** : une bascule n'est jamais l'état de démarrage. L'overclock, les watts et les
+  ventilateurs sont rendus d'origine en quittant ; la première bascule du lancement suivant remplace
+  l'état enregistré dans les onglets. Les réglages du plan d'alimentation sont permanents : **à la
+  fermeture, le PC reste sur ceux du dernier groupe posé** (« Tout rétablir » les rend).
+- **Suivi** : une bulle discrète à chaque bascule (désactivable, sans nom d'application), le journal
+  des 20 dernières bascules avec ce qui n'a pas été posé, et la ligne « Bascule automatique » du
+  diagnostic, qui ne nomme aucune application. « Effacer l'historique » vide `usage.json` (et sa copie
+  `usage.json.corrupt`, gardée si le fichier était illisible).
 
 ## Boîte à outils
 

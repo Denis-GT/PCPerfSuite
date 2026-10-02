@@ -476,6 +476,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     partial void OnPowerLimitPercentChanged(double value)
     {
         if (!IsAvailable || _suppressApply || !IsPowerLimitSupported) return;
+        NoteManualEdit();
 
         _applyDebounce.Schedule(PowerLimitKey, () =>
         {
@@ -496,6 +497,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     partial void OnTemperatureLimitCChanged(double value)
     {
         if (!IsAvailable || _suppressApply || !IsTemperatureLimitSupported) return;
+        NoteManualEdit();
 
         _applyDebounce.Schedule(TemperatureLimitKey, () =>
         {
@@ -516,6 +518,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     {
         OnPropertyChanged(nameof(VoltageText));
         if (!IsAvailable || _suppressApply || !IsVoltageSupported) return;
+        NoteManualEdit();
 
         _applyDebounce.Schedule(VoltageKey, () =>
         {
@@ -542,6 +545,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     private void ApplyClockOffsets()
     {
         if (!IsAvailable || _suppressApply || !IsClockOffsetSupported) return;
+        NoteManualEdit();
         _applyDebounce.Schedule(ClockOffsetsKey, ApplyClockOffsetsNow);
     }
 
@@ -590,6 +594,7 @@ public sealed partial class GpuControlViewModel : ObservableObject, IDisposable,
     {
         CancelPendingApplies();
         if (RefuseManualWrite()) return;
+        NoteManualEdit();
 
         _suppressApply = true;
         CoreOffsetMhz = 0;
