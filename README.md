@@ -491,7 +491,8 @@ encore vérifiés sur une vraie machine.
   fermeture, le PC reste sur ceux du dernier groupe posé** (« Tout rétablir » les rend).
 - **Suivi** : une bulle discrète à chaque bascule (désactivable, sans nom d'application), le journal
   des 20 dernières bascules avec ce qui n'a pas été posé, et la ligne « Bascule automatique » du
-  diagnostic, qui ne nomme aucune application. « Effacer l'historique » vide `usage.json`.
+  diagnostic, qui ne nomme aucune application. « Effacer l'historique » vide `usage.json` (et sa copie
+  `usage.json.corrupt`, gardée si le fichier était illisible).
 
 ## Boîte à outils
 

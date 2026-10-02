@@ -249,15 +249,21 @@ public sealed class UsageHistory
         return history;
     }
 
-    /// <summary>Le fichier à enregistrer (copie : il peut partir sur un autre fil).</summary>
-    public UsageHistoryFile ToFile() => ProfileGroupJson.Clone(new UsageHistoryFile
+    /// <summary>Le fichier, en copie indépendante de l'historique en mémoire.</summary>
+    public UsageHistoryFile ToFile() => ProfileGroupJson.Clone(Snapshot());
+
+    /// <summary>Le contenu d'usage.json, sérialisé en une passe sur le fil de l'historique : seuls les octets partent
+    /// ensuite vers l'écrivain.</summary>
+    public byte[] Serialize() => UsageHistoryStore.Serialize(Snapshot());
+
+    private UsageHistoryFile Snapshot() => new()
     {
         Version = UsageHistoryFile.CurrentVersion,
         Days = _days.Values.OrderBy(d => d.Date, StringComparer.Ordinal).ThenBy(d => d.Usage, StringComparer.Ordinal).ToList(),
         Apps = _apps.Values.OrderByDescending(a => a.LastSeenUtc).ToList(),
         Journal = _journal.ToList(),
         ExtensionData = _extension,
-    });
+    };
 
     public void MarkSaved() => IsDirty = false;
 
@@ -486,8 +492,10 @@ public sealed class UsageHistory
     private static bool Finite(double value) => double.IsFinite(value);
 }
 
-/// <summary>Résultat d'une lecture d'usage.json : le fichier (vide s'il manque ou est illisible) et ce qui n'allait pas.</summary>
-public sealed record UsageHistoryRead(UsageHistoryFile File, string? Problem);
+/// <summary>Résultat d'une lecture d'usage.json : le fichier (vide s'il manque ou est illisible) et ce qui n'allait pas.
+/// <paramref name="Failed"/> : le fichier existe mais n'a pas pu être lu (verrouillé par un antivirus ou une
+/// synchronisation, clé USB pas prête) ; il est intact, et ne doit surtout pas être réécrit à partir d'un historique vide.</summary>
+public sealed record UsageHistoryRead(UsageHistoryFile File, string? Problem, bool Failed = false);
 
 /// <summary>
 /// Lecture et écriture d'usage.json. Lecture tolérante : un fichier absent donne un historique vide ; un fichier illisible
@@ -524,7 +532,7 @@ public static class UsageHistoryStore
         }
         catch (Exception ex)
         {
-            return new UsageHistoryRead(new UsageHistoryFile(), $"lecture impossible ({ex.GetType().Name})");
+            return new UsageHistoryRead(new UsageHistoryFile(), $"lecture impossible ({ex.GetType().Name})", Failed: true);
         }
     }
 
@@ -545,6 +553,23 @@ public static class UsageHistoryStore
         {
             try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort */ }
             return $"enregistrement de l'historique impossible ({ex.GetType().Name})";
+        }
+    }
+
+    /// <summary>Supprime la copie d'un fichier illisible (« .corrupt »), qui contient des chemins d'exécutables : « Effacer
+    /// l'historique » doit tout effacer. (Un temporaire laissé par un arrêt brutal est écrasé par l'écriture suivante.) Null
+    /// si elle est partie ou n'existait pas, sinon la raison.</summary>
+    public static string? DeleteCorruptCopy(string path)
+    {
+        try
+        {
+            string corrupt = path + ".corrupt";
+            if (File.Exists(corrupt)) File.Delete(corrupt);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"copie usage.json.corrupt non supprimée ({ex.GetType().Name})";
         }
     }
 

@@ -79,6 +79,46 @@ public sealed class AutoSwitchRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void Un_usage_json_verrouille_n_est_pas_ecrase_par_la_ligne_d_incident()
+    {
+        var history = new UsageHistory(TimeZoneInfo.Utc);
+        for (int i = 0; i < 10; i++)
+        {
+            history.AddJournal(new AutoSwitchJournalEntry { TimeUtc = T0.AddMinutes(i), Kind = AutoSwitchJournalKinds.Switch });
+        }
+
+        UsageHistoryStore.Write(UsagePath, history.Serialize());
+        string? note;
+        using (new FileStream(UsagePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            note = Handler().Handle([Recovered(IncidentQualificationKind.BlueScreen)]);
+        }
+
+        Assert.Contains("non notée", note);
+        Assert.Equal(10, Reload().Journal.Count);
+    }
+
+    [Fact]
+    public void Un_usage_json_illisible_est_signale_dans_la_note()
+    {
+        File.WriteAllText(UsagePath, "{ abîmé");
+
+        string? note = Handler().Handle([Recovered(IncidentQualificationKind.BlueScreen)]);
+
+        Assert.Contains(".corrupt", note);
+        Assert.Single(Reload().UnacknowledgedIncidents());
+    }
+
+    [Fact]
+    public void La_ligne_dit_un_probleme_d_historique()
+    {
+        CompatibilityRow row = Assert.Single(new AutoSwitchRowProvider(() =>
+            new AutoSwitchStatus(true, AutoSwitchState.Idle, "", null, null, 0, 0, "enregistrement de l'historique impossible (IOException)")).GetRows());
+
+        Assert.Contains("usage.json : enregistrement de l'historique impossible", row.Detail);
+    }
+
+    [Fact]
     public void Le_gestionnaire_passe_apres_celui_des_groupes_sur_le_meme_composant()
     {
         AutoSwitchRecoveryHandler handler = Handler();

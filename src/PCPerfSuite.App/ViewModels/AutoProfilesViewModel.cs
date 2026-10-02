@@ -316,7 +316,9 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     {
         if (_switcher.History is not { } history)
         {
-            HistoryText = _switcher.IsEnabled ? "Historique : chargement…" : "Historique : rien n'est relevé tant que la bascule est désactivée.";
+            HistoryText = !_switcher.IsEnabled ? "Historique : rien n'est relevé tant que la bascule est désactivée."
+                : _switcher.HistoryProblem is { } loadProblem ? $"Historique : usage.json {loadProblem}."
+                : "Historique : chargement…";
             RefinementText = null;
             if (Journal.Count > 0) Journal.Clear();
             return;

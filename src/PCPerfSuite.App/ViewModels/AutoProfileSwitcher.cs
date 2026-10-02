@@ -34,6 +34,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 {
     public static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(5);
 
+    /// <summary>Délai avant de relire un usage.json qui n'a pas pu être lu (verrouillé, clé USB pas prête).</summary>
+    public static readonly TimeSpan HistoryRetry = TimeSpan.FromMinutes(5);
+
     /// <summary>Attente maximale de l'enregistrement de l'historique à la fermeture.</summary>
     private static readonly TimeSpan FlushTimeout = TimeSpan.FromSeconds(2);
 
@@ -60,6 +63,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private AutoSwitchSettings _settings;
     private UsageHistory? _history;
     private bool _historyLoading;
+    private string? _historyReadProblem;
+    private DateTimeOffset _historyRetryUtc;
     private DateTime _lastCaptured;
     private DateTimeOffset _lastSaveUtc;
     private bool _onBattery;
@@ -135,8 +140,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// <summary>L'historique, null tant qu'il n'est pas chargé (ou fonction désactivée).</summary>
     public UsageHistory? History => _history;
 
-    /// <summary>Ce qui n'allait pas à la lecture d'usage.json, null sinon.</summary>
-    public string? HistoryProblem { get; private set; }
+    /// <summary>Ce qui ne va pas avec usage.json (lecture, ou dernière écriture), null sinon.</summary>
+    public string? HistoryProblem => _historyReadProblem ?? _writer.LastError;
 
     /// <summary>Incidents après une bascule, signalés au lancement de cette session (pour la page).</summary>
     public IReadOnlyList<AutoSwitchJournalEntry> StartupIncidents { get; private set; } = [];
@@ -156,7 +161,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _history?.Journal.LastOrDefault(e => e.Kind is AutoSwitchJournalKinds.Switch or AutoSwitchJournalKinds.Refused),
         _history?.Journal.LastOrDefault(e => e.Kind == AutoSwitchJournalKinds.Incident),
         _settings.Rules?.Count ?? 0,
-        _history?.DaysWithData ?? 0);
+        _history?.DaysWithData ?? 0,
+        HistoryProblem);
 
     public void AddRequiredGroups(ISet<SensorGroup> into)
         => BackgroundSensorNeeds.AddForAutoSwitch(into, _settings.Enabled && !_disposed, _hasBattery, _onBattery,
@@ -188,6 +194,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             Record(now, snapshot, read, cpuLoad, gpuLoad);
             Evaluate(now);
             if (_history is { IsDirty: true } && now - _lastSaveUtc >= SaveInterval) SaveHistory(now);
+            if (_history is null && _historyReadProblem is not null && now >= _historyRetryUtc) LoadHistory();
         }
         catch (Exception ex)
         {
@@ -539,6 +546,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _history ??= new UsageHistory();
         _history.Clear();
         SaveHistory(_time.GetUtcNow());
+        _historyReadProblem = UsageHistoryStore.DeleteCorruptCopy(AppDataPaths.Current.UsageFile);
         RaiseChanged();
     }
 
@@ -572,7 +580,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         string path = AppDataPaths.Current.UsageFile;
         Task.Run(() => UsageHistoryStore.Read(path)).ContinueWith(task =>
         {
-            UsageHistoryRead read = task.IsCompletedSuccessfully ? task.Result : new UsageHistoryRead(new UsageHistoryFile(), "lecture impossible");
+            UsageHistoryRead read = task.IsCompletedSuccessfully ? task.Result : new UsageHistoryRead(new UsageHistoryFile(), "lecture impossible", Failed: true);
             try
             {
                 _dispatcher.BeginInvoke(() => OnHistoryRead(read));
@@ -589,8 +597,18 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _historyLoading = false;
         if (_disposed) return;
 
+        if (read.Failed)
+        {
+            // Fichier intact mais illisible pour l'instant : on ne relève ni n'enregistre rien, sinon le premier enregistrement
+            // écraserait 30 jours d'historique. Nouvel essai plus tard.
+            _historyReadProblem = $"{read.Problem} : historique ni relevé ni enregistré, nouvel essai dans {(int)HistoryRetry.TotalMinutes} min";
+            _historyRetryUtc = _time.GetUtcNow() + HistoryRetry;
+            RaiseChanged();
+            return;
+        }
+
         _history ??= UsageHistory.FromFile(read.File, _time.GetUtcNow());
-        HistoryProblem = read.Problem;
+        _historyReadProblem = read.Problem;
 
         IReadOnlyList<AutoSwitchJournalEntry> incidents = _history.UnacknowledgedIncidents();
         if (incidents.Count > 0)
@@ -612,7 +630,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
         try
         {
-            _writer.Save(UsageHistoryStore.Serialize(history.ToFile()));
+            // La rétention de 30 jours vaut aussi pour une app qui reste ouverte des semaines (veille chaque soir).
+            history.Prune(now);
+            _writer.Save(history.Serialize());
             history.MarkSaved();
             _lastSaveUtc = now;
         }

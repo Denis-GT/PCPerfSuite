@@ -14,7 +14,8 @@ public sealed record AutoSwitchStatus(
     AutoSwitchJournalEntry? LastSwitch,
     AutoSwitchJournalEntry? LastIncident,
     int RuleCount,
-    int HistoryDays);
+    int HistoryDays,
+    string? HistoryProblem = null);
 
 /// <summary>
 /// Ligne « Bascule automatique » du diagnostic « Compatibilité de ce PC » (le rapport copié sert aussi de rapport de
@@ -69,6 +70,7 @@ public sealed class AutoSwitchRowProvider : ICompatibilityRowProvider
             _ => $"{status.RuleCount.ToString(CultureInfo.InvariantCulture)} règles par application.",
         });
         details.Add($"Historique : {status.HistoryDays.ToString(CultureInfo.InvariantCulture)} jour(s).");
+        if (status.HistoryProblem is { } historyProblem) details.Add($"usage.json : {historyProblem}.");
         details.Add("Expérimental : seuils et délais pas encore vérifiés sur une vraie machine.");
 
         string value = status.State switch

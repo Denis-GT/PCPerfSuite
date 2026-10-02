@@ -251,6 +251,81 @@ public sealed class UsageHistoryTests : IDisposable
     }
 
     [Fact]
+    public void Un_fichier_verrouille_est_signale_comme_lecture_ratee_et_n_est_pas_mis_de_cote()
+    {
+        string path = _dir.File("usage.json");
+        File.WriteAllText(path, "{\"Version\":1}", Encoding.UTF8);
+
+        UsageHistoryRead read;
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            read = UsageHistoryStore.Read(path);
+        }
+
+        Assert.True(read.Failed);
+        Assert.Contains("lecture impossible", read.Problem);
+        Assert.True(File.Exists(path));
+        Assert.False(File.Exists(path + ".corrupt"));
+    }
+
+    [Fact]
+    public void Un_fichier_absent_ou_illisible_n_est_pas_une_lecture_ratee()
+    {
+        string path = _dir.File("usage.json");
+        Assert.False(UsageHistoryStore.Read(path).Failed);
+
+        File.WriteAllText(path, "{ abîmé", Encoding.UTF8);
+        Assert.False(UsageHistoryStore.Read(path).Failed);
+    }
+
+    [Fact]
+    public void Effacer_supprime_aussi_la_copie_d_un_fichier_illisible()
+    {
+        string path = _dir.File("usage.json");
+        File.WriteAllText(path + ".corrupt", @"{""Apps"":[{""Path"":""C:\\Jeux\\game.exe""}]}", Encoding.UTF8);
+
+        Assert.Null(UsageHistoryStore.DeleteCorruptCopy(path));
+        Assert.False(File.Exists(path + ".corrupt"));
+        Assert.Null(UsageHistoryStore.DeleteCorruptCopy(path));
+    }
+
+    [Fact]
+    public void La_serialisation_en_une_passe_donne_le_meme_fichier_que_la_copie()
+    {
+        UsageHistory history = NewHistory();
+        history.Record(Obs(T0, ProfileGroupUsage.HeavyGaming, cpuTemp: 70));
+        history.AddJournal(new AutoSwitchJournalEntry { TimeUtc = T0, Kind = AutoSwitchJournalKinds.Switch });
+
+        Assert.Equal(UsageHistoryStore.Serialize(history.ToFile()), history.Serialize());
+    }
+
+    [Fact]
+    public void Les_jours_sont_ranges_a_la_date_locale()
+    {
+        // Utilisateur à UTC+2 : un relevé à 22:30 UTC le 1er octobre est déjà le 2 octobre chez lui.
+        TimeZoneInfo plus2 = TimeZoneInfo.CreateCustomTimeZone("UTC+2", TimeSpan.FromHours(2), "UTC+2", "UTC+2");
+        var history = new UsageHistory(plus2);
+
+        history.Record(Obs(new DateTimeOffset(2026, 10, 1, 22, 30, 0, TimeSpan.Zero)));
+
+        Assert.Equal("2026-10-02", Assert.Single(history.ToFile().Days!).Date);
+        Assert.Equal(new DateOnly(2026, 10, 2), history.FirstDay);
+    }
+
+    [Fact]
+    public void La_retention_suit_la_date_locale()
+    {
+        TimeZoneInfo plus2 = TimeZoneInfo.CreateCustomTimeZone("UTC+2", TimeSpan.FromHours(2), "UTC+2", "UTC+2");
+        var history = new UsageHistory(plus2);
+        // 22:30 UTC le 31 août = 1er septembre local : exactement 30 jours avant le 1er octobre local, donc gardé.
+        history.Record(Obs(new DateTimeOffset(2026, 8, 31, 22, 30, 0, TimeSpan.Zero), app: null));
+
+        history.Prune(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(1, history.DaysWithData);
+    }
+
+    [Fact]
     public void Effacer_vide_tout_l_historique()
     {
         UsageHistory history = NewHistory();

@@ -56,6 +56,15 @@ public sealed class AutoSwitchRecoveryHandler : IStartupRecoveryHandler
         DateTimeOffset now = _time.GetUtcNow();
         string path = _usagePath();
         UsageHistoryRead read = UsageHistoryStore.Read(path);
+        string count = decisions.Count.ToString(CultureInfo.InvariantCulture);
+        if (read.Failed)
+        {
+            // Fichier intact mais illisible pour l'instant : le réécrire à partir de rien effacerait l'historique. Le groupe
+            // reste suspendu par #8, et la page le montre.
+            return $"{count} bascule(s) automatique(s) suivie(s) d'un incident ({decisions[0].Cause}), non notée(s) au journal des "
+                   + $"bascules : usage.json {read.Problem}";
+        }
+
         UsageHistory history = UsageHistory.FromFile(read.File, now, _time.LocalTimeZone);
         foreach (ProfileGroupIncidentDecision decision in decisions)
         {
@@ -69,9 +78,9 @@ public sealed class AutoSwitchRecoveryHandler : IStartupRecoveryHandler
             });
         }
 
-        string? problem = UsageHistoryStore.Write(path, UsageHistoryStore.Serialize(history.ToFile()));
-        string count = decisions.Count.ToString(CultureInfo.InvariantCulture);
+        string? problem = UsageHistoryStore.Write(path, history.Serialize());
         string note = $"{count} bascule(s) automatique(s) suivie(s) d'un incident ({decisions[0].Cause}), notée(s) au journal des bascules";
+        if (read.Problem is { } readProblem) note += $" ; usage.json : {readProblem}";
         return problem is null ? note : $"{note} ; {problem}";
     }
 
