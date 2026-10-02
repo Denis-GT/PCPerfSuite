@@ -58,6 +58,9 @@ public sealed partial class GpuControlViewModel : IGpuGroupTarget
     /// pause. Jamais pour une relecture, une réapplication au lancement ou au réveil, ni un groupe.</summary>
     private void NoteManualEdit() => Tuning.NoteManualWrite("réglage manuel dans l'onglet GPU");
 
+    /// <summary>La carte pilotée, sans relire le pilote : la page Profils s'en sert pour chaque groupe.</summary>
+    public GpuIdentity? Identity => _gpuControl.Identity;
+
     public GpuTargetState ReadState()
         => new(IsAvailable, IsAvailable ? null : UnavailableMessage, CanOverclock, _gpuControl.Identity,
             IsAvailable ? _gpuControl.GetOverclock() : null, IsAvailable ? _gpuControl.GetSnapshot() : null, _emergencyThisSession);

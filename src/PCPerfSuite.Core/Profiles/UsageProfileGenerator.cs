@@ -158,20 +158,24 @@ public static class UsageProfileGenerator
                     Revision = 0,
                 };
             }
-            else
-            {
-                target = target.Clone();
-                target.Revision++;
-            }
 
-            // Mise à jour par le générateur : la révision monte, mais le groupe n'est pas « modifié à la main ».
+            ProfileGroup? previous = created ? null : target;
+            if (previous is not null) target = target.Clone();
+
+            // Mise à jour par le générateur : la révision monte si le contenu change, mais le groupe n'est pas « modifié à
+            // la main ». Inchangé, il garde sa révision : la bascule ne le reposerait que pour rien.
             target.Cpu = built.Cpu;
             target.Gpu = built.Gpu;
             target.Fans = built.Fans;
             if (target.Fans?.Values is { } fans) fans.Name = target.Name;
             if (target.Cpu?.Values is { } cpu) cpu.Name = target.Name;
             if (target.Gpu?.Values is { } gpu) gpu.Name = target.Name;
-            target.UpdatedUtc = input.Now;
+            bool changed = previous is null
+                           || !ProfileGroupJson.SameContent(previous.Cpu, target.Cpu)
+                           || !ProfileGroupJson.SameContent(previous.Gpu, target.Gpu)
+                           || !ProfileGroupJson.SameContent(previous.Fans, target.Fans);
+            if (previous is not null && changed) target.Revision++;
+            if (changed) target.UpdatedUtc = input.Now;
             target.EditedByUser = false;
             groups.Add(new GeneratedUsageGroup(usage, target, explanation, created));
         }

@@ -6,9 +6,10 @@ using PCPerfSuite.Core.Hardware.Gpu;
 namespace PCPerfSuite.Core.Profiles;
 
 /// <summary>
-/// Modifications d'un groupe, en logique pure. Toute modification (nom, dimension, mise à jour depuis l'état actuel)
-/// fait monter <see cref="ProfileGroup.Revision"/> et, sur un groupe généré, passe <see cref="ProfileGroup.EditedByUser"/>
-/// à vrai : la bascule automatique (#9) ne régénère jamais un groupe réglé à la main (F18).
+/// Modifications d'un groupe, en logique pure. Toute modification de ce qu'il règle (usage, dimension, mise à jour
+/// depuis l'état actuel) fait monter <see cref="ProfileGroup.Revision"/> et, sur un groupe généré, passe
+/// <see cref="ProfileGroup.EditedByUser"/> à vrai : la bascule automatique (#9) ne régénère jamais un groupe réglé à la
+/// main (F18). Renommer n'en est pas une : la bascule reposerait sinon le groupe entier pour un simple nom.
 /// </summary>
 public static class ProfileGroupEditor
 {
@@ -48,8 +49,11 @@ public static class ProfileGroupEditor
     public static void Rename(ProfileGroup group, string name, DateTimeOffset now)
     {
         if (string.Equals(group.Name, name, StringComparison.Ordinal)) return;
+
+        // Un nom n'est pas un réglage : ni nouvelle révision (la bascule reposerait le groupe, Régénérer l'écarterait),
+        // ni date de modification (elle départage les groupes d'un même usage).
         group.Name = name;
-        Touch(group, now);
+        group.UpdatedUtc ??= now;
     }
 
     public static void SetUsage(ProfileGroup group, string? usage, DateTimeOffset now)

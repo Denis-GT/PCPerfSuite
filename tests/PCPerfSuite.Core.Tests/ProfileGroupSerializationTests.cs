@@ -202,6 +202,18 @@ public class ProfileGroupSerializationTests
         Assert.False(settings.Normalize());
     }
 
+    [Fact]
+    public void Normaliser_complete_une_partie_processeur_sans_liste_de_reglages()
+    {
+        ProfileGroupsSettings settings = Read<ProfileGroupsSettings>(
+            """{"Groups":[{"Id":"a","Name":"Jeu","Cpu":{"Kind":"valeurs","Values":{"PowerSettings":null,"SustainedWatts":65}}}]}""");
+
+        Assert.True(settings.Normalize());
+
+        Assert.Empty(settings.Groups[0].Cpu!.Values!.PowerSettings);
+        Assert.Equal(65f, settings.Groups[0].Cpu!.Values!.SustainedWatts);
+    }
+
     [Theory]
     [InlineData(ProfileGroupUsage.Office, "Bureautique")]
     [InlineData(ProfileGroupUsage.LightGaming, "Jeu léger")]

@@ -184,7 +184,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
     private void Refresh()
     {
         CanIncludeGpu = _gpu.IsAvailable;
-        CanIncludeFans = _fans.ReadState().IsReady && _fans.Fans.Count > 0;
+        CanIncludeFans = _fans.WhenReady.IsCompleted && _fans.Fans.Count > 0;
         if (!CanIncludeGpu) IncludeGpu = false;
         if (!CanIncludeFans) IncludeFans = false;
 
@@ -231,7 +231,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         item.GpuSummary = DescribeGpu(group.Gpu);
         item.FanSummary = DescribeFans(group.Fans);
         item.IsPermanent = group.Cpu is { } cpu
-                           && (cpu.ParsedKind == ProfilePartKind.Origin || cpu.Values?.PowerSettings.Count > 0);
+                           && (cpu.ParsedKind == ProfilePartKind.Origin || cpu.Values?.PowerSettings?.Count > 0);
     }
 
     private string DescribeCpu(ProfileGroupCpuPart? part) => part?.ParsedKind switch
@@ -241,7 +241,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         ProfilePartKind.Unknown => "réglage d'une version plus récente de PCPerfSuite, ignoré ici",
         ProfilePartKind.Empty => "vide",
         _ => _cpu.Describe(part.Values!)
-             + (part.Values!.SustainedWatts is not null && !CpuIdentity.Matches(part.CapturedOn, _cpu.ReadState().Identity)
+             + (part.Values!.SustainedWatts is not null && !CpuIdentity.Matches(part.CapturedOn, _cpu.Identity)
                  ? $" — watts relevés sur {part.CapturedOn?.Describe() ?? "un processeur non identifié"}, non posés ici"
                  : ""),
     };
@@ -253,7 +253,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         ProfilePartKind.Unknown => "réglage d'une version plus récente de PCPerfSuite, ignoré ici",
         ProfilePartKind.Empty => "vide",
         _ => _gpu.Describe(part.Values!)
-             + (!GpuIdentity.IsSameCard(part.CapturedOn, _gpu.ReadState().Identity)
+             + (!GpuIdentity.IsSameCard(part.CapturedOn, _gpu.Identity)
                  ? $" — relevé sur {part.CapturedOn?.Describe() ?? "une carte non identifiée"}, non posé ici"
                  : ""),
     };
@@ -358,7 +358,9 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState));
         if (result is null) return;
 
-        if (liftSuspension && result.Active is not null) _store.Suspensions.Remove(item.Id);
+        // Enregistré tout de suite : RunApplyAsync a déjà écrit le bloc, et une suspension restée dans settings.json
+        // ferait écarter le groupe par la bascule et ôterait sa période « demarrage » au prochain lancement.
+        if (liftSuspension && result.Active is not null && _store.Suspensions.Remove(item.Id)) Persist();
         Refresh();
     }
 
@@ -578,14 +580,14 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
     {
         if (_cpu.Profiles.FirstOrDefault(p => p.Name == name)?.Model is not { } profile) return null;
         if (ProfileGroupEditor.ImportNote(ProfileDimension.Cpu, profile.SustainedWatts is not null) is { } note) notes.Add(note);
-        return ProfileGroupEditor.CpuValues(profile, _cpu.ReadState().Identity);
+        return ProfileGroupEditor.CpuValues(profile, _cpu.Identity);
     }
 
     private ProfileGroupGpuPart? ImportGpu(string? name, List<string> notes)
     {
         if (_gpu.Profiles.FirstOrDefault(p => p.Name == name)?.Model is not { } profile) return null;
         if (ProfileGroupEditor.ImportNote(ProfileDimension.Gpu, true) is { } note) notes.Add(note);
-        return ProfileGroupEditor.GpuValues(profile, _gpu.ReadState().Identity);
+        return ProfileGroupEditor.GpuValues(profile, _gpu.Identity);
     }
 
     private ProfileGroupFansPart? ImportFans(string? name)
@@ -605,9 +607,17 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
     /// <summary>Applique le groupe, ouvre l'onglet, et met « Mettre à jour le groupe » dans sa bannière.</summary>
     private async Task TuneInTabAsync(ProfileGroupItemViewModel? item, ProfileDimension dimension)
     {
-        if (item is null) return;
+        if (item is null || IsApplying) return;
 
         item.IsEditing = false;
+        if (item.IsSuspended)
+        {
+            // D6 : un groupe suspendu ne se réapplique qu'après confirmation, par « Appliquer », qui lève la suspension.
+            item.IsConfirmingApply = true;
+            Status = $"Groupe « {item.Name} » suspendu après un incident : confirme son application avant de le régler dans un onglet.";
+            return;
+        }
+
         ProfileGroupApplyResult? result = await RunApplyAsync(item.Model, ManualOptions(makeStartupState: true));
         if (result is null || result.Report.WasRefused) return;
 

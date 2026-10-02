@@ -167,12 +167,25 @@ public class ProfileGroupLogicTests
         var manual = new ProfileGroup();
 
         ProfileGroupEditor.SetFans(generated, ProfileGroupEditor.FanOrigin(), T0);
-        ProfileGroupEditor.Rename(manual, "Jeu", T0);
+        ProfileGroupEditor.SetUsage(manual, ProfileGroupUsage.Office, T0);
 
         Assert.True(generated.EditedByUser);
         Assert.Equal(1, generated.Revision);
         Assert.False(manual.EditedByUser);
         Assert.Equal(1, manual.Revision);
+    }
+
+    [Fact]
+    public void Renommer_un_groupe_genere_ne_touche_ni_a_sa_revision_ni_a_son_origine()
+    {
+        var generated = new ProfileGroup { Name = "Jeu exigeant (auto)", Origin = ProfileGroupOrigin.Generated, Revision = 3, UpdatedUtc = T0 };
+
+        ProfileGroupEditor.Rename(generated, "Jeu", T0.AddHours(1));
+
+        Assert.Equal("Jeu", generated.Name);
+        Assert.Equal(3, generated.Revision);
+        Assert.False(generated.EditedByUser);
+        Assert.Equal(T0, generated.UpdatedUtc);
     }
 
     [Fact]

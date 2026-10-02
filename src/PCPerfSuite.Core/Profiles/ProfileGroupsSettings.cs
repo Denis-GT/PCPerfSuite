@@ -35,7 +35,8 @@ public sealed class ProfileGroupsSettings
 
     /// <summary>
     /// Remet d'aplomb un bloc édité à la main ou écrit par une autre version : groupes nuls retirés, identifiant absent
-    /// ou en double régénéré, nom vide remplacé, état actif et suspensions qui désignent un groupe disparu effacés.
+    /// ou en double régénéré, nom vide remplacé, partie processeur sans liste de réglages complétée, état actif et
+    /// suspensions qui désignent un groupe disparu effacés.
     /// Renvoie vrai si quelque chose a changé. Ne lève jamais.
     /// </summary>
     public bool Normalize()
@@ -68,6 +69,13 @@ public sealed class ProfileGroupsSettings
             if (string.IsNullOrWhiteSpace(group.Origin))
             {
                 group.Origin = ProfileGroupOrigin.Manual;
+                changed = true;
+            }
+
+            // « PowerSettings »: null ferait lever le résumé et la conformité de la partie processeur.
+            if (group.Cpu?.Values is { PowerSettings: null } cpuValues)
+            {
+                cpuValues.PowerSettings = new Dictionary<string, CpuProfilePowerValue>();
                 changed = true;
             }
         }

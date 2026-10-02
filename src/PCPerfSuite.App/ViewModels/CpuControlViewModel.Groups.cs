@@ -14,6 +14,9 @@ public sealed partial class CpuControlViewModel : ICpuGroupTarget
 {
     private readonly CpuIdentity _identity;
 
+    /// <summary>Le processeur de ce PC, lu une fois au lancement : la page Profils s'en sert sans relire le matériel.</summary>
+    public CpuIdentity Identity => _identity;
+
     /// <summary>Les watts en place viennent d'un groupe appliqué sans en faire l'état de démarrage : ils ne sont pas
     /// enregistrés, et sont rendus d'origine à la fermeture (D7). Retombe à faux dès qu'on les touche à la main.</summary>
     private bool _wattsTransient;

@@ -182,6 +182,11 @@ public static class ProfileGroupJson
         => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))
            ?? throw new InvalidOperationException("Copie impossible.");
 
+    /// <summary>Les deux valeurs s'écrivent pareil dans settings.json (null compris) : rien de ce qu'elles règlent ne
+    /// diffère.</summary>
+    public static bool SameContent<T>(T? a, T? b) where T : class
+        => JsonSerializer.SerializeToUtf8Bytes(a).AsSpan().SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(b));
+
     /// <summary>Copie de la configuration d'un ventilateur. <see cref="FanCurveConfig"/> a déjà sa copie, sans JSON.</summary>
     public static FanProfile CloneFanProfile(FanProfile profile) => new()
     {

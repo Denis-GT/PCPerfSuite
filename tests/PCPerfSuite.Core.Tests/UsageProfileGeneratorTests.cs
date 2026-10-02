@@ -316,12 +316,26 @@ public sealed class UsageProfileGeneratorTests
     {
         GeneratedUsageGroup first = For(Generate(Input()), ProfileGroupUsage.Office);
 
-        GeneratedUsageGroup again = For(Generate(Input(), first.Group), ProfileGroupUsage.Office);
+        // Un ventilateur de moins : le contenu change.
+        GeneratedUsageGroup again = For(Generate(Input(fans: Fans(true, false, Fan("cpu"))), first.Group), ProfileGroupUsage.Office);
 
         Assert.False(again.Created);
         Assert.Equal(first.Group.Id, again.Group.Id);
         Assert.Equal(first.Group.Revision + 1, again.Group.Revision);
         Assert.False(again.Group.EditedByUser);
+    }
+
+    [Fact]
+    public void Regenerer_sans_changement_garde_la_revision()
+    {
+        // Sinon la bascule reposerait le groupe en cours à l'identique (nouvelle période d'essai, bulle).
+        GeneratedUsageGroup first = For(Generate(Input()), ProfileGroupUsage.Office);
+
+        GeneratedUsageGroup again = For(Generate(Input(), first.Group), ProfileGroupUsage.Office);
+
+        Assert.Equal(first.Group.Revision, again.Group.Revision);
+        Assert.Equal(first.Group.UpdatedUtc, again.Group.UpdatedUtc);
+        Assert.NotSame(first.Group, again.Group);
     }
 
     [Fact]
