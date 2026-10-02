@@ -200,6 +200,25 @@ public sealed class ForegroundAppReaderTests
     }
 
     [Fact]
+    public void Une_application_du_Store_encore_sans_fenetre_est_retrouvee_ensuite()
+    {
+        var frame = new FakeWindow { Pid = 500, Class = "ApplicationFrameWindow" };
+        _native.Windows[5] = frame;
+        _native.Paths[500] = @"C:\Windows\System32\ApplicationFrameHost.exe";
+        _native.Paths[501] = @"C:\Program Files\WindowsApps\Editeur.Jeu_1.0.0.0_x64__abc\Jeu.exe";
+        _native.Foreground = 5;
+        Assert.Equal(500u, _reader.Poll(T0)!.ProcessId);
+
+        // L'écran d'accueil fait place à la vraie fenêtre de l'application.
+        frame.Children.Add(new ChildWindowInfo(7, "Windows.UI.Core.CoreWindow", 501));
+        Assert.Equal(500u, _reader.Poll(T0.AddSeconds(1))!.ProcessId);
+
+        ForegroundApp app = _reader.Poll(T0 + ForegroundAppReader.FullscreenRecheck)!;
+        Assert.Equal(501u, app.ProcessId);
+        Assert.EndsWith("Jeu.exe", app.Path);
+    }
+
+    [Fact]
     public void Sans_CoreWindow_le_cadre_du_Store_reste_le_processus()
         => Assert.Null(ForegroundAppReader.PickStoreAppProcess(500, [new ChildWindowInfo(6, "Windows.UI.Core.CoreWindow", 500)]));
 

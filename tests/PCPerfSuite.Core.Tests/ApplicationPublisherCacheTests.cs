@@ -83,6 +83,20 @@ public sealed class ApplicationPublisherCacheTests
     }
 
     [Fact]
+    public void Un_fichier_recree_avec_la_meme_taille_et_la_meme_date_est_reverifie()
+    {
+        ApplicationPublisherCache cache = Create();
+        cache.PublisherOf(Game);
+        RunQueued();
+
+        _stamp = _stamp!.Value with { CreationUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) };
+        _clock.Now = T0 + ApplicationPublisherCache.StampRecheck;
+
+        Assert.Null(cache.PublisherOf(Game));
+        Assert.Single(_queued);
+    }
+
+    [Fact]
     public void Un_fichier_absent_n_a_pas_d_editeur_et_ne_leve_pas()
     {
         _stamp = null;

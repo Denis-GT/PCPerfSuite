@@ -180,6 +180,22 @@ public static class UsageReasons
         _ => "raison inconnue",
     };
 
+    /// <summary>Les signaux de détection présents ou absents sur ce PC (règle 3 : dire pourquoi une détection est limitée).
+    /// Sans charge GPU ni RTSS, un jeu en fenêtre ou en plein écran sans bord n'est pas reconnu.</summary>
+    public static string DescribeSignals(bool gpuLoadRead, bool rtssSeen)
+    {
+        string gpu = gpuLoadRead
+            ? "charge GPU lue"
+            : "charge GPU jamais lue ici (carte non suivie, pilote muet ou GPU dédié endormi)";
+        string rtss = rtssSeen
+            ? "images mesurées par RTSS"
+            : "aucune image mesurée par RTSS pour l'instant (RTSS absent, ou aucun jeu accroché)";
+        string consequence = !gpuLoadRead && !rtssSeen
+            ? " : seuls le plein écran exclusif, une charge processeur soutenue et les règles par application permettent de reconnaître un jeu"
+            : "";
+        return $"Signaux : {gpu} ; {rtss}{consequence}.";
+    }
+
     /// <summary>Le libellé d'une raison enregistrée en chaîne (journal), « raison inconnue » si elle ne se lit pas.</summary>
     public static string Label(string? reason)
         => Enum.TryParse(reason, ignoreCase: false, out UsageReasonKind kind) && Enum.IsDefined(kind) ? Label(kind) : "raison inconnue";

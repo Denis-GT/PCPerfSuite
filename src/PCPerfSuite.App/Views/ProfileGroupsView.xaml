@@ -396,6 +396,8 @@
                                  Visibility="{Binding PendingText, Converter={StaticResource NullToVisibility}}"/>
                         <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding ForegroundText, Mode=OneWay}"
                                  Visibility="{Binding ForegroundText, Converter={StaticResource NullToVisibility}}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding SignalsText, Mode=OneWay}"
+                                 Visibility="{Binding SignalsText, Converter={StaticResource NullToVisibility}}"/>
                     </StackPanel>
                 </Border>
 

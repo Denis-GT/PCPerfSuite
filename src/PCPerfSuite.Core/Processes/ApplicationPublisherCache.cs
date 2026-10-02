@@ -2,15 +2,19 @@ using PCPerfSuite.Core.Installations;
 
 namespace PCPerfSuite.Core.Processes;
 
-/// <summary>Taille et date d'un exécutable : un fichier remplacé au même chemin est revérifié.</summary>
-public readonly record struct ExecutableStamp(long Length, DateTime LastWriteUtc);
+/// <summary>Taille et dates d'un exécutable : un fichier remplacé au même chemin est revérifié.</summary>
+public readonly record struct ExecutableStamp(long Length, DateTime LastWriteUtc, DateTime CreationUtc = default);
 
 /// <summary>
 /// Éditeur validé des exécutables, pour les règles qui l'exigent (<see cref="ApplicationMatch.Publisher"/>). La
 /// vérification Authenticode hache tout le fichier : de quelques millisecondes à quelques secondes pour un gros jeu.
 /// Elle se fait donc hors du fil d'interface, une à la fois, et seulement à la demande ; tant qu'elle n'a pas abouti,
 /// l'éditeur est inconnu (la règle ne correspond pas encore), puis <see cref="Resolved"/> est levé. Le résultat est gardé
-/// tant que la taille et la date du fichier ne changent pas. Utilisable depuis n'importe quel fil ; ne lève jamais.
+/// tant que la taille et les dates du fichier ne changent pas. Utilisable depuis n'importe quel fil ; ne lève jamais.
+///
+/// Limite connue : un programme qui peut écrire dans le dossier de l'exécutable peut le remplacer en gardant sa taille et
+/// ses dates ; l'éditeur vérifié reste alors en cache jusqu'à la relance de l'app. L'enjeu se borne au groupe que la règle
+/// pose (des réglages que l'utilisateur a lui-même choisis), et un tel programme a déjà bien d'autres moyens d'agir.
 /// </summary>
 public sealed class ApplicationPublisherCache
 {
@@ -168,7 +172,7 @@ public sealed class ApplicationPublisherCache
         try
         {
             var info = new FileInfo(path);
-            return info.Exists ? new ExecutableStamp(info.Length, info.LastWriteTimeUtc) : null;
+            return info.Exists ? new ExecutableStamp(info.Length, info.LastWriteTimeUtc, info.CreationTimeUtc) : null;
         }
         catch (Exception)
         {

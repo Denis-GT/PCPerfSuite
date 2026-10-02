@@ -102,6 +102,10 @@ public sealed class ForegroundAppReader
     private string? _appPath;
     private bool _hasApp;
 
+    /// <summary>Cadre d'une application du Store dont la vraie fenêtre n'était pas encore là (lancement, écran
+    /// d'accueil) : on la recherche de nouveau à chaque réévaluation du plein écran.</summary>
+    private bool _appIsUnresolvedFrame;
+
     private DateTimeOffset? _fullscreenCheckedUtc;
     private bool _fullscreen;
     private bool _exclusive;
@@ -138,6 +142,7 @@ public sealed class ForegroundAppReader
             if (_fullscreenCheckedUtc is not { } checkedUtc || now - checkedUtc >= FullscreenRecheck || now < checkedUtc)
             {
                 _fullscreenCheckedUtc = now;
+                if (_appIsUnresolvedFrame) ResolveStoreApp();
                 _fullscreen = _native.GeometryOf(_appHwnd) is { } geometry && IsFullscreen(geometry);
                 _exclusive = !_seenIgnored && _native.NotificationState() == UserNotificationState.RunningD3DFullScreen;
             }
@@ -153,9 +158,12 @@ public sealed class ForegroundAppReader
     private void Adopt(IntPtr hwnd)
     {
         uint pid = _native.ProcessIdOf(hwnd);
+        _appIsUnresolvedFrame = false;
         if (string.Equals(_native.ClassNameOf(hwnd), FrameHostClass, StringComparison.Ordinal))
         {
-            pid = PickStoreAppProcess(pid, _native.ChildWindows(hwnd)) ?? pid;
+            uint? storeApp = PickStoreAppProcess(pid, _native.ChildWindows(hwnd));
+            _appIsUnresolvedFrame = storeApp is null;
+            pid = storeApp ?? pid;
         }
 
         _appHwnd = hwnd;
@@ -165,9 +173,21 @@ public sealed class ForegroundAppReader
         _fullscreenCheckedUtc = null;
     }
 
+    /// <summary>Recherche de nouveau la vraie fenêtre d'une application du Store dans son cadre.</summary>
+    private void ResolveStoreApp()
+    {
+        uint framePid = _native.ProcessIdOf(_appHwnd);
+        if (PickStoreAppProcess(framePid, _native.ChildWindows(_appHwnd)) is not { } pid) return;
+
+        _appIsUnresolvedFrame = false;
+        _appPid = pid;
+        _appPath = ApplicationPaths.Normalize(_native.ImagePathOf(pid));
+    }
+
     private void Forget()
     {
         _hasApp = false;
+        _appIsUnresolvedFrame = false;
         _appHwnd = IntPtr.Zero;
         _appPid = 0;
         _appPath = null;

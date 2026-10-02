@@ -92,6 +92,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     [ObservableProperty] private string? usageText;
     [ObservableProperty] private string? pendingText;
     [ObservableProperty] private string? foregroundText;
+    [ObservableProperty] private string? signalsText;
     [ObservableProperty] private string? incidentText;
     [ObservableProperty] private string? status;
 
@@ -245,7 +246,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     {
         if (!_switcher.IsEnabled)
         {
-            UsageText = PendingText = ForegroundText = null;
+            UsageText = PendingText = ForegroundText = SignalsText = null;
             return;
         }
 
@@ -257,6 +258,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
             ? $"Changement en vue : {AutoSwitchPolicy.TargetLabel(pending.Target)} ({pending.Detail}), confirmé vers {pending.DueUtc.ToLocalTime():HH:mm:ss} s'il se maintient."
             : null;
 
+        SignalsText = _switcher.SignalsText;
         ForegroundText = _switcher.CurrentApp is { } app
             ? $"Au premier plan : {app.DisplayName}{(app.IsFullscreen ? ", en plein écran" : "")}{(app.ForegroundIgnored ? " (PCPerfSuite ou le bureau par-dessus)" : "")}."
             : "Au premier plan : aucune application.";

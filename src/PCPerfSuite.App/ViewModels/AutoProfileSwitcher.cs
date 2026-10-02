@@ -72,6 +72,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     private DateTimeOffset _lastSaveUtc;
     private bool _onBattery;
     private double _lastFps;
+    private bool _gpuLoadEverRead;
+    private bool _rtssFpsSeen;
     private DateTimeOffset _lastEcoSampleUtc;
 
     /// <summary>Règle trouvée pour l'application au premier plan, recalculée seulement quand l'application, les règles, les
@@ -162,6 +164,10 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     public DateTimeOffset? ManualPauseUntil => _session.IsManuallyPaused(_time.GetUtcNow()) ? _session.ManualPauseUntilUtc : null;
 
+    /// <summary>Les signaux de détection qui manquent sur ce PC (règle 3 : dire pourquoi), null tant que rien n'a été relevé.
+    /// Sans charge GPU ni RTSS, un jeu en fenêtre ou en plein écran sans bord n'est pas reconnu.</summary>
+    public string? SignalsText => _lastCaptured == default ? null : UsageReasons.DescribeSignals(_gpuLoadEverRead, _rtssFpsSeen);
+
     /// <summary>Pourquoi la dernière génération a échoué (activation ou « Régénérer »), null sinon.</summary>
     public string? GenerationProblem { get; private set; }
 
@@ -174,7 +180,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _history?.Journal.LastOrDefault(e => e.Kind == AutoSwitchJournalKinds.Incident),
         _settings.Rules?.Count ?? 0,
         _history?.DaysWithData ?? 0,
-        HistoryProblem);
+        HistoryProblem,
+        SignalsText);
 
     /// <summary>
     /// Fenêtre cachée, la bascule n'a pas besoin d'un relevé par seconde (ses délais vont de 30 s à 2 min) : elle ne
@@ -207,6 +214,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             float? gpuLoad = read.Contains(SensorGroup.Gpu) ? snapshot.Gpu?.LoadPercent : null;
             double? fps = read.Contains(SensorGroup.Fps) ? snapshot.Game?.Fps : null;
             if (read.Contains(SensorGroup.Fps)) _lastFps = fps ?? 0;
+            if (gpuLoad is not null) _gpuLoadEverRead = true;
+            if (fps > 0) _rtssFpsSeen = true;
             if (_monitoring.IsBackgroundMode && read.Contains(SensorGroup.CpuLoad)) _lastEcoSampleUtc = _time.GetUtcNow();
             if (snapshot.Battery is { } battery) _onBattery = !battery.PowerOnline;
             else if (!_hasBattery) _onBattery = false;

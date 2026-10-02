@@ -155,6 +155,19 @@ public sealed class AutoSwitchPolicyTests
     }
 
     [Fact]
+    public void Les_signaux_absents_sont_dits_avec_leur_consequence()
+    {
+        string none = UsageReasons.DescribeSignals(gpuLoadRead: false, rtssSeen: false);
+        Assert.Contains("charge GPU jamais lue ici", none);
+        Assert.Contains("RTSS", none);
+        Assert.Contains("seuls le plein écran exclusif", none);
+
+        string gpuOnly = UsageReasons.DescribeSignals(gpuLoadRead: true, rtssSeen: false);
+        Assert.Contains("charge GPU lue", gpuOnly);
+        Assert.DoesNotContain("seuls le plein écran exclusif", gpuOnly);
+    }
+
+    [Fact]
     public void Les_raisons_ont_un_libelle_sans_nom_d_application()
     {
         foreach (UsageReasonKind reason in Enum.GetValues<UsageReasonKind>())
