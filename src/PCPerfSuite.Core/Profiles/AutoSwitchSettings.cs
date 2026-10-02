@@ -160,8 +160,9 @@ public static class AutoSwitchRules
 }
 
 /// <summary>Le groupe retenu pour une cible : null s'il n'y en a pas ; <see cref="Suspended"/> s'il est suspendu après un
-/// incident (on n'y bascule pas) ; <see cref="Candidates"/> : nombre de groupes pour cet usage (plusieurs : signalé).</summary>
-public sealed record UsageGroupChoice(ProfileGroup? Group, bool Suspended, int Candidates)
+/// incident, ou s'il porte les mêmes valeurs relevées qu'un groupe suspendu (on n'y bascule pas, <see cref="SuspendedBy"/>
+/// nomme alors ce groupe) ; <see cref="Candidates"/> : nombre de groupes pour cet usage (plusieurs : signalé).</summary>
+public sealed record UsageGroupChoice(ProfileGroup? Group, bool Suspended, int Candidates, string? SuspendedBy = null)
 {
     public static UsageGroupChoice None { get; } = new(null, false, 0);
 }
@@ -179,7 +180,9 @@ public static class UsageGroupResolver
         if (target.GroupId is { } id)
         {
             ProfileGroup? group = store.Find(id);
-            return group is null || group.IsEmpty ? UsageGroupChoice.None : new UsageGroupChoice(group, IsSuspended(store, group), 1);
+            if (group is null || group.IsEmpty) return UsageGroupChoice.None;
+            ProfileGroup? by = SuspendedBy(store, group);
+            return new UsageGroupChoice(group, by is not null, 1, by?.Name);
         }
 
         if (target.Usage is not { } usage) return UsageGroupChoice.None;
@@ -190,15 +193,39 @@ public static class UsageGroupResolver
         if (candidates.Count == 0) return UsageGroupChoice.None;
 
         ProfileGroup? best = candidates
-            .Where(g => !IsSuspended(store, g))
+            .Where(g => SuspendedBy(store, g) is null)
             .OrderBy(g => g.IsGenerated ? 1 : 0)
             .ThenByDescending(g => g.UpdatedUtc ?? g.CreatedUtc ?? DateTimeOffset.MinValue)
             .FirstOrDefault();
         return best is null
-            ? new UsageGroupChoice(candidates[0], true, candidates.Count)
+            ? new UsageGroupChoice(candidates[0], true, candidates.Count, SuspendedBy(store, candidates[0])?.Name)
             : new UsageGroupChoice(best, false, candidates.Count);
     }
 
-    private static bool IsSuspended(ProfileGroupsSettings store, ProfileGroup group)
-        => store.Suspensions?.ContainsKey(group.Id) == true;
+    /// <summary>
+    /// Le groupe suspendu qui empêche de poser <paramref name="group"/> : lui-même, ou un autre groupe suspendu qui porte
+    /// les mêmes valeurs relevées (même overclock GPU, mêmes watts). Les deux groupes de jeu générés reprennent le même
+    /// overclock de l'onglet GPU : celui qui a planté ne doit pas revenir par l'autre. Null si rien ne l'en empêche.
+    /// </summary>
+    public static ProfileGroup? SuspendedBy(ProfileGroupsSettings store, ProfileGroup group)
+    {
+        if (store.Suspensions is not { Count: > 0 } suspensions) return null;
+        if (suspensions.ContainsKey(group.Id)) return group;
+
+        return store.Groups.FirstOrDefault(other =>
+            !ReferenceEquals(other, group) && suspensions.ContainsKey(other.Id) && SharesRaisedValues(other, group));
+    }
+
+    private static bool SharesRaisedValues(ProfileGroup suspended, ProfileGroup group)
+    {
+        bool sameOverclock = suspended.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } a }
+                             && group.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } b }
+                             && (a.CoreClockOffsetMhz > 0 || a.MemoryClockOffsetMhz > 0)
+                             && a.CoreClockOffsetMhz == b.CoreClockOffsetMhz
+                             && a.MemoryClockOffsetMhz == b.MemoryClockOffsetMhz;
+        bool sameWatts = suspended.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } x }
+                         && group.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } y }
+                         && Math.Abs(x - y) <= 1f;
+        return sameOverclock || sameWatts;
+    }
 }

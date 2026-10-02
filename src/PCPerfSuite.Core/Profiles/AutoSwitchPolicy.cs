@@ -113,8 +113,11 @@ public static class AutoSwitchPolicy
 
         if (c.Choice.Suspended)
         {
+            string why = c.Choice.SuspendedBy is { } by && by != group.Name
+                ? $"porte le même réglage relevé que « {by} », suspendu après un incident"
+                : "est suspendu après un incident";
             return new AutoSwitchDecision(AutoSwitchState.Waiting,
-                $"{usage} : le groupe « {group.Name} » est suspendu après un incident ; aucune bascule vers lui tant que la suspension n'est pas levée.");
+                $"{usage} : le groupe « {group.Name} » {why} ; aucune bascule vers lui tant que la suspension n'est pas levée.");
         }
 
         if (c.LastHandled is { } handled && handled.Target == verdict.Target

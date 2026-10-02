@@ -110,8 +110,13 @@ public sealed class ProfileGroupRecoveryHandler : IStartupRecoveryHandler
 
             foreach (ProfileGroupIncidentDecision decision in decisions)
             {
-                bool cpu = decision.MadeStartupState && decision.WattsRaised && settings.Cpu.ApplyAtStartup;
-                bool gpu = decision.MadeStartupState && decision.GpuRaised && settings.Gpu.ApplyOverclockAtStartup;
+                // La case est décochée quand le groupe avait fait l'état de démarrage, ou quand ce qu'il avait relevé est
+                // exactement ce que l'onglet reposera (groupe de jeu généré par la bascule automatique, #9).
+                ProfileGroup? group = decision.GroupId is { } gid ? settings.ProfileGroups.Find(gid) : null;
+                bool cpu = decision.WattsRaised && settings.Cpu.ApplyAtStartup
+                           && (decision.MadeStartupState || ProfileGroupStartupCheck.MatchesSavedWatts(group?.Cpu, settings.Cpu));
+                bool gpu = decision.GpuRaised && settings.Gpu.ApplyOverclockAtStartup
+                           && (decision.MadeStartupState || ProfileGroupStartupCheck.MatchesSavedGpu(group?.Gpu, settings.Gpu));
                 if (cpu) settings.Cpu.ApplyAtStartup = false;
                 if (gpu) settings.Gpu.ApplyOverclockAtStartup = false;
                 cpuUnchecked |= cpu;
@@ -169,6 +174,23 @@ public static class ProfileGroupStartupCheck
 
         return gpu || watts ? new ProfileGroupStartupRisk(active.GroupId, gpu, watts) : null;
     }
+
+    /// <summary>
+    /// La partie GPU du groupe est l'overclock que l'onglet GPU a enregistré (celui que « Appliquer au démarrage »
+    /// reposera) : c'est le cas des groupes de jeu générés par la bascule automatique (#9), qui reprennent l'OC de
+    /// l'onglet. Un incident après leur application vise donc aussi la valeur reposée au lancement.
+    /// </summary>
+    public static bool MatchesSavedGpu(ProfileGroupGpuPart? part, GpuControlSettings saved)
+        => part is { ParsedKind: ProfilePartKind.Values, Values: { } values }
+           && (values.CoreClockOffsetMhz != 0 || values.MemoryClockOffsetMhz != 0)
+           && values.CoreClockOffsetMhz == saved.CoreClockOffsetMhz
+           && values.MemoryClockOffsetMhz == saved.MemoryClockOffsetMhz;
+
+    /// <summary>Les watts de la partie processeur du groupe sont ceux que l'onglet Processeur a enregistrés.</summary>
+    public static bool MatchesSavedWatts(ProfileGroupCpuPart? part, CpuControlSettings saved)
+        => part is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } watts }
+           && saved.SustainedWatts is { } stored
+           && Math.Abs(stored - watts) <= WattsTolerance;
 
     /// <summary>Les valeurs enregistrées par l'onglet GPU sont celles que le groupe a laissées.</summary>
     private static bool SameGpu(GpuRetainedValues retained, GpuControlSettings saved)

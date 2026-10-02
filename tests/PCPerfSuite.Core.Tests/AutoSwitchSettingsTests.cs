@@ -185,6 +185,41 @@ public sealed class AutoSwitchSettingsTests
     }
 
     [Fact]
+    public void Un_groupe_qui_porte_l_overclock_d_un_groupe_suspendu_n_est_pas_pose()
+    {
+        // Les deux groupes de jeu générés reprennent le même OC de l'onglet GPU : celui qui a planté ne revient pas par l'autre.
+        ProfileGroup heavy = Group("heavy", ProfileGroupUsage.HeavyGaming, true);
+        ProfileGroup light = Group("light", ProfileGroupUsage.LightGaming, true);
+        heavy.Gpu = light.Gpu = ProfileGroupEditor.GpuValues(new Hardware.GpuOverclockProfile { CoreClockOffsetMhz = 150 }, null);
+        var store = new ProfileGroupsSettings
+        {
+            Groups = { heavy, light },
+            Suspensions = { ["heavy"] = new ProfileGroupSuspension { Cause = "écran bleu" } },
+        };
+
+        UsageGroupChoice choice = UsageGroupResolver.Resolve(store, new UsageTarget(ProfileGroupUsage.LightGaming, null));
+
+        Assert.True(choice.Suspended);
+        Assert.Equal("heavy", choice.SuspendedBy);
+        Assert.Same(heavy, UsageGroupResolver.SuspendedBy(store, light));
+    }
+
+    [Fact]
+    public void Un_groupe_sans_overclock_n_est_pas_bloque_par_un_groupe_suspendu()
+    {
+        ProfileGroup heavy = Group("heavy", ProfileGroupUsage.HeavyGaming, true);
+        heavy.Gpu = ProfileGroupEditor.GpuValues(new Hardware.GpuOverclockProfile { CoreClockOffsetMhz = 150 }, null);
+        ProfileGroup office = Group("office", ProfileGroupUsage.Office, true);
+        var store = new ProfileGroupsSettings
+        {
+            Groups = { heavy, office },
+            Suspensions = { ["heavy"] = new ProfileGroupSuspension { Cause = "écran bleu" } },
+        };
+
+        Assert.False(UsageGroupResolver.Resolve(store, UsageTarget.Office).Suspended);
+    }
+
+    [Fact]
     public void Un_groupe_vide_ou_sans_usage_n_est_pas_retenu()
     {
         var store = new ProfileGroupsSettings

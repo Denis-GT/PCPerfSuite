@@ -22,6 +22,7 @@ public sealed partial class AutoUsageGroupItem : ObservableObject
     [ObservableProperty] private string? badge;
     [ObservableProperty] private string explanation = "";
     [ObservableProperty] private string? suspensionText;
+    [ObservableProperty] private string? suspendedGroupId;
     [ObservableProperty] private bool isConfirmingLift;
 
     public bool HasGroup => GroupId is not null;
@@ -249,8 +250,14 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
                 : "généré";
             if (choice.Candidates > 1) item.Badge += $" · {choice.Candidates} groupes pour cet usage, celui-ci est retenu";
 
-            item.SuspensionText = group is not null && store.Suspensions.TryGetValue(group.Id, out ProfileGroupSuspension? suspension)
-                ? $"Suspendu depuis le {suspension.SinceUtc.ToLocalTime():dd/MM à HH:mm} : {suspension.Cause}. La bascule n'y revient pas d'elle-même."
+            // Suspendu lui-même, ou porteur du même réglage relevé qu'un groupe suspendu (les deux groupes de jeu générés
+            // reprennent le même overclock) : lever la suspension vise le groupe suspendu.
+            ProfileGroup? blocker = group is null ? null : UsageGroupResolver.SuspendedBy(store, group);
+            item.SuspendedGroupId = blocker?.Id;
+            item.SuspensionText = blocker is not null && store.Suspensions.TryGetValue(blocker.Id, out ProfileGroupSuspension? suspension)
+                ? ReferenceEquals(blocker, group)
+                    ? $"Suspendu depuis le {suspension.SinceUtc.ToLocalTime():dd/MM à HH:mm} : {suspension.Cause}. La bascule n'y revient pas d'elle-même."
+                    : $"Porte le même réglage relevé que « {blocker.Name} », suspendu depuis le {suspension.SinceUtc.ToLocalTime():dd/MM à HH:mm} : {suspension.Cause}. La bascule ne le pose pas."
                 : null;
             if (!item.IsSuspended) item.IsConfirmingLift = false;
 
@@ -422,11 +429,12 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     [RelayCommand]
     private void ConfirmLiftSuspension(AutoUsageGroupItem? item)
     {
-        if (item?.GroupId is not { } id) return;
+        if (item?.SuspendedGroupId is not { } id) return;
 
         item.IsConfirmingLift = false;
+        string name = _profiles.Store.Find(id)?.Name ?? item.GroupName;
         Status = _profiles.LiftSuspension(id)
-            ? $"Suspension de « {item.GroupName} » levée : la bascule pourra de nouveau le poser."
+            ? $"Suspension de « {name} » levée : la bascule pourra de nouveau poser ses réglages."
             : "Ce groupe n'était plus suspendu.";
         Refresh();
     }

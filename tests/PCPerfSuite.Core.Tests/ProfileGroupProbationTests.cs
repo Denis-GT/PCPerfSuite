@@ -313,13 +313,77 @@ public sealed class ProfileGroupProbationTests : IDisposable
         // Groupe risqué appliqué à la main (état de démarrage), puis bascule automatique vers un autre groupe.
         AppSettings settings = StartupSettings();
         settings.ProfileGroups.Groups.Add(new ProfileGroup { Id = "auto" });
-        settings.ProfileGroups.Remember(settings.ProfileGroups.Active!);
+        settings.ProfileGroups.Remember(new ProfileGroupActiveState { GroupId = "g1", MadeStartupState = true, GpuRaised = true,
+            Gpu = new GpuRetainedValues { CoreOffsetMhz = 150 } });
         settings.ProfileGroups.Remember(new ProfileGroupActiveState { GroupId = "auto", MadeStartupState = false, RequesterId = "bascule-auto" });
 
         Assert.Equal("auto", settings.ProfileGroups.Active!.GroupId);
         ProfileGroupStartupRisk risk = ProfileGroupStartupCheck.Evaluate(settings)!;
         Assert.Equal("g1", risk.GroupId);
         Assert.True(risk.GpuRaised);
+    }
+
+    [Fact]
+    public void Dans_un_fichier_d_avant_la_premiere_bascule_garde_l_etat_de_demarrage()
+    {
+        // settings.json écrit par #8 : l'état de démarrage n'est que dans Active, StartupState est absent.
+        AppSettings settings = StartupSettings();
+        settings.ProfileGroups.Groups.Add(new ProfileGroup { Id = "auto" });
+        Assert.Null(settings.ProfileGroups.StartupState);
+
+        settings.ProfileGroups.Remember(new ProfileGroupActiveState { GroupId = "auto", MadeStartupState = false, RequesterId = "bascule-auto" });
+
+        Assert.Equal("g1", settings.ProfileGroups.StartupState!.GroupId);
+        Assert.Equal("g1", ProfileGroupStartupCheck.Evaluate(settings)!.GroupId);
+    }
+
+    [Fact]
+    public void Normaliser_reprend_l_etat_de_demarrage_d_un_fichier_d_avant()
+    {
+        AppSettings settings = StartupSettings();
+
+        Assert.True(settings.ProfileGroups.Normalize());
+
+        Assert.Equal("g1", settings.ProfileGroups.StartupState!.GroupId);
+        Assert.False(settings.ProfileGroups.Normalize());
+    }
+
+    [Fact]
+    public void Un_incident_apres_une_bascule_decoche_la_case_qui_reposerait_le_meme_overclock()
+    {
+        // Groupe de jeu généré : il reprend l'OC de l'onglet GPU (+150), sans en faire l'état de démarrage.
+        AppSettings settings = SettingsWithGroup(out ProfileGroup group);
+        settings.Gpu.CoreClockOffsetMhz = 150;
+        group.Gpu = ProfileGroupEditor.GpuValues(new Hardware.GpuOverclockProfile { CoreClockOffsetMhz = 150 }, null);
+        var handler = new ProfileGroupRecoveryHandler(mutate => mutate(settings), _clock);
+
+        handler.Handle([Recovered(IncidentQualificationKind.BlueScreen, startup: "non")]);
+
+        Assert.False(settings.Gpu.ApplyOverclockAtStartup);
+        Assert.True(settings.ProfileGroups.Suspensions["g1"].GpuStartupUnchecked);
+    }
+
+    [Fact]
+    public void Un_overclock_different_de_celui_de_l_onglet_ne_decoche_rien()
+    {
+        AppSettings settings = SettingsWithGroup(out ProfileGroup group);
+        settings.Gpu.CoreClockOffsetMhz = 100;
+        group.Gpu = ProfileGroupEditor.GpuValues(new Hardware.GpuOverclockProfile { CoreClockOffsetMhz = 150 }, null);
+        var handler = new ProfileGroupRecoveryHandler(mutate => mutate(settings), _clock);
+
+        handler.Handle([Recovered(IncidentQualificationKind.BlueScreen, startup: "non")]);
+
+        Assert.True(settings.Gpu.ApplyOverclockAtStartup);
+    }
+
+    [Fact]
+    public void Les_watts_du_groupe_egaux_a_ceux_de_l_onglet_sont_reconnus()
+    {
+        var part = ProfileGroupEditor.CpuValues(new Hardware.Cpu.CpuProfile { SustainedWatts = 125.4f }, ProfileGroupTestData.I5);
+
+        Assert.True(ProfileGroupStartupCheck.MatchesSavedWatts(part, new CpuControlSettings { SustainedWatts = 125 }));
+        Assert.False(ProfileGroupStartupCheck.MatchesSavedWatts(part, new CpuControlSettings { SustainedWatts = 90 }));
+        Assert.False(ProfileGroupStartupCheck.MatchesSavedWatts(ProfileGroupEditor.CpuOrigin(), new CpuControlSettings { SustainedWatts = 125 }));
     }
 
     [Fact]

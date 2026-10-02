@@ -84,6 +84,13 @@ public sealed class ProfileGroupsSettings
             changed = true;
         }
 
+        // Fichier d'avant #9 : l'état de démarrage est repris d'Active, une fois pour toutes.
+        if (StartupState is null && Active is { MadeStartupState: true } legacy)
+        {
+            StartupState = legacy;
+            changed = true;
+        }
+
         if (Suspensions is null)
         {
             Suspensions = new Dictionary<string, ProfileGroupSuspension>();
@@ -106,6 +113,9 @@ public sealed class ProfileGroupsSettings
     /// démarrage des onglets, l'état de démarrage aussi.</summary>
     public void Remember(ProfileGroupActiveState active)
     {
+        // Fichier d'avant #9 : l'état de démarrage n'était noté que dans Active. On le garde avant de remplacer Active,
+        // sinon la première bascule (transitoire) le ferait oublier à la prudence au démarrage.
+        if (StartupState is null && Active is { MadeStartupState: true } previous) StartupState = previous;
         Active = active;
         if (active.MadeStartupState) StartupState = active;
     }

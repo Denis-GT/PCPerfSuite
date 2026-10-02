@@ -481,8 +481,10 @@ encore vérifiés sur une vraie machine.
   renonciation Intel, autre matériel : la partie est refusée et le journal le dit). Verrouillée après
   une sécurité thermique, jusqu'à « Déverrouiller » ou la relance. En pause pendant que le bench ou
   une recherche d'OC tient les réglages, et 10 min après un réglage à la main (l'usage en cours garde
-  alors ce réglage). Un arrêt anormal, un écran bleu ou un pilote graphique relancé peu après une
-  bascule suspend le groupe : la bascule n'y revient pas d'elle-même, et le signale.
+  alors ce réglage). Quand une bascule relève l'overclock du GPU ou les watts, un arrêt anormal, un
+  écran bleu ou un pilote graphique relancé dans les 30 min suspend le groupe, et tout groupe qui porte
+  le même réglage : la bascule n'y revient pas d'elle-même, et le signale. Si ce réglage est celui que
+  l'onglet repose au démarrage, sa case « Appliquer au démarrage » est décochée.
 - **Fermeture** : une bascule n'est jamais l'état de démarrage. L'overclock, les watts et les
   ventilateurs sont rendus d'origine en quittant ; la première bascule du lancement suivant remplace
   l'état enregistré dans les onglets. Les réglages du plan d'alimentation sont permanents : **à la
