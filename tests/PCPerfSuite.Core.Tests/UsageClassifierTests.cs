@@ -218,6 +218,32 @@ public sealed class UsageClassifierTests
     }
 
     [Fact]
+    public void Une_horloge_qui_recule_ne_fige_pas_le_verdict()
+    {
+        // Attente d'entrée en jeu, puis l'horloge recule d'une heure (synchro NTP) : l'attente repart de la nouvelle heure
+        // au lieu de rester datée dans le futur pendant une heure.
+        Feed(20, t => Fullscreen(t, gpu: 70));
+        _now = _now.AddHours(-1);
+        Feed(32, t => Fullscreen(t, gpu: 70));
+
+        Assert.Equal(ProfileGroupUsage.LightGaming, Usage);
+    }
+
+    [Fact]
+    public void Tout_oublier_repart_de_la_bureautique()
+    {
+        Feed(40, t => Fullscreen(t, gpu: 97));
+        Assert.Equal(ProfileGroupUsage.HeavyGaming, Usage);
+
+        _classifier.Reset();
+        Assert.Null(_classifier.Current);
+        Assert.Null(_classifier.Pending);
+
+        Feed(1, Desktop);
+        Assert.Equal(ProfileGroupUsage.Office, Usage);
+    }
+
+    [Fact]
     public void Des_releves_espaces_en_mode_eco_comptent_pour_leur_duree()
     {
         // Un relevé toutes les 5 s : la moyenne GPU est couverte au bout de 30 s comme avec un relevé par seconde.

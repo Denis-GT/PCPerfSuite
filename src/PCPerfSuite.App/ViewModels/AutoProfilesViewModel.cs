@@ -143,7 +143,7 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
             Status = value
                 ? generated is { Groups.Count: > 0 } g
                     ? $"Bascule activée : {g.Groups.Count} groupe(s) générés, modifiables par « Modifier »."
-                    : "Bascule activée."
+                    : _switcher.GenerationProblem is { } problem ? $"Bascule activée, mais {problem}." : "Bascule activée."
                 : "Bascule désactivée : le groupe en place le reste jusqu'à la fermeture ; plus rien n'est relevé.";
         }
         catch (Exception ex)
@@ -379,7 +379,13 @@ public sealed partial class AutoProfilesViewModel : ObservableObject, IPageLifec
     {
         try
         {
-            UsageGenerationResult result = _switcher.Regenerate();
+            if (_switcher.Regenerate() is not { } result)
+            {
+                Status = $"Régénération impossible : {_switcher.GenerationProblem ?? "erreur inattendue"}.";
+                Refresh();
+                return;
+            }
+
             var parts = new List<string> { result.Groups.Count == 0 ? "aucun groupe généré" : $"{result.Groups.Count} groupe(s) générés ou mis à jour" };
             parts.AddRange(result.Skipped.Select(s => $"{ProfileGroupUsage.Label(s.Usage)} : {s.Reason}"));
             Status = $"Régénération : {string.Join(" ; ", parts)}.";

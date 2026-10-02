@@ -52,21 +52,16 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     private readonly ForegroundAppReader _reader = new();
     private readonly ApplicationPublisherCache _publishers = new();
-    private readonly UsageClassifier _classifier = new();
     private readonly UsageHistoryWriter _writer = new(() => AppDataPaths.Current.UsageFile);
+
+    /// <summary>L'état de la bascule (dernière cible traitée, adoption, démarrage, verrou, pause), en logique pure.</summary>
+    private readonly AutoSwitchSession _session;
 
     private AutoSwitchSettings _settings;
     private UsageHistory? _history;
     private bool _historyLoading;
     private DateTime _lastCaptured;
-    private DateTimeOffset _warmupUntil;
     private DateTimeOffset _lastSaveUtc;
-    private DateTimeOffset? _lastSwitchUtc;
-    private AutoSwitchHandled? _lastHandled;
-    private string? _lockReason;
-    private DateTimeOffset? _manualPauseUntil;
-    private string? _manualPauseSource;
-    private bool _switching;
     private bool _onBattery;
     private bool _tickErrorLogged;
     private bool _disposed;
@@ -97,7 +92,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
         _settings = LoadSettings();
         DateTimeOffset now = _time.GetUtcNow();
-        _warmupUntil = now + AutoSwitchPolicy.LaunchWarmup;
+        _session = new AutoSwitchSession(new UsageClassifier(), now);
         _lastSaveUtc = now;
         Decision = _settings.Enabled
             ? new AutoSwitchDecision(AutoSwitchState.Waiting, "Démarrage : première analyse en cours.")
@@ -128,9 +123,11 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     public AutoSwitchDecision Decision { get; private set; }
 
-    public UsageVerdict? Verdict => _classifier.Current;
+    private UsageClassifier Classifier => _session.Classifier;
 
-    public UsagePending? Pending => _classifier.Pending;
+    public UsageVerdict? Verdict => Classifier.Current;
+
+    public UsagePending? Pending => Classifier.Pending;
 
     /// <summary>L'application au premier plan (page seulement : donnée personnelle).</summary>
     public ForegroundApp? CurrentApp { get; private set; }
@@ -144,9 +141,12 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// <summary>Incidents après une bascule, signalés au lancement de cette session (pour la page).</summary>
     public IReadOnlyList<AutoSwitchJournalEntry> StartupIncidents { get; private set; } = [];
 
-    public string? LockReason => _lockReason;
+    public string? LockReason => _session.LockReason;
 
-    public DateTimeOffset? ManualPauseUntil => _manualPauseUntil is { } until && _time.GetUtcNow() < until ? until : null;
+    public DateTimeOffset? ManualPauseUntil => _session.IsManuallyPaused(_time.GetUtcNow()) ? _session.ManualPauseUntilUtc : null;
+
+    /// <summary>Pourquoi la dernière génération a échoué (activation ou « Régénérer »), null sinon.</summary>
+    public string? GenerationProblem { get; private set; }
 
     /// <summary>Ce que le diagnostic reprend, sans nom d'application.</summary>
     public AutoSwitchStatus DiagnosticStatus => new(
@@ -160,7 +160,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     public void AddRequiredGroups(ISet<SensorGroup> into)
         => BackgroundSensorNeeds.AddForAutoSwitch(into, _settings.Enabled && !_disposed, _hasBattery, _onBattery,
-            CurrentApp is { IsFullscreen: true } || _classifier.Current?.Target.IsGaming == true);
+            CurrentApp is { IsFullscreen: true } || Classifier.Current?.Target.IsGaming == true);
 
     // ---- Relevé ----
 
@@ -182,7 +182,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             else if (!_hasBattery) _onBattery = false;
 
             UsageRuleTarget? rule = FindRule(CurrentApp?.Path);
-            _classifier.Add(new UsageSample(now, CurrentApp?.Path, CurrentApp?.IsFullscreen == true,
+            Classifier.Add(new UsageSample(now, CurrentApp?.Path, CurrentApp?.IsFullscreen == true,
                 CurrentApp?.IsExclusiveFullscreen == true, cpuLoad, gpuLoad, fps, _onBattery, rule));
 
             Record(now, snapshot, read, cpuLoad, gpuLoad);
@@ -207,7 +207,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     private void Record(DateTimeOffset now, HardwareSnapshot snapshot, IReadOnlyCollection<SensorGroup> read, float? cpuLoad, float? gpuLoad)
     {
-        if (_history is null || _classifier.Current is not { } verdict) return;
+        if (_history is null || Classifier.Current is not { } verdict) return;
 
         string usage = verdict.Target.Usage
                        ?? (verdict.Target.GroupId is { } id ? _profiles.Store.Find(id)?.Usage : null)
@@ -222,27 +222,24 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     private void Evaluate(DateTimeOffset now)
     {
-        UsageVerdict? verdict = _classifier.Current;
-        UsageGroupChoice choice = verdict is null ? UsageGroupChoice.None : UsageGroupResolver.Resolve(_profiles.Store, verdict.Target);
         TuningLeaseHolder? holder = _lease.Holder;
         string? leaseText = holder is not null && holder.RequesterId != AutoSwitchRequester.Id
             ? holder.Describe(_lease.UtcNow, _lease.LocalTimeZone)
             : null;
 
-        AutoSwitchDecision decision = AutoSwitchPolicy.Decide(new AutoSwitchContext(
-            _settings.Enabled, now, _warmupUntil, verdict, choice, _lastHandled, _lastSwitchUtc, _lockReason, leaseText,
-            _manualPauseUntil, _manualPauseSource, _profiles.IsGroupTuning, _switching || _profiles.IsApplying));
+        AutoSwitchDecision decision = _session.Decide(_settings.Enabled, now, _profiles.Store, leaseText, _profiles.IsGroupTuning,
+            _profiles.IsApplying, out _);
 
         bool changed = decision.State != Decision.State || decision.Text != Decision.Text;
         Decision = decision;
-        if (decision.ShouldSwitch) _ = SwitchAsync(decision.Group!, verdict!, now);
+        if (decision.ShouldSwitch && Classifier.Current is { } verdict) _ = SwitchAsync(decision.Group!, verdict, now);
         else if (changed) RaiseChanged();
     }
 
     private async Task SwitchAsync(ProfileGroup group, UsageVerdict verdict, DateTimeOffset now)
     {
-        _switching = true;
-        _lastSwitchUtc = now;
+        _session.BeginSwitch(now);
+        ProfileGroupReport? report = null;
         var entry = new AutoSwitchJournalEntry
         {
             TimeUtc = now,
@@ -259,6 +256,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         {
             // L'orchestrateur attend les écritures réelles (débouncers vidés, relecture) avant de rendre son rapport.
             ProfileGroupApplyResult? result = await _profiles.ApplyForAutoSwitchAsync(group);
+            report = result?.Report;
             if (_disposed) return;
 
             if (result is null)
@@ -277,7 +275,6 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             {
                 entry.Kind = result.Report.AnyLanded ? AutoSwitchJournalKinds.Switch : AutoSwitchJournalKinds.Refused;
                 entry.NotApplied = AutoSwitchReports.NotApplied(result.Report);
-                _lastHandled = new AutoSwitchHandled(verdict.Target, group.Id, group.Revision);
             }
 
             _history?.AddJournal(entry);
@@ -289,7 +286,8 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         }
         finally
         {
-            _switching = false;
+            // Une application refusée en bloc (bail pris entre-temps) ou en erreur sera retentée après le délai.
+            _session.EndSwitch(verdict.Target, group, report);
             if (!_disposed)
             {
                 SaveHistory(_time.GetUtcNow());
@@ -318,12 +316,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         if (_disposed || !_settings.Enabled) return;
 
         DateTimeOffset now = _time.GetUtcNow();
-        bool wasPaused = _manualPauseUntil is { } until && now < until;
-        _manualPauseUntil = now + AutoSwitchPolicy.ManualPause;
-        _manualPauseSource = source;
-        Adopt();
-
-        if (!wasPaused)
+        if (_session.OnManualWrite(source, now, _profiles.Store))
         {
             _history?.AddJournal(new AutoSwitchJournalEntry
             {
@@ -334,17 +327,6 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         }
 
         Evaluate(now);
-    }
-
-    /// <summary>L'usage en cours garde le réglage de l'utilisateur : son groupe n'est pas réimposé à la fin de la pause,
-    /// seul un changement d'usage rebasculera.</summary>
-    private void Adopt()
-    {
-        if (_classifier.Current is not { } verdict) return;
-        if (UsageGroupResolver.Resolve(_profiles.Store, verdict.Target).Group is { } group)
-        {
-            _lastHandled = new AutoSwitchHandled(verdict.Target, group.Id, group.Revision);
-        }
     }
 
     private void OnGroupSuspended(string groupId, string cause)
@@ -379,7 +361,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             {
                 if (_disposed) return;
 
-                _lockReason = reason;
+                _session.Lock(reason);
                 if (!_settings.Enabled) return;
 
                 DateTimeOffset now = _time.GetUtcNow();
@@ -405,11 +387,10 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             {
                 if (_disposed) return;
 
-                // Au réveil, les onglets reposent leur état de démarrage : le groupe posé n'est plus en place. On
-                // laisse les onglets passer, puis la bascule repose le groupe de l'usage en cours.
-                _lastHandled = null;
-                _classifier.ResetWindows();
-                _warmupUntil = _time.GetUtcNow() + AutoSwitchPolicy.LaunchWarmup;
+                // Au réveil, les onglets reposent leur état de démarrage : le groupe posé n'est plus en place, et le
+                // verdict d'avant la veille ne vaut plus rien. On laisse les onglets passer, puis la bascule repose le
+                // groupe de l'usage constaté (une adoption après un réglage manuel est gardée).
+                _session.OnResume(_time.GetUtcNow());
                 RaiseChanged();
             });
         }
@@ -432,11 +413,12 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         UsageGenerationResult? generated = null;
         if (enabled)
         {
-            if (_warmupUntil < now + AutoSwitchPolicy.EnableWarmup) _warmupUntil = now + AutoSwitchPolicy.EnableWarmup;
-            _lastHandled = null;
-            generated = Generate(now, onlyMissing: true);
-            if (_history is null) LoadHistory();
+            // Le classifieur ne tournait plus : son verdict d'avant ne vaut rien, et la première analyse a le temps de
+            // reconnaître un jeu déjà lancé avant toute bascule.
+            _session.OnEnabled(now);
             Decision = new AutoSwitchDecision(AutoSwitchState.Waiting, "Analyse de l'usage en cours.");
+            if (_history is null) LoadHistory();
+            generated = TryGenerate(now, onlyMissing: true);
         }
         else
         {
@@ -448,8 +430,27 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         return generated;
     }
 
-    /// <summary>« Régénérer » : met à jour les groupes générés non modifiés à la main, crée ceux qui manquent.</summary>
-    public UsageGenerationResult Regenerate() => Generate(_time.GetUtcNow(), onlyMissing: false);
+    /// <summary>« Régénérer » : met à jour les groupes générés non modifiés à la main, crée ceux qui manquent. Null si la
+    /// génération a échoué (<see cref="GenerationProblem"/>).</summary>
+    public UsageGenerationResult? Regenerate() => TryGenerate(_time.GetUtcNow(), onlyMissing: false);
+
+    /// <summary>Une génération qui échoue (lecture d'un onglet…) ne doit empêcher ni l'activation ni l'historique.</summary>
+    private UsageGenerationResult? TryGenerate(DateTimeOffset now, bool onlyMissing)
+    {
+        try
+        {
+            UsageGenerationResult result = Generate(now, onlyMissing);
+            GenerationProblem = null;
+            return result;
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Record(ex, "bascule automatique : génération des groupes");
+            GenerationProblem = $"groupes non générés : erreur inattendue ({ex.GetType().Name})";
+            RaiseChanged();
+            return null;
+        }
+    }
 
     private UsageGenerationResult Generate(DateTimeOffset now, bool onlyMissing)
     {
@@ -502,8 +503,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// <summary>« Reprendre » : met fin à la pause après un réglage manuel.</summary>
     public void Resume()
     {
-        _manualPauseUntil = null;
-        _manualPauseSource = null;
+        _session.EndManualPause();
         Evaluate(_time.GetUtcNow());
         RaiseChanged();
     }
@@ -512,7 +512,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
     /// encore toute hausse automatique dans la session.</summary>
     public void Unlock()
     {
-        _lockReason = null;
+        _session.Unlock();
         Evaluate(_time.GetUtcNow());
         RaiseChanged();
     }

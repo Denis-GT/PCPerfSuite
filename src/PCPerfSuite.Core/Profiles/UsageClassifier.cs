@@ -250,13 +250,24 @@ public sealed class UsageClassifier
         }
     }
 
-    /// <summary>Oublie l'attente et les moyennes (veille, reprise après une pause) sans changer le verdict.</summary>
+    /// <summary>Oublie l'attente et les moyennes (trou entre deux relevés) sans changer le verdict.</summary>
     public void ResetWindows()
     {
         _gpu60.Clear();
         _cpu60.Clear();
         _cpu120.Clear();
         _pending = null;
+    }
+
+    /// <summary>Oublie tout, verdict compris (réveil, réactivation) : le verdict d'avant ne vaut plus rien, et le
+    /// relevé suivant repart de la bureautique ; un jeu toujours là est reconnu après son délai d'entrée.</summary>
+    public void Reset()
+    {
+        ResetWindows();
+        Current = null;
+        LastCandidate = null;
+        _gamingAppKey = null;
+        _lastSampleUtc = null;
     }
 
     private static bool IsStrongGameSign(UsageReasonKind reason)

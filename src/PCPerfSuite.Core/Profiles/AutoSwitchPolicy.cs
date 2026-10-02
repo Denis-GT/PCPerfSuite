@@ -80,7 +80,9 @@ public static class AutoSwitchPolicy
     public static readonly TimeSpan MinInterval = TimeSpan.FromMinutes(2);
     public static readonly TimeSpan ManualPause = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan LaunchWarmup = TimeSpan.FromSeconds(60);
-    public static readonly TimeSpan EnableWarmup = TimeSpan.FromSeconds(5);
+    /// <summary>À l'activation : un peu plus que l'entrée en jeu (30 s), pour qu'un jeu déjà lancé soit reconnu avant la
+    /// première bascule, au lieu de poser d'abord la bureautique.</summary>
+    public static readonly TimeSpan EnableWarmup = TimeSpan.FromSeconds(35);
 
     public static AutoSwitchDecision Decide(AutoSwitchContext c)
     {
