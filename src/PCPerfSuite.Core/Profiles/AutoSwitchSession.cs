@@ -93,7 +93,9 @@ public sealed class AutoSwitchSession
 
     /// <summary>Un réglage manuel : pause, et l'usage en cours garde ce réglage (adoption). Vrai si une pause commence
     /// (elle ne courait pas déjà).</summary>
-    public bool OnManualWrite(string source, DateTimeOffset now, ProfileGroupsSettings store)
+    /// <param name="makesStartupState">Un groupe appliqué à la main en état de démarrage : les onglets le reposeront
+    /// eux-mêmes au réveil, l'adoption reste donc valable même faite sur un groupe posé par la bascule.</param>
+    public bool OnManualWrite(string source, DateTimeOffset now, ProfileGroupsSettings store, bool makesStartupState = false)
     {
         bool started = !IsManuallyPaused(now);
         ManualPauseUntilUtc = now + AutoSwitchPolicy.ManualPause;
@@ -106,7 +108,7 @@ public sealed class AutoSwitchSession
         if (_classifier.Current is { } verdict && UsageGroupResolver.Resolve(store, verdict.Target).Group is { } group)
         {
             // Sur un groupe posé par la bascule (transitoire), ou sur une adoption qui l'était déjà.
-            _adoptedOverSwitch = LastHandled is not null && (!LastHandledAdopted || _adoptedOverSwitch);
+            _adoptedOverSwitch = !makesStartupState && LastHandled is not null && (!LastHandledAdopted || _adoptedOverSwitch);
             LastHandled = new AutoSwitchHandled(verdict.Target, group.Id, group.Revision);
             LastHandledAdopted = true;
         }
@@ -126,24 +128,31 @@ public sealed class AutoSwitchSession
 
     public void Unlock() => LockReason = null;
 
-    /// <summary>La décision du moment, d'après le verdict du classifieur et les groupes de la page Profils.</summary>
+    /// <summary>
+    /// Après chaque relevé passé au classifieur, avant la décision : le changement d'usage qui était en cours au moment du
+    /// réglage manuel se confirme pendant la pause, palier par palier dans le même sens ; le réglage lui revient, au lieu
+    /// d'être écrasé à la fin de la pause alors que l'usage n'a pas changé depuis.
+    /// </summary>
+    public void OnVerdict(DateTimeOffset now, ProfileGroupsSettings store)
+    {
+        if (_adoptDirection == 0 || !LastHandledAdopted || !IsManuallyPaused(now)) return;
+        if (_classifier.Current is not { } confirmed || LastHandled is not { } adoptedBefore || confirmed.Target == adoptedBefore.Target) return;
+        if (Rank(confirmed.Target) is not { } rankNow || Rank(adoptedBefore.Target) is not { } rankBefore
+            || Math.Sign(rankNow - rankBefore) != _adoptDirection) return;
+
+        if (UsageGroupResolver.Resolve(store, confirmed.Target).Group is { } adopted)
+        {
+            LastHandled = new AutoSwitchHandled(confirmed.Target, adopted.Id, adopted.Revision);
+        }
+    }
+
+    /// <summary>La décision du moment, d'après le verdict du classifieur et les groupes de la page Profils ; ne change pas
+    /// l'état de la session.</summary>
     public AutoSwitchDecision Decide(bool enabled, DateTimeOffset now, ProfileGroupsSettings store, string? leaseText, bool groupTuning,
         bool pageApplying, out UsageGroupChoice choice)
     {
         UsageVerdict? verdict = _classifier.Current;
         choice = verdict is null ? UsageGroupChoice.None : UsageGroupResolver.Resolve(store, verdict.Target);
-
-        // Le changement d'usage qui était en cours au moment du réglage manuel se confirme pendant la pause : le réglage
-        // lui revient, au lieu d'être écrasé à la fin de la pause alors que l'usage n'a pas changé depuis.
-        if (_adoptDirection != 0 && LastHandledAdopted && IsManuallyPaused(now) && verdict is { } confirmed
-            && LastHandled is { } adoptedBefore && confirmed.Target != adoptedBefore.Target
-            && Rank(confirmed.Target) is { } rankNow && Rank(adoptedBefore.Target) is { } rankBefore
-            && Math.Sign(rankNow - rankBefore) == _adoptDirection
-            && choice.Group is { } adopted)
-        {
-            LastHandled = new AutoSwitchHandled(confirmed.Target, adopted.Id, adopted.Revision);
-        }
-
         return AutoSwitchPolicy.Decide(new AutoSwitchContext(
             enabled, now, WarmupUntilUtc, verdict, choice, LastHandled, LastSwitchUtc, LockReason, leaseText,
             ManualPauseUntilUtc, ManualPauseSource, groupTuning, Switching || pageApplying, LastHandledAdopted));

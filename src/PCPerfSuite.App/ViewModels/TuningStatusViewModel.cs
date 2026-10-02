@@ -62,15 +62,16 @@ public sealed partial class TuningStatusViewModel : ObservableObject, IDisposabl
 
     /// <summary>L'utilisateur vient de régler quelque chose à la main dans un onglet, ou d'appliquer un groupe d'un clic
     /// (sur le fil d'interface) : la bascule automatique (#9) se met en pause. Levé au geste, pas à l'écriture différée,
-    /// pour qu'une bascule ne démarre pas entre les deux.</summary>
-    public event Action<string>? ManualWrite;
+    /// pour qu'une bascule ne démarre pas entre les deux. Le booléen : un groupe appliqué à la main en état de démarrage.</summary>
+    public event Action<string, bool>? ManualWrite;
 
     /// <summary>Signale un réglage manuel (<paramref name="source"/> : « réglage manuel dans l'onglet GPU »).</summary>
-    public void NoteManualWrite(string source)
+    /// <param name="makesStartupState">Un groupe appliqué à la main en en faisant l'état de démarrage des onglets.</param>
+    public void NoteManualWrite(string source, bool makesStartupState = false)
     {
         try
         {
-            ManualWrite?.Invoke(source);
+            ManualWrite?.Invoke(source, makesStartupState);
         }
         catch
         {

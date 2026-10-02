@@ -16,6 +16,7 @@ public class EcoSampleGateTests
     public void L_overlay_qui_relit_la_charge_cpu_chaque_seconde_ne_fait_pas_repartir_le_delai()
     {
         var gate = new EcoSampleGate(Interval);
+        gate.Saw(AutoSwitch);
         Assert.True(gate.IsDue(T0));
         gate.Requested(AutoSwitch);
 
@@ -29,13 +30,27 @@ public class EcoSampleGateTests
     public void Une_fois_tout_relu_meme_en_plusieurs_releves_le_delai_repart()
     {
         var gate = new EcoSampleGate(Interval);
+        gate.Saw(AutoSwitch);
         gate.Requested(AutoSwitch);
 
         gate.OnRead([SensorGroup.CpuLoad, SensorGroup.Fps], T0);
+        Assert.True(gate.IsDue(T0.AddSeconds(1)));
         gate.OnRead([SensorGroup.Battery, SensorGroup.Gpu], T0.AddSeconds(1));
 
         Assert.False(gate.IsDue(T0.AddSeconds(3)));
         Assert.True(gate.IsDue(T0.AddSeconds(6)));
+    }
+
+    [Fact]
+    public void Un_groupe_que_ce_pc_ne_lit_jamais_n_annule_pas_le_mode_eco()
+    {
+        // Machine virtuelle ou GPU que le relevé ne voit pas : le groupe Gpu n'est jamais lu.
+        var gate = new EcoSampleGate(Interval);
+        gate.Requested(AutoSwitch);
+
+        gate.OnRead([SensorGroup.CpuLoad, SensorGroup.Fps, SensorGroup.Battery], T0);
+
+        Assert.False(gate.IsDue(T0.AddSeconds(2)));
     }
 
     [Fact]

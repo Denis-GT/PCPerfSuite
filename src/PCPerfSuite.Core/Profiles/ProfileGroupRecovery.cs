@@ -5,9 +5,10 @@ using PCPerfSuite.Core.Safety.Events;
 
 namespace PCPerfSuite.Core.Profiles;
 
-/// <summary>Un incident imputé à l'application d'un groupe, et ce qu'elle avait relevé.</summary>
+/// <summary>Un incident imputé à l'application d'un groupe, et ce qu'elle avait relevé. <paramref name="RequesterId"/> : qui
+/// avait appliqué le groupe (« bascule-auto »…), null si non noté.</summary>
 public sealed record ProfileGroupIncidentDecision(
-    string? GroupId, string Cause, bool GpuRaised, bool WattsRaised, bool MadeStartupState, string Action);
+    string? GroupId, string Cause, bool GpuRaised, bool WattsRaised, bool MadeStartupState, string Action, string? RequesterId = null);
 
 /// <summary>
 /// Ce qui empêche un groupe d'être réappliqué (décision de Denis, 01/10/2026) : un arrêt anormal (brutal, forcé,
@@ -50,7 +51,8 @@ public static class ProfileGroupIncidentPolicy
             Yes(entry, ProfileGroupProbation.GpuKey),
             Yes(entry, ProfileGroupProbation.WattsKey),
             Yes(entry, ProfileGroupProbation.StartupStateKey),
-            entry.Action);
+            entry.Action,
+            Value(entry, ProfileGroupProbation.RequesterKey));
     }
 
     /// <summary>
@@ -71,7 +73,8 @@ public static class ProfileGroupIncidentPolicy
             Yes(entry, ProfileGroupProbation.CarriedGpuKey),
             Yes(entry, ProfileGroupProbation.CarriedWattsKey),
             Yes(entry, ProfileGroupProbation.CarriedStartupStateKey),
-            decision.Action);
+            decision.Action,
+            Value(entry, ProfileGroupProbation.CarriedRequesterKey));
 
         // Le même groupe réappliqué : une seule décision, qui réunit ce qu'il avait relevé les deux fois.
         if (string.Equals(carriedId, decision.GroupId, StringComparison.OrdinalIgnoreCase))
@@ -83,6 +86,7 @@ public static class ProfileGroupIncidentPolicy
                     GpuRaised = decision.GpuRaised || carried.GpuRaised,
                     WattsRaised = decision.WattsRaised || carried.WattsRaised,
                     MadeStartupState = decision.MadeStartupState || carried.MadeStartupState,
+                    RequesterId = decision.RequesterId ?? carried.RequesterId,
                 },
             ];
         }
@@ -99,6 +103,9 @@ public static class ProfileGroupIncidentPolicy
 
     private static bool Yes(SessionJournalEntry entry, string key)
         => entry.Values.TryGetValue(key, out string? value) && string.Equals(value, "oui", StringComparison.Ordinal);
+
+    private static string? Value(SessionJournalEntry entry, string key)
+        => entry.Values.TryGetValue(key, out string? value) && value.Length > 0 ? value : null;
 }
 
 /// <summary>
@@ -229,10 +236,12 @@ public static class ProfileGroupStartupCheck
            && GpuOverclockRaise.IsRaisedProfile(values)
            && values.CoreClockOffsetMhz == saved.CoreClockOffsetMhz
            && values.MemoryClockOffsetMhz == saved.MemoryClockOffsetMhz
-           && (values.PowerLimitPercent is not { } power || (saved.PowerLimitPercent is { } p && Math.Abs(p - power) <= 0.5f))
-           && (values.TemperatureLimitC is not { } temperature || temperature == saved.TemperatureLimitC)
-           && (values.GetVoltage() is not { } voltage
-               || (saved.GetVoltage() is { } stored && stored.Value == voltage.Value && stored.Unit == voltage.Unit));
+           // Décalages relevés et identiques : c'est le même OC, quelle que soit la puissance (c'est eux qu'un TDR met en
+           // cause). Sans décalage, l'OC est fait de puissance et de tension, qui doivent alors être les mêmes.
+           && (values.CoreClockOffsetMhz > 0 || values.MemoryClockOffsetMhz > 0
+               || ((values.PowerLimitPercent is not { } power || (saved.PowerLimitPercent is { } p && Math.Abs(p - power) <= 0.5f))
+                   && (values.GetVoltage() is not { } voltage
+                       || (saved.GetVoltage() is { } stored && stored.Value == voltage.Value && stored.Unit == voltage.Unit))));
 
     /// <summary>Les watts de la partie processeur du groupe sont ceux que l'onglet Processeur a enregistrés.</summary>
     public static bool MatchesSavedWatts(ProfileGroupCpuPart? part, CpuControlSettings saved)

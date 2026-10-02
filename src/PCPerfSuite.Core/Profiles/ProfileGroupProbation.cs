@@ -5,30 +5,32 @@ namespace PCPerfSuite.Core.Profiles;
 /// <summary>La période probatoire en cours : quel groupe, depuis quand, et ce qu'il a relevé.</summary>
 /// <param name="Carried">Ce qu'un groupe précédent avait relevé et qui reste en place, repris de la période que celle-ci a
 /// remplacée ; null si rien.</param>
+/// <param name="RequesterId">Qui a appliqué le groupe (<see cref="ProfileGroupProbation.RequesterKey"/>), null si non noté.</param>
 public sealed record ProbationInfo(
     string GroupId, string Action, DateTimeOffset SinceUtc, DateTimeOffset DeadlineUtc, bool GpuRaised, bool WattsRaised, bool MadeStartupState,
-    ProbationCarry? Carried = null)
+    ProbationCarry? Carried = null, string? RequesterId = null)
 {
     /// <summary>Un OC GPU est surveillé : celui du groupe, ou celui d'un groupe précédent encore en place.</summary>
     public bool WatchesGpu => GpuRaised || Carried?.GpuRaised == true;
 
     /// <summary>Le groupe à qui revient l'OC GPU surveillé, null si aucun.</summary>
     public ProbationCarry? GpuOwner
-        => GpuRaised ? new ProbationCarry(GroupId, true, false, MadeStartupState)
+        => GpuRaised ? new ProbationCarry(GroupId, true, false, MadeStartupState, RequesterId)
             : Carried is { GpuRaised: true } carried ? carried with { WattsRaised = false } : null;
 
     /// <summary>Le groupe à qui reviennent les watts relevés surveillés, null si aucun.</summary>
     public ProbationCarry? WattsOwner
-        => WattsRaised ? new ProbationCarry(GroupId, false, true, MadeStartupState)
+        => WattsRaised ? new ProbationCarry(GroupId, false, true, MadeStartupState, RequesterId)
             : Carried is { WattsRaised: true } carried ? carried with { GpuRaised = false } : null;
 }
 
 /// <summary>
 /// Ce qu'un groupe a relevé et qui reste en place quand un autre groupe ouvre sa période : le groupe à qui l'imputer,
 /// et s'il en avait fait l'état de démarrage. Sans cela, appliquer un groupe qui relève les watts clôturerait la période
-/// d'un OC GPU toujours posé, qui ne serait plus surveillé ni en session ni au lancement.
+/// d'un OC GPU toujours posé, qui ne serait plus surveillé ni en session ni au lancement. <paramref name="RequesterId"/> :
+/// qui avait appliqué ce groupe (la reprise de la bascule reconnaît ainsi ses bascules, même reprises).
 /// </summary>
-public sealed record ProbationCarry(string GroupId, bool GpuRaised, bool WattsRaised, bool MadeStartupState);
+public sealed record ProbationCarry(string GroupId, bool GpuRaised, bool WattsRaised, bool MadeStartupState, string? RequesterId = null);
 
 /// <summary>
 /// Prudence au démarrage (#8) : chaque application d'un groupe qui relève l'OC GPU ou les watts au-delà de l'origine
@@ -64,6 +66,7 @@ public sealed class ProfileGroupProbation
     public const string CarriedGpuKey = "repris-gpu-oc";
     public const string CarriedWattsKey = "repris-watts";
     public const string CarriedStartupStateKey = "repris-etat-demarrage";
+    public const string CarriedRequesterKey = "repris-demandeur";
 
     /// <summary>Délai après lequel un incident n'est plus imputé au groupe (décision de Denis, prompt #8).</summary>
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(30);
@@ -108,6 +111,7 @@ public sealed class ProfileGroupProbation
             values[CarriedGpuKey] = YesNo(carried.GpuRaised);
             values[CarriedWattsKey] = YesNo(carried.WattsRaised);
             values[CarriedStartupStateKey] = YesNo(carried.MadeStartupState);
+            if (!string.IsNullOrWhiteSpace(carried.RequesterId)) values[CarriedRequesterKey] = carried.RequesterId;
         }
 
         SessionOperation operation = _journal.Begin(Component, action, values);
@@ -123,7 +127,8 @@ public sealed class ProfileGroupProbation
         LastProblem = null;
         DateTimeOffset now = _time.GetUtcNow();
         _open = operation;
-        Current = new ProbationInfo(groupId, action, now, now + Window, gpuRaised, wattsRaised, madeStartupState, carried);
+        Current = new ProbationInfo(groupId, action, now, now + Window, gpuRaised, wattsRaised, madeStartupState, carried,
+            string.IsNullOrWhiteSpace(requesterId) ? null : requesterId);
         return true;
     }
 

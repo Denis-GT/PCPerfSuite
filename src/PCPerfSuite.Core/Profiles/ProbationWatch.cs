@@ -35,6 +35,13 @@ public static class ProbationWatch
     /// TDR imputable.</summary>
     public static bool NeedsEvents(ProbationInfo current) => current.WatchesGpu;
 
+    /// <summary>Le groupe à suspendre sur un TDR : celui de la période s'il a relevé l'OC GPU (avec tout ce qu'il avait
+    /// relevé), sinon celui dont la période avait repris l'OC encore en place.</summary>
+    public static ProbationCarry TdrOwner(ProbationInfo current)
+        => current.GpuRaised
+            ? new ProbationCarry(current.GroupId, true, current.WattsRaised, current.MadeStartupState, current.RequesterId)
+            : current.Carried ?? new ProbationCarry(current.GroupId, false, current.WattsRaised, current.MadeStartupState, current.RequesterId);
+
     /// <param name="read">La lecture du journal Système ; null si elle a levé.</param>
     public static ProbationTickDecision Decide(ProbationInfo current, DateTimeOffset now, SystemEventReadResult? read)
     {

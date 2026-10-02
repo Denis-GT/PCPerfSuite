@@ -169,16 +169,16 @@ public sealed partial class ProfileGroupsViewModel
     private void OnTdr(ProbationInfo current, Incident tdr)
     {
         int minutes = (int)Math.Max(0, Math.Round((tdr.LoggedUtc - current.SinceUtc).TotalMinutes));
-        string cause = $"pilote graphique relancé (TDR) {minutes} min après l'application";
+        string cause = current.GpuRaised
+            ? $"pilote graphique relancé (TDR) {minutes} min après l'application"
+            : $"pilote graphique relancé (TDR) avec son overclock en place, {minutes} min après l'application d'un autre groupe";
         Probation.Fail(cause);
 
         // Plus aucune hausse automatique de l'OC dans la session : un autre groupe aux valeurs voisines ne doit pas être
         // posé par la bascule sur un pilote qui vient de planter.
         _gpu.NoteDriverReset();
 
-        ProbationCarry owner = current.GpuRaised
-            ? new ProbationCarry(current.GroupId, current.GpuRaised, current.WattsRaised, current.MadeStartupState)
-            : current.Carried ?? new ProbationCarry(current.GroupId, false, current.WattsRaised, current.MadeStartupState);
+        ProbationCarry owner = ProbationWatch.TdrOwner(current);
 
         // Comme au lancement (ProfileGroupRecoveryHandler) : la case est décochée si le groupe avait fait l'état de
         // démarrage, ou si ce qu'il avait relevé est exactement ce que l'onglet reposera (groupe de jeu généré par la
@@ -231,7 +231,7 @@ public sealed partial class ProfileGroupsViewModel
         if (gpuUnchecked) tabs.Add("GPU");
         string startup = tabs.Count == 0 ? "" : $" « Appliquer au démarrage » a été décoché : {string.Join(" et ", tabs)}.";
         _sessionWarning = new ProfileGroupWarning(null,
-            $"Le pilote graphique a été relancé (TDR) {minutes} min après l'application de {groupName} : il est suspendu.{startup} "
+            $"Le pilote graphique a été relancé (TDR) {(current.GpuRaised ? $"{minutes} min après l'application de {groupName}" : $"avec l'overclock de {groupName} en place")} : il est suspendu.{startup} "
             + "L'overclock est peut-être encore en place : « Rendre le GPU d'origine » le retire.",
             OffersGpuRestore: true);
 

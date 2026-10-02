@@ -149,6 +149,32 @@ public sealed class ProbationCarryTests : IDisposable
     }
 
     [Fact]
+    public void Une_bascule_reprise_par_un_groupe_applique_a_la_main_est_notee_au_journal_des_bascules()
+    {
+        // La bascule a posé l'OC de « oc » ; « watts » a été appliqué à la main ensuite, et un écran bleu a suivi.
+        Dictionary<string, string> values = WattsLineCarryingOc();
+        values[ProfileGroupProbation.RequesterKey] = ProfileGroupRequesters.Manual;
+        values[ProfileGroupProbation.CarriedRequesterKey] = AutoSwitchRequester.Id;
+        string usage = _dir.File("usage.json");
+        var handler = new AutoSwitchRecoveryHandler(() => usage, id => id == "oc" ? "OC (auto)" : "Watts", _clock);
+
+        handler.Handle([Recovered(values)]);
+
+        AutoSwitchJournalEntry incident = Assert.Single(
+            UsageHistory.FromFile(UsageHistoryStore.Read(usage).File, T0).UnacknowledgedIncidents());
+        Assert.Equal("oc", incident.GroupId);
+    }
+
+    [Fact]
+    public async Task Le_demandeur_du_groupe_repris_est_note()
+    {
+        await _applier.ApplyAsync(GpuGroup(), ProfileGroupApplyOptions.ForAutoSwitch());
+        await _applier.ApplyAsync(WattsGroup(), Manual);
+
+        Assert.Equal(AutoSwitchRequester.Id, Open().Values[ProfileGroupProbation.CarriedRequesterKey]);
+    }
+
+    [Fact]
     public void Une_ligne_d_avant_sans_reprise_ne_vise_que_son_groupe()
     {
         Dictionary<string, string> values = WattsLineCarryingOc();

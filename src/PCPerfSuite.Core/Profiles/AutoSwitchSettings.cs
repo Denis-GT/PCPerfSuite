@@ -223,23 +223,24 @@ public static class UsageGroupResolver
         bool sameOverclock = suspended.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } a }
                              && group.Gpu is { ParsedKind: ProfilePartKind.Values, Values: { } b }
                              && GpuOverclockRaise.IsRaisedProfile(a)
-                             && SameOverclock(a, b);
+                             && a.CoreClockOffsetMhz == b.CoreClockOffsetMhz
+                             && a.MemoryClockOffsetMhz == b.MemoryClockOffsetMhz
+                             // Décalages relevés et identiques : le même OC, quelle que soit la puissance. Sans décalage,
+                             // l'OC est la puissance et la tension, qui doivent alors être les mêmes.
+                             && (a.CoreClockOffsetMhz > 0 || a.MemoryClockOffsetMhz > 0 || SamePowerAndVoltage(a, b));
         bool sameWatts = suspended.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } x }
                          && group.Cpu is { ParsedKind: ProfilePartKind.Values, Values.SustainedWatts: { } y }
                          && Math.Abs(x - y) <= 1f;
         return sameOverclock || sameWatts;
     }
 
-    /// <summary>Les deux profils portent les mêmes réglages de carte (puissance, température et tension comprises).</summary>
-    private static bool SameOverclock(GpuOverclockProfile a, GpuOverclockProfile b)
-        => a.CoreClockOffsetMhz == b.CoreClockOffsetMhz
-           && a.MemoryClockOffsetMhz == b.MemoryClockOffsetMhz
-           && (a.PowerLimitPercent, b.PowerLimitPercent) switch
+    /// <summary>Les deux profils portent la même limite de puissance et la même tension.</summary>
+    private static bool SamePowerAndVoltage(GpuOverclockProfile a, GpuOverclockProfile b)
+        => (a.PowerLimitPercent, b.PowerLimitPercent) switch
            {
                (null, null) => true,
                ({ } x, { } y) => Math.Abs(x - y) <= 0.5f,
                _ => false,
            }
-           && a.TemperatureLimitC == b.TemperatureLimitC
            && a.GetVoltage() == b.GetVoltage();
 }

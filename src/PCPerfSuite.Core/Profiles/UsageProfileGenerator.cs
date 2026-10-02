@@ -170,10 +170,15 @@ public static class UsageProfileGenerator
             if (target.Fans?.Values is { } fans) fans.Name = target.Name;
             if (target.Cpu?.Values is { } cpu) cpu.Name = target.Name;
             if (target.Gpu?.Values is { } gpu) gpu.Name = target.Name;
-            bool changed = previous is null
-                           || !ProfileGroupJson.SameContent(previous.Cpu, target.Cpu)
-                           || !ProfileGroupJson.SameContent(previous.Gpu, target.Gpu)
-                           || !ProfileGroupJson.SameContent(previous.Fans, target.Fans);
+            // Un renommage ne recopie pas le nom dans les parties enregistrées : ce n'est pas un changement de contenu.
+            ProfileGroup? before = previous?.Clone();
+            if (before?.Fans?.Values is { } beforeFans) beforeFans.Name = target.Name;
+            if (before?.Cpu?.Values is { } beforeCpu) beforeCpu.Name = target.Name;
+            if (before?.Gpu?.Values is { } beforeGpu) beforeGpu.Name = target.Name;
+            bool changed = before is null
+                           || !ProfileGroupJson.SameContent(before.Cpu, target.Cpu)
+                           || !ProfileGroupJson.SameContent(before.Gpu, target.Gpu)
+                           || !ProfileGroupJson.SameContent(before.Fans, target.Fans);
             if (previous is not null && changed) target.Revision++;
             if (changed) target.UpdatedUtc = input.Now;
             target.EditedByUser = false;

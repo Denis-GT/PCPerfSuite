@@ -326,6 +326,18 @@ public sealed class UsageProfileGeneratorTests
     }
 
     [Fact]
+    public void Regenerer_apres_un_renommage_garde_la_revision()
+    {
+        GeneratedUsageGroup first = For(Generate(Input()), ProfileGroupUsage.Office);
+        ProfileGroupEditor.Rename(first.Group, "Bureau", Now);
+
+        GeneratedUsageGroup again = For(Generate(Input(), first.Group), ProfileGroupUsage.Office);
+
+        Assert.Equal("Bureau", again.Group.Name);
+        Assert.Equal(first.Group.Revision, again.Group.Revision);
+    }
+
+    [Fact]
     public void Regenerer_sans_changement_garde_la_revision()
     {
         // Sinon la bascule reposerait le groupe en cours à l'identique (nouvelle période d'essai, bulle).

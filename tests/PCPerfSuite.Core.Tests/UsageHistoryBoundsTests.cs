@@ -31,21 +31,31 @@ public sealed class UsageHistoryBoundsTests : IDisposable
     }
 
     [Fact]
-    public void Ce_qui_est_date_dans_le_futur_est_ecarte_ou_ramene_a_maintenant()
+    public void Une_horloge_en_retard_au_lancement_n_efface_rien()
     {
+        // Pile du BIOS morte : Windows démarre au 01/01/2020, avant la synchronisation de l'heure.
+        DateTimeOffset behind = new(2020, 1, 1, 8, 0, 0, TimeSpan.Zero);
         var file = new UsageHistoryFile
         {
-            Days = [Day("2026-10-01"), Day("2031-06-01")],
-            Apps = [new UsageAppRecord { Path = Game, LastSeenUtc = T0.AddYears(5), Seconds = new() { [ProfileGroupUsage.Office] = 60 } }],
-            Journal = [new AutoSwitchJournalEntry { TimeUtc = T0.AddYears(5), Kind = AutoSwitchJournalKinds.Switch }],
+            Days = [Day("2026-09-15"), Day("2026-09-30")],
+            Apps = [new UsageAppRecord { Path = Game, LastSeenUtc = T0, Seconds = new() { [ProfileGroupUsage.Office] = 60 } }],
+            Journal = [new AutoSwitchJournalEntry { TimeUtc = T0, Kind = AutoSwitchJournalKinds.Switch }],
         };
 
-        UsageHistory history = UsageHistory.FromFile(file, T0, TimeZoneInfo.Utc);
+        UsageHistory history = UsageHistory.FromFile(file, behind, TimeZoneInfo.Utc);
 
-        Assert.Equal(1, history.DaysWithData);
+        Assert.True(history.ClockBehind);
+        Assert.False(history.ChangedOnLoad);
+        Assert.Equal(2, history.DaysWithData);
         Assert.Equal(T0, Assert.Single(history.Apps).LastSeenUtc);
-        Assert.Equal(T0, Assert.Single(history.Journal).TimeUtc);
-        Assert.True(history.ChangedOnLoad);
+        Assert.Single(history.Journal);
+
+        // Tant que l'heure retarde, l'élagage de la session ne touche à rien ; remise à l'heure, il reprend.
+        history.Prune(behind.AddMinutes(5));
+        Assert.Equal(2, history.DaysWithData);
+        history.Prune(T0.AddDays(20));
+        Assert.False(history.ClockBehind);
+        Assert.Equal(1, history.DaysWithData);
     }
 
     [Fact]
@@ -79,7 +89,7 @@ public sealed class UsageHistoryBoundsTests : IDisposable
     }
 
     [Fact]
-    public void Bascule_desactivee_le_fichier_est_tout_de_meme_elague()
+    public void Ce_qui_a_plus_de_30_jours_dans_le_fichier_est_a_reecrire_meme_bascule_desactivee()
     {
         var file = new UsageHistoryFile
         {
@@ -88,24 +98,19 @@ public sealed class UsageHistoryBoundsTests : IDisposable
         };
         Assert.Null(UsageHistoryStore.Write(UsagePath, UsageHistoryStore.Serialize(file)));
 
-        Assert.Null(UsageHistoryStore.Prune(UsagePath, T0, TimeZoneInfo.Utc));
+        UsageHistory pruned = UsageHistory.FromRead(UsageHistoryStore.Read(UsagePath), T0, TimeZoneInfo.Utc)!;
 
-        UsageHistory reread = UsageHistory.FromFile(UsageHistoryStore.Read(UsagePath).File, T0, TimeZoneInfo.Utc);
-        Assert.Equal(1, reread.DaysWithData);
-        Assert.Empty(reread.Apps);
+        Assert.True(pruned.ChangedOnLoad);
+        Assert.Equal(1, pruned.DaysWithData);
+        Assert.Empty(pruned.Apps);
     }
 
     [Fact]
-    public void Un_fichier_sans_rien_a_ecarter_n_est_pas_reecrit()
+    public void Un_fichier_sans_rien_a_ecarter_n_est_pas_a_reecrire()
     {
         var file = new UsageHistoryFile { Days = [Day("2026-09-30")] };
-        Assert.Null(UsageHistoryStore.Write(UsagePath, UsageHistoryStore.Serialize(file)));
-        DateTime written = File.GetLastWriteTimeUtc(UsagePath).AddMinutes(-5);
-        File.SetLastWriteTimeUtc(UsagePath, written);
 
-        UsageHistoryStore.Prune(UsagePath, T0, TimeZoneInfo.Utc);
-
-        Assert.Equal(written, File.GetLastWriteTimeUtc(UsagePath));
+        Assert.False(UsageHistory.FromFile(file, T0, TimeZoneInfo.Utc).ChangedOnLoad);
     }
 
     [Fact]

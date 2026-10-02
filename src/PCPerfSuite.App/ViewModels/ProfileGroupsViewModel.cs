@@ -375,7 +375,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         IsApplying = true;
         try
         {
-            if (options.IsManual) Tuning.NoteManualWrite($"groupe « {group.Name} » appliqué à la main");
+            if (options.IsManual) Tuning.NoteManualWrite($"groupe « {group.Name} » appliqué à la main", options.MakeStartupState);
             ProfileGroupApplyResult result = await _applier.ApplyAsync(group, options);
 
             LastReport = result.Report.Describe();

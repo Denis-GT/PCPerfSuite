@@ -191,9 +191,14 @@ public sealed class UsageHistory
     /// <summary>Modifié depuis le dernier <see cref="MarkSaved"/>.</summary>
     public bool IsDirty { get; private set; }
 
-    /// <summary>La lecture a écarté ou corrigé quelque chose (trop ancien, daté dans le futur, au-delà des plafonds) : le
-    /// fichier sur le disque est à réécrire.</summary>
+    /// <summary>La lecture a écarté quelque chose (trop ancien, au-delà des plafonds) : le fichier sur le disque est à
+    /// réécrire.</summary>
     public bool ChangedOnLoad { get; private set; }
+
+    /// <summary>Le fichier contient des données datées après l'heure de la lecture : l'horloge de Windows retarde (pile du
+    /// BIOS, heure pas encore synchronisée). Rien n'a été élagué ; <see cref="Prune"/> n'élague pas non plus tant que
+    /// c'est le cas dans la session.</summary>
+    public bool ClockBehind { get; private set; }
 
     public IReadOnlyList<AutoSwitchJournalEntry> Journal => _journal;
 
@@ -206,10 +211,12 @@ public sealed class UsageHistory
         => read.Failed ? null : FromFile(read.File, now, zone);
 
     /// <summary>
-    /// Reprend un fichier lu : valeurs assainies, doublons fusionnés, ce qui a plus de 30 jours écarté. Les plafonds et la
-    /// rétention valent aussi pour ce que l'app n'a pas écrit elle-même (fichier gonflé ou retouché) : au plus
-    /// <see cref="MaxApps"/> applications, et rien de daté dans le futur (une horloge qui avait sauté en avant, puis été
-    /// corrigée, laisserait sinon des données que la rétention n'atteint jamais).
+    /// Reprend un fichier lu : valeurs assainies, doublons fusionnés, ce qui a plus de 30 jours écarté. Le plafond de
+    /// <see cref="MaxApps"/> applications vaut aussi pour ce que l'app n'a pas écrit elle-même (fichier gonflé ou retouché).
+    /// Des données datées après <paramref name="now"/> disent que c'est l'horloge de ce lancement qui retarde (pile du
+    /// BIOS, heure pas encore synchronisée), pas le fichier : rien n'est alors écarté ni élagué (<see cref="ClockBehind"/>).
+    /// Limite connue : des données écrites pendant que l'horloge avançait, puis corrigée, restent jusqu'à ce que l'heure
+    /// les rattrape.
     /// </summary>
     public static UsageHistory FromFile(UsageHistoryFile? file, DateTimeOffset now, TimeZoneInfo? zone = null)
     {
@@ -218,15 +225,14 @@ public sealed class UsageHistory
 
         bool changed = false;
         string lastDay = history.DateKey(now);
+        DateTimeOffset latest = now + RetentionClock.Tolerance;
+        history.ClockBehind = (file.Days ?? []).Any(d => d is not null && TryParseDate(d.Date, out _) && string.CompareOrdinal(d.Date, lastDay) > 0)
+                              || (file.Apps ?? []).Any(a => a is not null && a.LastSeenUtc > latest)
+                              || (file.Journal ?? []).Any(e => e is not null && e.TimeUtc > latest);
         history._extension = file.ExtensionData;
         foreach (UsageDayRecord? day in file.Days ?? [])
         {
             if (day is null || !TryParseDate(day.Date, out _) || string.IsNullOrWhiteSpace(day.Usage) || !Positive(day.Seconds)) continue;
-            if (string.CompareOrdinal(day.Date, lastDay) > 0)
-            {
-                changed = true;
-                continue;
-            }
 
             UsageDayRecord target = history.Day(day.Date, day.Usage.Trim());
             target.Seconds += day.Seconds;
@@ -258,14 +264,7 @@ public sealed class UsageHistory
                 history._apps[path] = target;
             }
 
-            DateTimeOffset seen = app.LastSeenUtc;
-            if (seen > now)
-            {
-                seen = now;
-                changed = true;
-            }
-
-            if (seen > target.LastSeenUtc) target.LastSeenUtc = seen;
+            if (app.LastSeenUtc > target.LastSeenUtc) target.LastSeenUtc = app.LastSeenUtc;
             if (Positive(app.FullscreenSeconds)) target.FullscreenSeconds += app.FullscreenSeconds;
             foreach ((string usage, double seconds) in app.Seconds ?? new())
             {
@@ -287,17 +286,11 @@ public sealed class UsageHistory
         foreach (AutoSwitchJournalEntry? entry in file.Journal ?? [])
         {
             if (entry is null || string.IsNullOrWhiteSpace(entry.Kind)) continue;
-            if (entry.TimeUtc > now)
-            {
-                entry.TimeUtc = now;
-                changed = true;
-            }
-
             history._journal.Add(entry);
         }
 
         history._journal.Sort((a, b) => a.TimeUtc.CompareTo(b.TimeUtc));
-        history.Prune(now);
+        if (!history.ClockBehind) history.Prune(now);
         history.ChangedOnLoad = changed || history.IsDirty;
         history.IsDirty = false;
         return history;
@@ -417,9 +410,13 @@ public sealed class UsageHistory
         IsDirty = true;
     }
 
-    /// <summary>Écarte ce qui a plus de 30 jours.</summary>
+    /// <summary>Écarte ce qui a plus de 30 jours. Rien tant que l'horloge retarde sur l'historique (<see cref="ClockBehind"/>) :
+    /// élaguer d'après elle effacerait des jours bien réels.</summary>
     public void Prune(DateTimeOffset now)
     {
+        if (ClockBehind && now < LatestData() - RetentionClock.Tolerance) return;
+        ClockBehind = false;
+
         DateTimeOffset limit = now - Retention;
         string firstDay = DateKey(limit);
         foreach (string key in _days.Where(p => string.CompareOrdinal(p.Value.Date, firstDay) < 0).Select(p => p.Key).ToList())
@@ -442,6 +439,20 @@ public sealed class UsageHistory
         }
 
         if (removed > 0) IsDirty = true;
+    }
+
+    /// <summary>La donnée la plus récente de l'historique (jour, application vue, journal).</summary>
+    private DateTimeOffset LatestData()
+        => _apps.Values.Select(a => a.LastSeenUtc)
+            .Concat(_journal.Select(e => e.TimeUtc))
+            .Concat(_days.Values.Select(d => TryParseDate(d.Date, out DateOnly date) ? DayStart(date) : DateTimeOffset.MinValue))
+            .DefaultIfEmpty(DateTimeOffset.MinValue)
+            .Max();
+
+    private DateTimeOffset DayStart(DateOnly date)
+    {
+        DateTime local = date.ToDateTime(TimeOnly.MinValue);
+        return new DateTimeOffset(local, _zone.GetUtcOffset(local));
     }
 
     /// <summary>Nombre de jours différents qui ont des relevés.</summary>
@@ -608,18 +619,6 @@ public static class UsageHistoryStore
     }
 
     public static byte[] Serialize(UsageHistoryFile file) => JsonSerializer.SerializeToUtf8Bytes(file, WriteOptions);
-
-    /// <summary>
-    /// Élague le fichier sans charger la bascule : la rétention de 30 jours vaut aussi quand elle est désactivée, le
-    /// fichier gardant sinon indéfiniment les chemins d'exécutables relevés avant. Ne réécrit que si quelque chose a été
-    /// écarté, et jamais un fichier qui n'a pas pu être lu. Null si tout va bien, sinon la raison. Hors du fil d'interface.
-    /// </summary>
-    public static string? Prune(string path, DateTimeOffset now, TimeZoneInfo? zone = null)
-    {
-        UsageHistoryRead read = Read(path);
-        if (UsageHistory.FromRead(read, now, zone) is not { } history) return read.Problem;
-        return history.ChangedOnLoad ? Write(path, history.Serialize()) : read.Problem;
-    }
 
     /// <summary>Écrit le fichier ; null si tout s'est bien passé, sinon la raison.</summary>
     public static string? Write(string path, byte[] json)

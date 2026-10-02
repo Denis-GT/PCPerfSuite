@@ -243,11 +243,28 @@ public sealed class AutoSwitchSessionTests
         for (int i = 0; i < 400; i += 10)
         {
             Desktop(10);
-            Decide();
+            _session.OnVerdict(_now, _store);
         }
 
         Assert.Equal(ProfileGroupUsage.Office, _classifier.Current!.Usage);
         Desktop((int)AutoSwitchPolicy.ManualPause.TotalSeconds);
+        Assert.Equal(AutoSwitchState.Idle, Decide().State);
+    }
+
+    [Fact]
+    public void Au_reveil_un_groupe_applique_a_la_main_en_etat_de_demarrage_reste_adopte()
+    {
+        // La bascule a posé la bureautique ; l'utilisateur applique « Silence » d'un clic, en état de démarrage : c'est ce
+        // que les onglets reposeront au réveil.
+        Desktop(61);
+        SwitchWith(g => Report(g));
+        _session.OnManualWrite("groupe « Silence » appliqué à la main", _now, _store, makesStartupState: true);
+        _session.EndManualPause();
+
+        _session.OnResume(_now);
+        Desktop(121);
+
+        Assert.NotNull(_session.LastHandled);
         Assert.Equal(AutoSwitchState.Idle, Decide().State);
     }
 
@@ -264,13 +281,13 @@ public sealed class AutoSwitchSessionTests
         for (int i = 0; i < 300; i += 10)
         {
             Desktop(10);
-            Decide();
+            _session.OnVerdict(_now, _store);
         }
 
         for (int i = 0; i < 300; i += 10)
         {
             Gaming(10);
-            Decide();
+            _session.OnVerdict(_now, _store);
         }
 
         // La pause (10 min) est finie : le jeu, monté pendant la pause, n'a pas été adopté.

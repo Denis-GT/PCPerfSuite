@@ -94,6 +94,29 @@ public sealed class GpuRaisedProfileTests
     }
 
     [Fact]
+    public void Un_oc_de_frequences_reste_le_meme_quand_la_puissance_differe()
+    {
+        // C'est le décalage qu'un TDR ou un écran bleu met en cause, pas la puissance retouchée depuis dans l'onglet.
+        var oc = new GpuOverclockProfile { CoreClockOffsetMhz = 150, MemoryClockOffsetMhz = 500, PowerLimitPercent = 110 };
+        GpuControlSettings saved = Saved(oc);
+        saved.PowerLimitPercent = 100;
+        var heavy = new ProfileGroup { Id = "heavy", Name = "heavy", Gpu = GpuPart(oc) };
+        var light = new ProfileGroup
+        {
+            Id = "light", Name = "light",
+            Gpu = GpuPart(new GpuOverclockProfile { CoreClockOffsetMhz = 150, MemoryClockOffsetMhz = 500, PowerLimitPercent = 100 }),
+        };
+        var store = new ProfileGroupsSettings
+        {
+            Groups = { heavy, light },
+            Suspensions = { ["heavy"] = new ProfileGroupSuspension { Cause = "écran bleu" } },
+        };
+
+        Assert.True(ProfileGroupStartupCheck.MatchesSavedGpu(GpuPart(oc), saved));
+        Assert.Same(heavy, UsageGroupResolver.SuspendedBy(store, light));
+    }
+
+    [Fact]
     public void Une_autre_tension_n_est_pas_le_meme_oc()
     {
         var heavy = new ProfileGroup { Id = "heavy", Name = "heavy", Gpu = GpuPart(PowerAndVoltage()) };

@@ -225,6 +225,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             if (read.Contains(SensorGroup.Fps)) _lastFps = fps ?? 0;
             if (gpuLoad is not null) _gpuLoadEverRead = true;
             if (fps > 0) _rtssFpsSeen = true;
+            _eco.Saw(read);
             if (_monitoring.IsBackgroundMode) _eco.OnRead(read, _time.GetUtcNow());
             if (snapshot.Battery is { } battery) _onBattery = !battery.PowerOnline;
             else if (!_hasBattery) _onBattery = false;
@@ -232,6 +233,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
             UsageRuleTarget? rule = FindRule(CurrentApp?.Path);
             Classifier.Add(new UsageSample(now, CurrentApp?.Path, CurrentApp?.IsFullscreen == true,
                 CurrentApp?.IsExclusiveFullscreen == true, cpuLoad, gpuLoad, fps, _onBattery, rule));
+            _session.OnVerdict(now, _profiles.Store);
 
             Record(now, snapshot, read, cpuLoad, gpuLoad);
             Evaluate(now);
@@ -358,12 +360,12 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     // ---- Pauses, verrou, incidents, veille ----
 
-    private void OnManualWrite(string source)
+    private void OnManualWrite(string source, bool makesStartupState)
     {
         if (_disposed || !_settings.Enabled) return;
 
         DateTimeOffset now = _time.GetUtcNow();
-        if (_session.OnManualWrite(source, now, _profiles.Store))
+        if (_session.OnManualWrite(source, now, _profiles.Store, makesStartupState))
         {
             _history?.AddJournal(new AutoSwitchJournalEntry
             {
@@ -378,16 +380,19 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
 
     private void OnGroupSuspended(string groupId, string cause)
     {
-        if (_disposed || !_settings.Enabled) return;
+        if (_disposed) return;
 
         string name = _profiles.Store.Find(groupId)?.Name ?? "un groupe";
         DateTimeOffset now = _time.GetUtcNow();
 
         // Un TDR pendant la période d'essai : l'OC est instable, et un autre groupe aux valeurs voisines ne doit pas être
-        // posé d'office sur un pilote qui vient de planter. Comme après une sécurité thermique, la bascule se verrouille
-        // (et les planificateurs refusent toute hausse automatique de l'OC dans la session).
+        // posé d'office sur un pilote qui vient de planter. Comme après une sécurité thermique, la bascule se verrouille,
+        // même désactivée (une activation juste après ne doit pas y échapper), et les planificateurs refusent toute hausse
+        // automatique de l'OC dans la session.
         string lockReason = $"incident pendant la période d'essai de « {name} » : {cause}";
         _session.Lock(lockReason);
+        if (!_settings.Enabled) return;
+
         _history?.AddJournal(new AutoSwitchJournalEntry
         {
             TimeUtc = now,
@@ -647,7 +652,7 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         _historyLoading = false;
         if (_disposed) return;
 
-        UsageHistory? loaded = _history ?? UsageHistory.FromRead(read, _time.GetUtcNow());
+        UsageHistory? loaded = _history ?? UsageHistory.FromRead(read, _time.GetUtcNow(), _time.LocalTimeZone);
         if (loaded is null)
         {
             // Fichier intact mais illisible pour l'instant : on ne relève ni n'enregistre rien, sinon le premier enregistrement
@@ -659,7 +664,9 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         }
 
         _history = loaded;
-        _historyReadProblem = read.Problem;
+        _historyReadProblem = loaded.ClockBehind
+            ? "daté après l'heure de Windows, qui retarde (pile du BIOS, heure pas encore synchronisée) : rien n'est élagué tant qu'elle n'est pas remise à l'heure"
+            : read.Problem;
 
         IReadOnlyList<AutoSwitchJournalEntry> incidents = _history.UnacknowledgedIncidents();
         if (incidents.Count > 0)
@@ -675,22 +682,30 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         RaiseChanged();
     }
 
-    /// <summary>Bascule désactivée : usage.json n'est pas chargé, mais la rétention de 30 jours vaut encore pour ce qui a
-    /// été relevé avant (chemins d'exécutables). Hors du fil d'interface ; rien n'est réécrit s'il n'y a rien à écarter.</summary>
-    private static void PruneStoredHistory(DateTimeOffset now)
+    /// <summary>
+    /// Bascule désactivée : usage.json n'est pas chargé, mais la rétention de 30 jours vaut encore pour ce qui a été relevé
+    /// avant (chemins d'exécutables). Lu hors du fil d'interface ; réécrit par l'écrivain unique, seulement s'il y a
+    /// quelque chose à écarter et si rien n'a chargé ni effacé l'historique entre-temps.
+    /// </summary>
+    private void PruneStoredHistory(DateTimeOffset now)
     {
         string path = AppDataPaths.Current.UsageFile;
-        _ = Task.Run(() =>
+        TimeZoneInfo zone = _time.LocalTimeZone;
+        Task.Run(() => UsageHistory.FromRead(UsageHistoryStore.Read(path), now, zone)).ContinueWith(task =>
         {
+            if (!task.IsCompletedSuccessfully || task.Result is not { ChangedOnLoad: true } pruned) return;
             try
             {
-                UsageHistoryStore.Prune(path, now);
+                _dispatcher.BeginInvoke(() =>
+                {
+                    if (!_disposed && _history is null && !_historyLoading) _writer.Save(pruned.Serialize());
+                });
             }
-            catch (Exception ex)
+            catch
             {
-                CrashLog.Record(ex, "bascule automatique : élagage de l'historique");
+                // interface déjà fermée
             }
-        });
+        }, TaskScheduler.Default);
     }
 
     private void SaveHistory(DateTimeOffset now)

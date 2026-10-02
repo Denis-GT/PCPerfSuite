@@ -62,6 +62,18 @@ public sealed class ProbationWatchTests
     }
 
     [Fact]
+    public void Sur_un_tdr_c_est_le_groupe_a_qui_revient_l_oc_qui_est_suspendu()
+    {
+        ProbationCarry own = ProbationWatch.TdrOwner(Period(gpu: true));
+        ProbationCarry carried = ProbationWatch.TdrOwner(Period(gpu: false, carried: new ProbationCarry("oc", true, false, true, AutoSwitchRequester.Id)));
+
+        Assert.Equal("g1", own.GroupId);
+        Assert.True(own.GpuRaised);
+        Assert.Equal("oc", carried.GroupId);
+        Assert.Equal(AutoSwitchRequester.Id, carried.RequesterId);
+    }
+
+    [Fact]
     public void Un_oc_gpu_repris_d_un_groupe_precedent_est_surveille()
     {
         ProbationInfo period = Period(gpu: false, carried: new ProbationCarry("oc", true, false, true));

@@ -110,7 +110,9 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
       ligne) : la reprise au lancement et le TDR en session visent ce groupe-là. Une période qui ne peut pas être
       écrite laisse la précédente ouverte.
     - Un OC fait de puissance ou de tension seules est un OC partout : `GpuOverclockRaise.IsRaisedProfile`, seule
-      définition pour le générateur, `MatchesSavedGpu` (cinq réglages comparés) et le blocage d'un groupe jumeau.
+      définition pour le générateur, `MatchesSavedGpu` et le blocage d'un groupe jumeau (mêmes décalages relevés ; sans
+      décalage, même puissance et même tension). Une période reprise note aussi le demandeur du groupe repris
+      (`repris-demandeur`) : une bascule reprise par un groupe appliqué à la main reste notée au journal des bascules.
     - Un journal Système illisible pendant la période n'est jamais pris pour « aucun TDR » (`ProbationWatch`) : la
       période est close « non vérifiée » à son terme, et la page le dit.
     - « Régler dans l'onglet » demande la confirmation d'un groupe suspendu, comme « Appliquer » ; la levée d'une
@@ -168,9 +170,10 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
     mesure des images, en plein écran exclusif ou jeu déjà reconnu.
   - usage.json intact mais illisible un instant : rien n'est relevé ni écrit, nouvel essai 5 min plus tard ; l'élagage à
     30 jours a lieu à chaque enregistrement ; « Effacer l'historique » supprime aussi `usage.json.corrupt`. Depuis le
-    02/10/2026 (relecture) : l'élagage a aussi lieu au lancement bascule désactivée (`UsageHistoryStore.Prune`) ; à la
-    lecture, plafonds appliqués à ce que l'app n'a pas écrit (4 Mo, 200 applications, rien de daté dans le futur) ; un
-    saut d'horloge en avant pendant la session n'efface pas l'historique (`RetentionClock`). Une horloge déjà fausse au
+    02/10/2026 (relecture) : l'élagage a aussi lieu au lancement bascule désactivée (par l'écrivain unique) ; à la
+    lecture, plafonds appliqués à ce que l'app n'a pas écrit (4 Mo, 200 applications) ; des données datées après
+    l'heure du lancement disent que l'horloge retarde (pile du BIOS) : rien n'est alors élagué (`UsageHistory.ClockBehind`) ;
+    un saut d'horloge en avant pendant la session n'efface pas l'historique (`RetentionClock`). Une horloge en avance au
     lancement ne se distingue pas d'une vraie absence : la rétention l'emporte.
   - Mode éco, depuis le 02/10/2026 (relecture) : le délai de 5 s ne repart qu'une fois relus tous les groupes demandés
     par la bascule (`EcoSampleGate`) ; l'overlay qui relit la charge CPU chaque seconde ne le fait plus repartir.

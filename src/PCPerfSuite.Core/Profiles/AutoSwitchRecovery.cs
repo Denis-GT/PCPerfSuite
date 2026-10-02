@@ -46,10 +46,10 @@ public sealed class AutoSwitchRecoveryHandler : IStartupRecoveryHandler
 
     public string? Handle(IReadOnlyList<RecoveredEntry> entries)
     {
+        // Le groupe de la ligne, et celui dont elle avait repris l'OC ou les watts : une bascule reprise compte aussi.
         List<ProfileGroupIncidentDecision> decisions = entries
-            .Where(e => IsAutoSwitch(e.Entry))
-            .Select(ProfileGroupIncidentPolicy.Evaluate)
-            .OfType<ProfileGroupIncidentDecision>()
+            .SelectMany(ProfileGroupIncidentPolicy.EvaluateAll)
+            .Where(d => string.Equals(d.RequesterId, AutoSwitchRequester.Id, StringComparison.Ordinal))
             .ToList();
         if (decisions.Count == 0) return null;
 
