@@ -173,6 +173,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _cpuControl, _gpuControl);
         _autoSwitch = new AutoProfileSwitcher(_monitoring, Profiles, _cpu, _gpu, _fans, _tuningLease, Tuning, _cpuControl, _gpuControl,
             platform.HasBattery);
+        Profiles.AttachAutomatic(new AutoProfilesViewModel(_autoSwitch, Profiles));
 
         _compatibilityRows.Add(new ToolboxRowProvider(_toolCatalog));
         _compatibilityRows.Add(new ProfileGroupsRowProvider(() => Profiles.Store, _tuningLease, () => Profiles.DiagnosticStatus));

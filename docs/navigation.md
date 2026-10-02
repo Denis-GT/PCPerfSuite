@@ -63,7 +63,7 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | OC GPU AMD Radeon et Intel Arc vérifié | Régler | GPU (`gpu`) | dans la page | #14 | prévue |
 | Courbes de ventilation | Régler | Ventilateurs (`fans`) | — | existant | livrée |
 | Groupes de profils CPU + GPU + ventilation | Régler | Profils (`profiles`) | sous-onglet **Groupes** | #8 | livrée (expérimental) |
-| Profils automatiques selon l'usage | Régler | Profils (`profiles`) | sous-onglet **Automatique** (espace réservé dans la page livrée) | #9 | prévue |
+| Profils automatiques selon l'usage | Régler | Profils (`profiles`) | sous-onglet **Automatique** (`AutoProfilesViewModel`) | #9 | livrée (expérimental) |
 | OC automatique GPU (sûr, classique, agressif) | Régler | OC automatique (`auto-overclock`) | sous-onglet **GPU** | #15 | bientôt disponible |
 | Curve Optimizer AMD automatique | Régler | OC automatique (`auto-overclock`) | sous-onglet **CPU** | #16 | bientôt disponible |
 | OC de l'écran (fréquence) | Régler | Écrans (`displays`) | — | #17 | bientôt disponible |

@@ -143,6 +143,20 @@ public sealed class ApplicationPublisherCache
         lock (_gate) _queue = _queue.ContinueWith(_ => work(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
     }
 
+    /// <summary>L'éditeur validé d'un exécutable, lu tout de suite (création d'une règle qui l'exige) : à appeler hors du
+    /// fil d'interface. Null si non signé, signature invalide ou fichier illisible ; ne lève jamais.</summary>
+    public static string? ReadPublisher(string path)
+    {
+        try
+        {
+            return VerifyWithAuthenticode(path);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static string? VerifyWithAuthenticode(string path)
     {
         SignatureCheck check = AuthenticodeVerifier.Check(path);

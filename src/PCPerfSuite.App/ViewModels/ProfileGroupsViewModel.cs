@@ -16,7 +16,7 @@ public sealed record ProfileGroupsSection(string Key, string Title);
 
 /// <summary>
 /// Page « Profils » (Régler) : les groupes de profils CPU + GPU + ventilation (#8), appliqués d'un clic, modifiés à la
-/// main ; le sous-onglet « Automatique » attend la bascule selon l'usage (#9).
+/// main ; le sous-onglet « Automatique » montre la bascule selon l'usage (#9, <see cref="AutoProfilesViewModel"/>).
 ///
 /// Seule cette page écrit le bloc ProfileGroups de settings.json (hors suspensions posées au lancement par
 /// <see cref="ProfileGroupRecoveryHandler"/>). Les onglets Processeur, GPU et Ventilateurs restent propriétaires de
@@ -52,16 +52,24 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
     [ObservableProperty] private ProfileGroupsSection selectedSection;
 
-    /// <summary>La bascule automatique selon l'usage (#9), pas encore livrée.</summary>
-    public ComingSoonViewModel Automatic { get; } = new(
-        "Automatique",
-        "La bascule entre trois groupes selon l'usage du PC, en préparation.",
-        new[]
-        {
-            "Trois groupes générés : bureautique, jeu léger, jeu exigeant.",
-            "Bascule selon ce qui tourne au premier plan, désactivable.",
-            "Chaque groupe généré reste modifiable à la main ici, dans « Groupes ».",
-        });
+    /// <summary>Sous-onglet « Automatique » : la bascule selon l'usage (#9), posée par MainViewModel une fois la bascule
+    /// construite (elle dépend de cette page).</summary>
+    public AutoProfilesViewModel? Automatic { get; private set; }
+
+    public void AttachAutomatic(AutoProfilesViewModel automatic)
+    {
+        Automatic = automatic;
+        OnPropertyChanged(nameof(Automatic));
+        UpdateAutomaticShown();
+    }
+
+    /// <summary>Le sous-onglet ne relève en direct que page affichée et sous-onglet choisi.</summary>
+    private void UpdateAutomaticShown()
+    {
+        if (Automatic is { } automatic) automatic.IsPageShown = IsPageShown && SelectedSection?.Key == "auto";
+    }
+
+    partial void OnSelectedSectionChanged(ProfileGroupsSection value) => UpdateAutomaticShown();
 
     public TuningStatusViewModel Tuning { get; }
 
@@ -162,6 +170,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
 
     partial void OnIsPageShownChanged(bool value)
     {
+        UpdateAutomaticShown();
         if (!value) return;
 
         // La première ouverture construit la liste ; chaque ouverture remet les résumés et la conformité à jour (un
@@ -809,6 +818,7 @@ public sealed partial class ProfileGroupsViewModel : ObservableObject, IPageLife
         _cpu.HardwareResynced -= OnHardwareResynced;
         _gpu.HardwareResynced -= OnHardwareResynced;
         _testLease?.Dispose();
+        Automatic?.Dispose();
         DisposeSafety();
     }
 }

@@ -8,7 +8,7 @@
             <controls:PageHeader Title="Profils"
                                  Subtitle="Des groupes de réglages processeur, carte graphique et ventilation, appliqués d'un clic. Un groupe s'enregistre depuis l'état actuel, se compose à partir des profils des onglets, et se modifie à la main. Il passe toujours par les onglets Processeur, GPU et Ventilateurs, avec leurs sécurités : ce qu'il ne peut pas poser ici est dit, avec la raison."/>
 
-            <!-- Sous-onglets : Groupes (#8) et Automatique (#9, à venir). -->
+            <!-- Sous-onglets : Groupes (#8) et Automatique (#9). -->
             <ListBox Style="{StaticResource PillSelector}" ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
                      DisplayMemberPath="Title" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
@@ -344,30 +344,244 @@
                 </Border>
             </StackPanel>
 
-            <!-- ==================== Automatique (#9, à venir) ==================== -->
+            <!-- ==================== Automatique (#9) ==================== -->
             <StackPanel DataContext="{Binding Automatic}"
                         Visibility="{Binding DataContext.SelectedSection.Key, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter=auto}">
-                <Border Style="{StaticResource BadgeAccent}" HorizontalAlignment="Left">
-                    <TextBlock Text="Bientôt disponible" Style="{StaticResource BadgeText}"/>
+
+                <!-- Pas encore vérifié sur une vraie machine (règle 6). -->
+                <Border Style="{StaticResource BadgeWarn}" HorizontalAlignment="Left" Margin="0,0,0,12">
+                    <TextBlock Text="Expérimental : seuils et délais à vérifier sur une vraie machine" Style="{StaticResource BadgeText}"/>
                 </Border>
-                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Body}" Foreground="{StaticResource TextSecondaryBrush}"
-                           TextWrapping="Wrap" Margin="0,10,0,16"/>
+
+                <!-- ============ Interrupteur ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="Bascule automatique" Style="{StaticResource H2}"/>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                     Text="L'app regarde ce qui tourne au premier plan, le plein écran, les charges et les images mesurées par RTSS, puis bascule entre trois groupes : bureautique, jeu léger, jeu exigeant. Un moteur déterministe décide, sans IA générative, et chaque bascule dit pourquoi. À l'activation, les groupes manquants sont générés. Tant qu'elle est désactivée, rien n'est relevé."/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center" IsChecked="{Binding IsEnabled}"/>
+                    </Grid>
+                </Border>
+
+                <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap" Margin="0,0,0,12" Text="{Binding Status, Mode=OneWay}"
+                         Visibility="{Binding Status, Converter={StaticResource NullToVisibility}}"/>
+
+                <!-- Incident après une bascule, signalé au lancement. -->
+                <Border Style="{StaticResource CalloutDanger}" Margin="0,0,0,16"
+                        Visibility="{Binding IncidentText, Converter={StaticResource NullToVisibility}}">
+                    <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap" Text="{Binding IncidentText, Mode=OneWay}"/>
+                </Border>
+
+                <!-- ============ État ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="État" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableBody}" Margin="0,8,0,0" TextWrapping="Wrap" Text="{Binding StateText, Mode=OneWay}"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Content="Reprendre maintenant" Style="{StaticResource AccentButton}" Margin="0,0,8,6" Command="{Binding ResumeCommand}"
+                                    Visibility="{Binding IsPaused, Converter={StaticResource BoolToVisibility}}"/>
+                            <Button Content="Déverrouiller" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Command="{Binding UnlockCommand}"
+                                    Visibility="{Binding IsLocked, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="La bascule reprend ; dans cette session, toute hausse automatique (watts, overclock) reste refusée."/>
+                        </WrapPanel>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding UsageText, Mode=OneWay}"
+                                 Visibility="{Binding UsageText, Converter={StaticResource NullToVisibility}}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding PendingText, Mode=OneWay}"
+                                 Visibility="{Binding PendingText, Converter={StaticResource NullToVisibility}}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding ForegroundText, Mode=OneWay}"
+                                 Visibility="{Binding ForegroundText, Converter={StaticResource NullToVisibility}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ Les trois groupes ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Groupes de la bascule" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 Text="Chaque usage prend le groupe qui porte cet usage (un groupe fait à la main l'emporte sur un groupe généré). Les groupes générés se règlent à la main par « Modifier », comme tout groupe ; « Régénérer » ne touche jamais un groupe modifié à la main. Aucune valeur d'overclock n'est inventée : les groupes de jeu reprennent l'overclock et les watts enregistrés dans les onglets avec « Appliquer au démarrage », en attendant l'OC automatique."/>
+
+                        <Border Style="{StaticResource CalloutWarn}" Margin="0,12,0,0"
+                                Visibility="{Binding RefinementText, Converter={StaticResource NullToVisibility}}">
+                            <TextBox Style="{StaticResource SelectableBody}" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap"
+                                     Text="{Binding RefinementText, Mode=OneWay}"/>
+                        </Border>
+
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Content="Générer / régénérer les groupes" Style="{StaticResource AccentButton}" Margin="0,0,12,6"
+                                    Command="{Binding RegenerateCommand}"/>
+                            <CheckBox Content="Prendre aussi en main les ventilateurs laissés au BIOS" IsChecked="{Binding IncludeBiosFans}"
+                                      VerticalAlignment="Center" Margin="0,0,0,6"
+                                      ToolTip="Décoché : seuls les ventilateurs déjà en courbe ou en manuel dans l'onglet Ventilateurs reçoivent les courbes générées. Sur un portable, seule la ventilation de la carte graphique se règle (contrôleur du constructeur en lecture seule)."/>
+                        </WrapPanel>
+
+                        <ItemsControl ItemsSource="{Binding UsageGroups}" Margin="0,8,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Margin="0,0,12,0">
+                                                    <TextBlock Text="{Binding UsageLabel}" Style="{StaticResource Eyebrow}" FontSize="12"/>
+                                                    <WrapPanel Margin="0,2,0,0">
+                                                        <TextBlock Text="{Binding GroupName}" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                                                        <Border Style="{StaticResource Badge}" Visibility="{Binding Badge, Converter={StaticResource NullToVisibility}}">
+                                                            <TextBlock Text="{Binding Badge}" Style="{StaticResource BadgeText}"/>
+                                                        </Border>
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="Modifier" Style="{StaticResource GhostButton}" VerticalAlignment="Top"
+                                                        Visibility="{Binding HasGroup, Converter={StaticResource BoolToVisibility}}"
+                                                        Command="{Binding DataContext.EditCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding Explanation, Mode=OneWay}"/>
+
+                                            <!-- Suspendu après un incident : lever la suspension demande une confirmation (D6). -->
+                                            <Border Style="{StaticResource CalloutDanger}" Margin="0,8,0,0"
+                                                    Visibility="{Binding IsSuspended, Converter={StaticResource BoolToVisibility}}">
+                                                <StackPanel>
+                                                    <TextBox Style="{StaticResource SelectableBody}" TextWrapping="Wrap" Text="{Binding SuspensionText, Mode=OneWay}"/>
+                                                    <Button Content="Lever la suspension…" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                                            Visibility="{Binding IsConfirmingLift, Converter={StaticResource InverseBoolToVisibility}}"
+                                                            Command="{Binding DataContext.AskLiftSuspensionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <StackPanel Margin="0,8,0,0" Visibility="{Binding IsConfirmingLift, Converter={StaticResource BoolToVisibility}}">
+                                                        <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
+                                                                   Text="Ce groupe a été suivi d'un arrêt anormal, d'un écran bleu ou d'un redémarrage du pilote graphique. La bascule pourra de nouveau le poser, avec ses réglages relevés : si l'incident se reproduit, le PC peut planter à nouveau. Lever la suspension ?"/>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                            <Button Content="Non" Style="{StaticResource AccentButton}" Margin="0,0,8,0" IsDefault="True"
+                                                                    Command="{Binding DataContext.CancelLiftSuspensionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                            <Button Content="Oui, lever la suspension" Style="{StaticResource DangerButton}"
+                                                                    Command="{Binding DataContext.ConfirmLiftSuspensionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ Règles par application ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Règles par application" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 Text="Prioritaires sur la détection : quand cette application est au premier plan, son usage ou son groupe est posé (après 10 s, et gardé 2 min après l'avoir quittée). Par défaut, le chemin complet de l'exécutable compte ; le nom seul sert pour une application qui change de dossier à chaque mise à jour. Exiger l'éditeur écarte un autre programme placé au même chemin."/>
+
+                        <ItemsControl ItemsSource="{Binding Rules}" Margin="0,10,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource InsetTile}" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,12,0">
+                                                <WrapPanel>
+                                                    <TextBlock Text="{Binding Label}" Style="{StaticResource Body}" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                                                    <TextBlock Text="→" Style="{StaticResource Body}" Margin="0,0,8,0"/>
+                                                    <TextBlock Text="{Binding Target}" Style="{StaticResource Body}"/>
+                                                </WrapPanel>
+                                                <TextBox Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Text="{Binding Match, Mode=OneWay}"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Retirer" Style="{StaticResource GhostButton}" VerticalAlignment="Center"
+                                                    Command="{Binding DataContext.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Ajouter une règle" Style="{StaticResource Eyebrow}" FontSize="12" Margin="0,10,0,6"/>
+                        <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding SeenApps}" SelectedItem="{Binding SelectedSeenApp}"
+                                  DisplayMemberPath="Label" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6"
+                                  ToolTip="Les applications vues au premier plan depuis l'activation (historique local, jamais transmis)."/>
+                        <WrapPanel>
+                            <TextBox Style="{StaticResource GlassTextBox}" Width="420" Margin="0,0,8,6"
+                                     Text="{Binding NewRulePath, UpdateSourceTrigger=PropertyChanged}"/>
+                            <Button Content="Parcourir…" Style="{StaticResource GhostButton}" Margin="0,0,8,6" Command="{Binding BrowseCommand}"/>
+                        </WrapPanel>
+                        <WrapPanel>
+                            <CheckBox Content="Nom de l'exécutable seul (dans tout dossier)" IsChecked="{Binding NewRuleNameOnly}" Margin="0,0,18,6" VerticalAlignment="Center"/>
+                            <CheckBox Content="Exiger le même éditeur (signature)" IsChecked="{Binding NewRuleRequirePublisher}" Margin="0,0,18,6" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <WrapPanel>
+                            <ComboBox Style="{StaticResource GlassComboBox}" ItemsSource="{Binding TargetChoices}" SelectedItem="{Binding NewRuleTarget}"
+                                      DisplayMemberPath="Label" MinWidth="240" Margin="0,0,8,6"/>
+                            <Button Content="Ajouter la règle" Style="{StaticResource AccentButton}" Margin="0,0,0,6" Command="{Binding AddRuleCommand}"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ Notification ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,16,0">
+                            <TextBlock Text="Notification à chaque bascule" Style="{StaticResource H2}"/>
+                            <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                     Text="Une bulle discrète près de l'horloge, sans nom d'application. Windows peut la retenir pendant un jeu en plein écran (« Ne pas déranger »). Un verrouillage ou un incident est toujours signalé."/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center" IsChecked="{Binding NotifyEachSwitch}"/>
+                    </Grid>
+                </Border>
+
+                <!-- ============ Journal et historique ============ -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Journal des bascules" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding HistoryText, Mode=OneWay}"/>
+                        <TextBlock Text="Aucune bascule pour l'instant." Style="{StaticResource Caption}" Margin="0,8,0,0"
+                                   Visibility="{Binding Journal.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                        <ItemsControl ItemsSource="{Binding Journal}" Margin="0,8,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBox Style="{StaticResource SelectableCaption}" TextWrapping="Wrap" Margin="0,0,0,4" Text="{Binding Mode=OneWay}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Content="Effacer l'historique…" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                Command="{Binding AskClearHistoryCommand}"
+                                Visibility="{Binding IsConfirmingClear, Converter={StaticResource InverseBoolToVisibility}}"/>
+                        <StackPanel Margin="0,8,0,0" Visibility="{Binding IsConfirmingClear, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
+                                       Text="Effacer le temps passé par usage, les températures relevées, les applications vues et ce journal ? Les groupes et les règles restent. Cela ne peut pas être annulé."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Non" Style="{StaticResource AccentButton}" Margin="0,0,8,0" IsDefault="True" Command="{Binding CancelClearHistoryCommand}"/>
+                                <Button Content="Oui, effacer" Style="{StaticResource DangerButton}" Command="{Binding ConfirmClearHistoryCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ À la fermeture ============ -->
                 <Border Style="{StaticResource Card}">
-                    <ItemsControl ItemsSource="{Binding Bullets}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Ellipse Grid.Column="0" Width="6" Height="6" Fill="{StaticResource AccentBrush}"
-                                             VerticalAlignment="Top" Margin="2,7,10,0"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding}" Style="{StaticResource Body}" TextWrapping="Wrap"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel>
+                        <TextBlock Text="À la fermeture" Style="{StaticResource H2}"/>
+                        <TextBox Style="{StaticResource SelectableCaption}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding ClosingNote, Mode=OneWay}"/>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </StackPanel>
