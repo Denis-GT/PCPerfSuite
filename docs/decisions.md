@@ -148,6 +148,8 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   - Fermeture : `AutoProfileSwitcher.Stop` en tête (plus de bascule, écriture lancée sans attendre),
     `AutoProfileSwitcher.Dispose` en tout dernier (attente de l'écriture, 2 s au plus).
   - Les signaux absents (charge GPU jamais lue, aucune image RTSS) sont dits dans la page et dans la ligne du diagnostic.
+  - Point à confirmer ci-dessus, soumis à Denis le 02/10/2026 sans préférence de sa part : on garde « Appliquer au
+    démarrage » décoché après un incident qui suit une bascule, même cochée par l'utilisateur (prudence par défaut).
 - **Cause d'une absence** (#4) : une lecture « N/D » porte un `Unavailable` (`UnavailableCause` : `HardwareOrDriver`,
   `UnsupportedModel`, `MissingRights`, `src/PCPerfSuite.Core/Compatibility/UnavailableCause.cs`) et un texte, pour que
   le diagnostic (#12) range ce qui n'est pas mesurable sans réinventer les trois causes de la règle 3.
