@@ -90,6 +90,10 @@ public sealed class AppSettings
     /// plan, puis « réglage/ac|dc » (voir <see cref="ProfileGroupPowerPlanChanges"/>, seul à l'écrire). Une clé
     /// présente veut dire : modifié par un groupe, à rendre par « Tout rétablir ».</summary>
     public Dictionary<string, Dictionary<string, uint>> ProfileGroupPowerOrigins { get; set; } = new();
+
+    /// <summary>Bascule automatique de profils selon l'usage (sous-onglet Profils › Automatique). L'historique d'usage
+    /// vit à part, dans usage.json.</summary>
+    public AutoSwitchSettings AutoSwitch { get; set; } = new();
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>
