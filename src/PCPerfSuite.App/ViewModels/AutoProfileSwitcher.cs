@@ -703,7 +703,12 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         }
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Arrêt, en tête de la fermeture : plus aucune bascule ni relevé, et l'historique part à l'écrivain sans attendre (le
+    /// retour des ventilateurs, de l'OC et des watts passe avant). L'attente de l'écriture est dans <see cref="Dispose"/>,
+    /// appelé en dernier.
+    /// </summary>
+    public void Stop()
     {
         if (_disposed) return;
         _disposed = true;
@@ -716,6 +721,12 @@ public sealed class AutoProfileSwitcher : IBackgroundSensorConsumer, IDisposable
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
 
         SaveHistory(_time.GetUtcNow());
+    }
+
+    /// <summary>Fin de la fermeture : attend au plus <see cref="FlushTimeout"/> que l'historique soit écrit.</summary>
+    public void Dispose()
+    {
+        Stop();
         _writer.Flush(FlushTimeout);
     }
 }

@@ -113,8 +113,10 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
    `IBackgroundSensorConsumer` et ajoute-la au tableau d'`UpdateEcoMode`. Sinon, sors tout de suite de ton abonné si
    `MonitoringViewModel.IsBackgroundMode`.
 7. **Fermeture** : si le ViewModel est `IDisposable`, ajoute-le à `MainViewModel.Dispose` par `DisposeSafely`, à sa
-   place dans l'ordre imposé : Processus et Installations d'abord, puis le relevé (Monitoring), les ventilateurs, le
-   GPU, le CPU, l'overlay, et enfin les services (GPU, CPU, capteurs). Ne réordonne pas les étapes existantes.
+   place dans l'ordre imposé : l'arrêt de la bascule automatique (`AutoProfileSwitcher.Stop`, pour qu'aucun groupe ne
+   soit plus appliqué), puis Processus et Installations, le relevé (Monitoring), les ventilateurs, le GPU, le CPU,
+   l'overlay, les services (GPU, CPU, capteurs), et en tout dernier l'attente d'écriture de l'historique de la bascule
+   (`AutoProfileSwitcher.Dispose`) : rien de lent avant le retour du matériel. Ne réordonne pas les étapes existantes.
 8. **Diagnostic** : les lignes de la fonction viennent d'un fournisseur `ICompatibilityRowProvider`, rangé dans le
    dossier de la fonction et ajouté à `MainViewModel._compatibilityRows`, jamais d'une méthode de
    `CompatibilityViewModel`.

@@ -288,8 +288,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // de l'overclock/des limites) sont les plus critiques de cette liste, et une exception dans une
         // étape antérieure (ex. _processes) ne doit jamais les empêcher de s'exécuter.
         // La bascule automatique s'arrête en tête : plus aucune application de groupe pendant que le relevé, les
-        // ventilateurs, le GPU et le CPU se ferment.
-        DisposeSafely(_autoSwitch.Dispose, nameof(_autoSwitch));
+        // ventilateurs, le GPU et le CPU se ferment. Son historique part sans attendre ; l'écriture est attendue en
+        // dernier.
+        DisposeSafely(_autoSwitch.Stop, nameof(_autoSwitch));
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
         DisposeSafely(Toolbox.Dispose, nameof(Toolbox));
@@ -307,6 +308,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DisposeSafely(_gpuControl.Dispose, nameof(_gpuControl));
         DisposeSafely(_cpuControl.Dispose, nameof(_cpuControl));
         DisposeSafely(_hardware.Dispose, nameof(_hardware));
+
+        // En dernier : l'enregistrement de l'historique de la bascule, une fois le matériel rendu (au plus 2 s).
+        DisposeSafely(_autoSwitch.Dispose, nameof(_autoSwitch));
 
         if (_hardware.FanReleaseProblem is { } problem)
         {
