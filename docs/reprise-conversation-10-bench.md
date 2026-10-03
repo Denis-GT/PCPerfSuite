@@ -137,23 +137,47 @@ Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatis
 - Tests (verts, 18) : `MemoryBenchTests.cs` (tranches, dimensionnement et bornes, noyaux : somme attendue, copie
   recopiée, graine, cycle unique masqué et vérifiable, runner : débit, latence, refus, annulation, distributeur).
 
+### Commit 4 (poussé) : `feat(F1): bench disque, volumes et fichier de test`
+
+- `Benchmark/Disk/DiskBenchPlan.cs` (pur) : `DiskPhase` (profil, opération, bloc, file, aléatoire, durée, `MaxBytes`,
+  `MeasurementKey` = `<profil>.lecture|.ecriture`, `ReportsIops` ≤ 64 Ko), `DiskBenchPlan.Create(taille, secteur,
+  phaseSeconds, hdd, budget)` : seq1m-q8, seq1m-q1, alea4k-q32, alea4k-q1, lecture puis écriture ; HDD = files de 1 ;
+  taille alignée au Mo (≥ 8 Mo), blocs ≥ secteur ; budget par défaut 4 × (préremplissage 1 ×, séq 1 × par phase, aléa
+  0,5 ×), un budget plus court réduit les écritures au prorata, jamais sous le préremplissage ; `SliceSeconds = 1` ;
+  `LooksLikeCacheExhaustion(tranches)` (dernier tiers < moitié du premier → cache SLC).
+- `Benchmark/Disk/VolumeDevice.cs` : `Read("X:")` → `VolumeDeviceInfo` (secteurs logique/physique, numéro de disque,
+  pénalité de recherche) par `IOCTL_STORAGE_QUERY_PROPERTY` (AccessAlignment, SeekPenalty) et
+  `IOCTL_STORAGE_GET_DEVICE_NUMBER` sur `\.\X:` ouvert sans droit d'accès (pas d'administrateur requis) ; parseurs purs ;
+  `SectorBytes` = physique, sinon logique, sinon 4 096 ; `NormalizeLetter`.
+- `Benchmark/Disk/BenchVolume.cs` : `BenchVolume` (lettre, nom, format, type, tailles, système, `Device`, `Disk`
+  `PhysicalDiskInfo?`, BitLocker, `Unavailable`), `IsRotational` = pénalité de recherche sinon média WMI, `Describe()` ;
+  `BenchVolumeRules.Judge` (pur : fixe ou amovible, prêt, NTFS/ReFS/exFAT ; réseau, optique, RAM, FAT32 écartés avec la
+  raison), `SupportsAcl` ; `BenchVolumeReader.Read()`/`ReadAsync` (DriveInfo + IOCTL + MSFT_PhysicalDisk +
+  `Win32_EncryptableVolume` best-effort), système d'abord.
+- `Hardware/DiskHealthService.cs` : `PhysicalDiskInfo` (DeviceId, FriendlyName, BusType, MediaType, secteurs ;
+  `IsRotational`, `Describe()`), `PhysicalDiskLabels` (codes MSFT_PhysicalDisk → libellés),
+  `ReadPhysicalDiskInfo(deviceNumber)` statique + `ReadPhysicalDiskInfoAsync`. `ProgramDataFolder.BenchFolderName = "Bench"`.
+- `Benchmark/Disk/DiskTestFile.cs` : `test-disque.bin` ; système → `ProgramDataFolder.TryEnsure("Bench")` ; autre volume
+  NTFS/ReFS → `TryEnsure(@"X:\PCPerfSuite.Bench", [])` (ACL administrateurs) ; exFAT → dossier simple, lien refusé ;
+  `RequiredFreeBytes` = 1,1 × taille + 512 Mo ; `Prepare(volume, taille)` → `DiskTestFilePlacement` (chemin, notes,
+  `Unavailable`) avec suppression d'un fichier restant (`TryDeleteStale`, jamais un lien) ; `TryDeleteOnVolume` pour la
+  reprise ; `ClampFileBytes` (pas de 256 Mo, [256 Mo, 8 Go]).
+- `Benchmark/Disk/DiskBenchRunner.cs` : `File.OpenHandle(CreateNew, Asynchronous | 0x20000000, preallocationSize)`,
+  `RandomAccess.ReadAsync/WriteAsync`, tampons `AlignedBuffer` 4 Ko exposés en `Memory<byte>` (`AlignedBuffer.AsMemory`,
+  `MemoryManager` natif), pool de 16 blocs aléatoires de 1 Mo en rotation, préremplissage séquentiel Q8 mesuré
+  (`preremplissage`), puis les phases : `QueueDepth` E/S en vol (`Task.WhenAny`), tranches de 1 s → mesures en **Mo/s
+  décimaux** (médiane/CV sur les tranches) + `.iops` pour le 4 Ko ; budget respecté par phase ; annulation → « arrêté » ;
+  **suppression en `finally` du seul fichier créé par le runner** (un fichier déjà là est refusé et laissé : défaut
+  trouvé par le test) ; notes (fichier-mo, secteur-o, budget-ecrit-mo, ecrit-mo, disque-a-plateaux, e-s, donnees,
+  cache-slc, fichier-supprime, unite). Branché dans `BenchJobDispatcher`.
+- Tests (verts, 37) : `DiskBenchTests.cs` (plan SSD/HDD, alignements, budget réduit, refus, cache SLC ; fichier de test :
+  espace, dossier, pas de taille, volume écarté/plein, fichier restant ; règles des volumes, description, inventaire de
+  ce PC ; décodage IOCTL, lettre normalisée, volume système de ce PC ; libellés WMI ; runner sur un vrai fichier de 16 Mo
+  dans %TEMP% : 13 mesures, fichier supprimé, HDD 7 mesures, fichier déjà là refusé et laissé, annulation, refus,
+  distributeur).
+
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 
-4. **Bench disque** (`Benchmark/Disk/`) : `DiskBenchPlan` (pur : phases façon CrystalDiskMark séq 1 Mo Q8/Q1, aléa 4 Ko
-   Q32/Q1, lecture puis écriture, 5 s chacune ; alignement sur `SectorBytes` ; budget écrit 4 × taille : préremplissage
-   1 ×, séq ≤ 1 × par phase, aléa ≤ 0,5 × ; HDD raccourci = Q1 seulement ; CV sur tranches de 1 s, une passe par profil),
-   `DiskTestFile` (dossier `%ProgramData%\PCPerfSuite\Bench` par `ProgramDataFolder.TryEnsure("Bench")` sur le volume
-   système, sinon `<X>:\PCPerfSuite.Bench\` par l'overload interne `TryEnsure(root, segments)` ; `CreateNew`, nom fixe
-   `test-disque.bin`, espace libre exigé = taille × 1,1 + 512 Mo, `DeleteStale()`), `DiskBenchRunner`
-   (`File.OpenHandle(FileOptions.Asynchronous | (FileOptions)0x20000000)`, `RandomAccess.ReadAsync/WriteAsync`, tampons
-   alignés page, préremplissage aléatoire intégral avant lecture, pas de `SetFileValidData`, Mo/s et IOPS, clés
-   `seq1m-q8.lecture`… + `.iops` pour le 4 Ko, suppression en `finally`), `PhysicalSectorSize`
-   (`IOCTL_STORAGE_QUERY_PROPERTY` StorageAccessAlignmentProperty sur `\\.\X:`, repli 4096 ; `IOCTL_STORAGE_GET_DEVICE_NUMBER`),
-   `BenchVolumeReader` + `BenchVolume` (`DriveInfo` Fixed/Removable, NTFS/ReFS/exFAT, libre/total, système, amovible,
-   BitLocker par `Win32_EncryptableVolume.ProtectionStatus` best-effort, BusType/MediaType), ajout à
-   `Hardware/DiskHealthService.cs` de `ReadPhysicalDiskInfoAsync(deviceNumber)` → `PhysicalDiskInfo(DeviceId,
-   FriendlyName, BusType, MediaType, PhysicalSectorSize, LogicalSectorSize)` + libellés (réutilisable par #19), constante
-   `ProgramDataFolder.BenchFolderName = "Bench"`. Tests `DiskBenchPlanTests`.
 5. **Protocole commun, sécurité, reprise** (`Benchmark/Session/`, `Benchmark/`) : `BenchPreconditions` (pur : secteur /
    batterie %, charge de fond < 5 % sur 10 s `BackgroundLoadWindow`, raisons d'indisponibilité par test, règles 1-3),
    `PowerModeReader` (`PowerGetEffectiveOverlayScheme` → libellé ; plan actif par `PowerPlanValues.Instance.ActiveScheme()`

@@ -39,6 +39,9 @@ public static class ProgramDataFolder
     /// fichiers vérifiés avant d'être remis à l'utilisateur).</summary>
     public const string WorkFolderName = "Installations";
 
+    /// <summary>Sous-dossier du fichier de test du bench disque (#10), quand il va sur le volume système.</summary>
+    public const string BenchFolderName = "Bench";
+
     /// <summary>Dernier catalogue d'outils accepté, sa signature, et le plus haut numéro accepté (plancher contre un retour
     /// en arrière) : ici parce que seuls les administrateurs peuvent les modifier, pour tous les comptes du PC.</summary>
     public const string CatalogCacheFileName = "catalogue-outils.json";

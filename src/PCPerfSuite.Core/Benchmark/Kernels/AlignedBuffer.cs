@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 
 namespace PCPerfSuite.Core.Benchmark.Kernels;
@@ -51,6 +52,39 @@ public sealed unsafe class AlignedBuffer : IDisposable
         long bytes = (long)count * sizeof(T);
         if (byteOffset < 0 || bytes < 0 || byteOffset + bytes > Length) throw new ArgumentOutOfRangeException(nameof(count));
         return new Span<T>(Pointer + byteOffset, count);
+    }
+
+    /// <summary>Le tampon entier vu comme <see cref="Memory{T}"/> (pour les E/S asynchrones de RandomAccess) ; le tampon
+    /// doit tenir dans un int. Les tranches gardent l'alignement de leur offset.</summary>
+    public Memory<byte> AsMemory()
+    {
+        if (Length > int.MaxValue) throw new InvalidOperationException("Tampon trop grand pour Memory<byte>.");
+        return new NativeMemoryManager(Pointer, (int)Length).Memory;
+    }
+
+    /// <summary>Mémoire native vue comme <see cref="Memory{T}"/> : rien à épingler, elle ne bouge pas.</summary>
+    private sealed class NativeMemoryManager : MemoryManager<byte>
+    {
+        private readonly byte* _pointer;
+        private readonly int _length;
+
+        public NativeMemoryManager(byte* pointer, int length)
+        {
+            _pointer = pointer;
+            _length = length;
+        }
+
+        public override Span<byte> GetSpan() => new(_pointer, _length);
+
+        public override MemoryHandle Pin(int elementIndex = 0) => new(_pointer + elementIndex);
+
+        public override void Unpin()
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+        }
     }
 
     public void Dispose()

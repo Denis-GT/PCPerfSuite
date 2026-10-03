@@ -21,6 +21,64 @@ public sealed class DiskHealthReport
     public string? ErrorMessage { get; init; }
 }
 
+/// <summary>Disque physique vu par Windows Storage Management (MSFT_PhysicalDisk) : bus et média en codes bruts, avec
+/// leurs libellés (<see cref="PhysicalDiskLabels"/>). Null = non fourni.</summary>
+public sealed record PhysicalDiskInfo(string DeviceId, string? FriendlyName, int? BusType, int? MediaType, int? PhysicalSectorSize, int? LogicalSectorSize)
+{
+    public string BusTypeLabel => PhysicalDiskLabels.BusType(BusType);
+
+    public string MediaTypeLabel => PhysicalDiskLabels.MediaType(MediaType);
+
+    /// <summary>Vrai pour un disque à plateaux, faux pour un SSD ou une mémoire persistante, null si non dit.</summary>
+    public bool? IsRotational => MediaType switch { 3 => true, 4 or 5 => false, _ => null };
+
+    /// <summary>« NVMe SSD », « SATA HDD », « USB (média non dit) ».</summary>
+    public string Describe()
+    {
+        string bus = BusTypeLabel;
+        string media = MediaTypeLabel;
+        return media == PhysicalDiskLabels.Unknown ? $"{bus} (média non dit)" : $"{bus} {media}";
+    }
+}
+
+/// <summary>Libellés des codes MSFT_PhysicalDisk, en logique pure.</summary>
+public static class PhysicalDiskLabels
+{
+    public const string Unknown = "inconnu";
+
+    public static string BusType(int? code) => code switch
+    {
+        1 => "SCSI",
+        2 => "ATAPI",
+        3 => "ATA",
+        4 => "IEEE 1394",
+        5 => "SSA",
+        6 => "Fibre Channel",
+        7 => "USB",
+        8 => "RAID",
+        9 => "iSCSI",
+        10 => "SAS",
+        11 => "SATA",
+        12 => "SD",
+        13 => "MMC",
+        14 => "virtuel",
+        15 => "virtuel (fichier)",
+        16 => "Storage Spaces",
+        17 => "NVMe",
+        18 => "SCM",
+        19 => "UFS",
+        _ => Unknown,
+    };
+
+    public static string MediaType(int? code) => code switch
+    {
+        3 => "HDD",
+        4 => "SSD",
+        5 => "SCM",
+        _ => Unknown,
+    };
+}
+
 /// <summary>
 /// Vérifie l'état de santé d'un disque via l'API Windows Storage Management (root\Microsoft\Windows\Storage) —
 /// le même mécanisme que "Optimiser les lecteurs"/Gestion des disques dans Windows, indépendant du
@@ -33,6 +91,45 @@ public sealed class DiskHealthService
     /// pour un appariement par numéro de disque physique quand le nom seul ne suffit pas ou est vide.</param>
     public Task<DiskHealthReport> CheckAsync(string driveName, string? hardwareIdentifier = null, CancellationToken ct = default)
         => Task.Run(() => Check(driveName, hardwareIdentifier), ct);
+
+    /// <summary>Bus, type de média et secteurs du disque physique n° <paramref name="deviceNumber"/>
+    /// (\\.\PhysicalDriveN = MSFT_PhysicalDisk.DeviceId hors Storage Spaces). Pour le bench (#10) et le gestionnaire de
+    /// disques (#19). Lent (WMI) : hors du fil d'interface.</summary>
+    public Task<PhysicalDiskInfo?> ReadPhysicalDiskInfoAsync(int deviceNumber, CancellationToken ct = default)
+        => Task.Run(() => ReadPhysicalDiskInfo(deviceNumber), ct);
+
+    /// <summary>Lecture synchrone de <see cref="ReadPhysicalDiskInfoAsync"/>. Best-effort : null si WMI ne répond pas ou ne
+    /// connaît pas ce disque.</summary>
+    public static PhysicalDiskInfo? ReadPhysicalDiskInfo(int deviceNumber)
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(@"root\Microsoft\Windows\Storage",
+                $"SELECT DeviceId, FriendlyName, BusType, MediaType, PhysicalSectorSize, LogicalSectorSize FROM MSFT_PhysicalDisk WHERE DeviceId = '{deviceNumber}'");
+            foreach (ManagementBaseObject item in searcher.Get())
+            {
+                using var disk = (ManagementObject)item;
+                return new PhysicalDiskInfo(
+                    System.Convert.ToString(disk["DeviceId"]) ?? deviceNumber.ToString(),
+                    disk["FriendlyName"] as string,
+                    TryConvertInt32(disk["BusType"]),
+                    TryConvertInt32(disk["MediaType"]),
+                    TryConvertInt32(disk["PhysicalSectorSize"]),
+                    TryConvertInt32(disk["LogicalSectorSize"]));
+            }
+        }
+        catch
+        {
+            // Best-effort : sans Windows Storage Management, le bench dit « disque physique non lu ».
+        }
+        return null;
+    }
+
+    private static int? TryConvertInt32(object? value)
+    {
+        if (value is null) return null;
+        try { return System.Convert.ToInt32(value); } catch { return null; }
+    }
 
     private static DiskHealthReport Check(string driveName, string? hardwareIdentifier)
     {
