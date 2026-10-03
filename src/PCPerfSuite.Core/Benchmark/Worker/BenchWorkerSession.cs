@@ -10,7 +10,7 @@ namespace PCPerfSuite.Core.Benchmark.Worker;
 /// et fait échouer le test en cours. Un arrêt demandé laisse <see cref="StopGracePeriod"/> au worker pour rendre son
 /// résultat partiel, puis le tue.
 /// </summary>
-public sealed class BenchWorkerSession : IDisposable
+public sealed class BenchWorkerSession : Session.IBenchWorker
 {
     public static readonly TimeSpan WorkerSilenceTimeout = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMilliseconds(500);

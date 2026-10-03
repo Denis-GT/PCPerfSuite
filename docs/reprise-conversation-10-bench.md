@@ -176,27 +176,48 @@ Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatis
   dans %TEMP% : 13 mesures, fichier supprimé, HDD 7 mesures, fichier déjà là refusé et laissé, annulation, refus,
   distributeur).
 
+### Commit 5 (poussé) : `feat(F1): protocole commun, securite et reprise du bench`
+
+`src/PCPerfSuite.Core/Benchmark/Session/` :
+- `BenchPreconditions.cs` : `BackgroundLoadWindow` (pur : fenêtre 10 s, calme < 5 % en moyenne, `Describe`),
+  `BenchPreconditions.Evaluate(inputs)` → `BenchPreconditionReport` (par test : `Unavailable?` ; sur batterie autorisé
+  mais `IsRepresentative` faux ; batterie < 30 % ou worker non lançable → rien ne part ; raisons propres RAM/disque).
+- `PowerModeReader.cs` : `PowerGetEffectiveOverlayScheme` (libellés Équilibré / Meilleure efficacité / Meilleures
+  performances / Performances élevées) + plan actif par `IPowerPlanValues`.
+- `BenchThermalPolicy.cs` : `Resolve(platform, topology, tjMax)` → `BenchThermalLimits` (Intel = TjMax lu, sinon 98 ;
+  AMD Zen 4/5 = 98 ; X3D (L3 mixtes ou « X3D ») = 93 ; inconnu = 98 ; 10 s tenues, perte 10 s) ; `CreateGuard()` =
+  `ThermalGuard` de #2.
+- `BenchSafetyMonitor.cs` : `BenchSafetySample.From(snapshot, at)` (paquet sinon cœur max, ventilateur `FanCategory.Cpu`,
+  batterie %), `Note(sample, underLoad)` → thermique / ventilateur CPU à 0 pendant 10 s sous charge / batterie < 30 % sur
+  batterie / perte ; `NoteNoReading(now)` ; `BenchStopReason` + `Label`.
+- `IdleReturn.cs` : ±3 °C de la base, 60 s max, 10 s fixes sans température.
+- `SensorRecording.cs` : dédoublonnage par `CapturedAtUtc`, séries 1 Hz (cpu-temp, cpu-puissance, cpu-frequence,
+  cpu-charge, gpu-temp, gpu-puissance, ventilateur-cpu, batterie), `ThrottleTally` (#4), `RecordingCadence` (relevés,
+  intervalle moyen, trou max, relevés sans le groupe CPU : l'affamement par le worker High se mesure là).
+- `BenchContextReader.cs` : `BenchContext` (CPU, topologie, RAM, GPU, machine, Windows, app, runtime, admin, limites
+  CPU/GPU, ventilation (texte de l'app), mode constructeur **null + raison**, `PcieLink` **null + raison « à venir (#4) »**,
+  mode d'alimentation, problèmes) ; `AppVersion()`.
+- `ProcessPriorityScope.cs` : priorité de l'app relevée (High) le temps d'un test, rendue ensuite.
+- `BenchSession.cs` : `IBenchWorker` (implémentée par `BenchWorkerSession`), `BenchTestPlan`, `BenchSessionPlan`,
+  `BenchSessionPorts` (StartWorker, Lease, Journal, Time, SubscribeSnapshots, RequestCadence, RaisePriority,
+  LastSnapshot), `RunAsync` : bail `TryAcquire("bench", "le bench", "mesure en cours")` toute la session (refus →
+  `LeaseRefusal`), bail de cadence, abonnement capteurs, worker (relancé s'il meurt), température de départ ; par test :
+  `Journal.Begin("bench", <clé>, valeurs)` (non durable → test non commencé), priorité relevée, veille de sécurité
+  toutes les 500 ms (relevés horodatés à leur **capture**, perte à l'horloge de la session), annulation du test puis
+  `Kill` si le worker ne rend pas la main, `Complete`/`Fail`, retour au repos avant le suivant ; `BenchTestOutcome`,
+  `BenchSessionOutcome`.
+- `BenchRecoveryHandler.cs` : `IStartupRecoveryHandler` (étape `Bench`, composant `bench`) : « bench interrompu : <test> »
+  (Interrupted, CleanShutdown) ou « arrêt brutal pendant le bench (<qualification>) : <test> » ; pour `disque`, supprime
+  `test-disque.bin` du volume des valeurs (`volume` = lettre sans deux-points, `systeme` oui/non) via
+  `DiskTestFile.TryDeleteOnVolume` ; jamais de chemin dans la note. Inscrit dans `StartupRecoveryHandlers.cs`.
+
+Tests (verts) : `BenchSessionLogicTests.cs` (fenêtre de charge, préconditions, politique thermique, moniteur de sécurité,
+retour au repos, enregistrement, mode d'alimentation, contexte, priorité, gestionnaire de reprise) et
+`BenchSessionTests.cs` (faux worker, faux capteurs, horloge manuelle : deux tests et leurs lignes au journal, bail refusé,
+arrêt thermique → ligne échouée et suivants sautés, annulation, journal non écrit, worker non lancé, retour au repos).
+
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 
-5. **Protocole commun, sécurité, reprise** (`Benchmark/Session/`, `Benchmark/`) : `BenchPreconditions` (pur : secteur /
-   batterie %, charge de fond < 5 % sur 10 s `BackgroundLoadWindow`, raisons d'indisponibilité par test, règles 1-3),
-   `PowerModeReader` (`PowerGetEffectiveOverlayScheme` → libellé ; plan actif par `PowerPlanValues.Instance.ActiveScheme()`
-   + `FriendlyName`), `BenchThermalPolicy` (pur : Intel = TjMax de `CpuThrottle.TjMaxC` tenu 10 s ; AMD Zen 4/5 (famille
-   0x19 modèle ≥ 0x60, 0x1A) = 98 °C ; X3D (`HasMixedL3Sizes` ou nom « X3D ») = 93 °C ; inconnu = 98 °C ; `ThermalGuard`
-   de #2 avec `lossDelay` 10 s), `BenchSafetyMonitor` (pur : thermique, ventilateur `FanCategory.Cpu` à 0 tr/min 10 s
-   sous charge, batterie < 30 %, perte de relevé → `StopReason`), `IdleReturn` (±3 °C de la base, 60 s max),
-   `SensorRecording` (dédoublonnage par `CapturedAtUtc`, `GroupsRead`, séries 1 Hz, bridage compté, cadence obtenue :
-   ticks et trou max), `BenchContextReader` (CPU `CpuPlatform` + topologie, RAM, GPU, `MachineInfo`, Windows, app,
-   runtime, limites CPU `CpuControlService.ReadPowerLimits`, limite GPU `GpuControlService.GetSnapshot()?.PowerLimitPercent`,
-   ventilation (texte fourni par l'app), mode constructeur null + raison, `PcieLink` null), `BenchSession` (orchestrateur
-   à ports : bail `TuningLease.TryAcquire("bench", "le bench", "mesure en cours")` tenu toute la session, une
-   `SessionJournal.Current.Begin("bench", "<cpu-mono|…>", {volume, taille-mo})` par test, priorité de l'app relevée à
-   High pendant un test (parade au worker High), bail de cadence `HardwareMonitorService.RequestCadence("bench", 250 ms,
-   [Cpu, CpuLoad, Motherboard, Battery])`, retour au repos entre tests), `BenchRecoveryHandler` (`IStartupRecoveryHandler`,
-   `RecoveryStage.Bench`, composant `bench` ; note « bench interrompu » pour Interrupted/CleanShutdown, « arrêt brutal
-   pendant le bench (…) » pour PowerLoss/BlueScreen/ForcedShutdown/UnexpectedShutdown/Unknown ; supprime
-   `test-disque.bin` du volume noté dans les valeurs ; jamais de chemin dans la note), inscription dans
-   `src/PCPerfSuite.App/StartupRecoveryHandlers.cs`. Tests sur chaque classe pure (+ handler avec `TempDirectory`).
 6. **Résultats et page** : `Results/BenchSessionResult.cs` (JSON v1, `[JsonExtensionData]` partout : contexte,
    BenchVersion, runtime, par test unités + points + CV + instable + séries + bridage + préconditions + `IsComparable`),
    `Results/BenchResultStore.cs` (un fichier `bench\<horodatage>.json` sous `AppDataPaths.BenchFolder`, lecture tolérante),

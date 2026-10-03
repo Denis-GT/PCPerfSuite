@@ -1,3 +1,4 @@
+using PCPerfSuite.Core.Benchmark.Session;
 using PCPerfSuite.Core.Profiles;
 using PCPerfSuite.Core.Safety;
 
@@ -13,6 +14,9 @@ internal static class StartupRecoveryHandlers
 {
     public static IReadOnlyList<IStartupRecoveryHandler> Create() =>
     [
+        // Bench (#10) : note le test interrompu et supprime le fichier du test disque resté sur son volume.
+        new BenchRecoveryHandler(),
+
         // Groupes de profils (#8) : suspend un groupe suivi d'un incident, et décoche « Appliquer au démarrage ».
         new ProfileGroupRecoveryHandler(),
 
@@ -20,7 +24,6 @@ internal static class StartupRecoveryHandlers
         // est suspendu par le gestionnaire des groupes), pour prévenir au lancement.
         new AutoSwitchRecoveryHandler(),
 
-        // Les recherches d'OC (#15, #14), l'essai d'écran (#17), le test combiné (#11) et le bench (#10) inscriront ici
-        // leur gestionnaire.
+        // Les recherches d'OC (#15, #14), l'essai d'écran (#17) et le test combiné (#11) inscriront ici leur gestionnaire.
     ];
 }
