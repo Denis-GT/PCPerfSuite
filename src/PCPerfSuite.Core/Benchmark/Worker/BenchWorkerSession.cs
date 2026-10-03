@@ -63,10 +63,13 @@ public sealed class BenchWorkerSession : IDisposable
     {
         using var timeoutCancel = CancellationTokenSource.CreateLinkedTokenSource(cancel);
         timeoutCancel.CancelAfter(timeout);
-        var channel = new BenchLineChannel(server);
+        // Le canal n'est créé qu'une fois le tube connecté : son écrivain vide son tampon dès la construction, ce qu'un
+        // tube serveur encore en attente refuse.
+        BenchLineChannel? channel = null;
         try
         {
             await server.WaitForConnectionAsync(timeoutCancel.Token).ConfigureAwait(false);
+            channel = new BenchLineChannel(server);
             string? line = await channel.ReadLineAsync(timeoutCancel.Token).ConfigureAwait(false);
             BenchMessage? hello = BenchMessageCodec.TryDecode(line, out string? problem);
             if (hello is null) throw new InvalidOperationException($"bonjour du worker illisible : {problem}");
@@ -84,16 +87,22 @@ public sealed class BenchWorkerSession : IDisposable
         }
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
         {
-            channel.Close();
+            CloseQuietly(channel, server);
             KillQuietly(process, job);
             throw new TimeoutException($"le worker ne s'est pas connecté en {timeout.TotalSeconds:0} s");
         }
         catch (Exception)
         {
-            channel.Close();
+            CloseQuietly(channel, server);
             KillQuietly(process, job);
             throw;
         }
+    }
+
+    private static void CloseQuietly(BenchLineChannel? channel, Stream server)
+    {
+        if (channel is not null) channel.Close();
+        else try { server.Dispose(); } catch (Exception) { /* déjà fermé */ }
     }
 
     /// <summary>Un test ; un seul à la fois. Une annulation demande l'arrêt au worker, puis le tue passé le délai de grâce.</summary>

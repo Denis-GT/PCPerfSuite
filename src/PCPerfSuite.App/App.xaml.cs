@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using PCPerfSuite.App.Utils;
+using PCPerfSuite.Core.Benchmark.Worker;
 using PCPerfSuite.Core.Safety;
 using PCPerfSuite.Core.Safety.Events;
 using PCPerfSuite.Core.SystemInfo;
@@ -36,6 +37,21 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Modes secondaires de l'exe (décision D2) : lus avant le mutex d'instance unique et avant toute lecture du
+        // dossier de données. Un argument inconnu est refusé sans fenêtre ; le worker de bench ne prend ni mutex (il
+        // cohabite avec l'app qui l'a lancé), ni fenêtre, ni reprise au démarrage.
+        SecondaryMode mode = SecondaryModes.Parse(e.Args);
+        if (mode.Kind == SecondaryModeKind.Refused)
+        {
+            Shutdown(SecondaryModes.RefusedExitCode);
+            return;
+        }
+        if (mode.Kind == SecondaryModeKind.BenchWorker)
+        {
+            RunBenchWorker(mode.PipeName!);
+            return;
+        }
 
         _instanceMutex = new Mutex(initiallyOwned: true, InstanceMutexName, out bool createdNew);
         if (!createdNew)
@@ -83,7 +99,7 @@ public partial class App : System.Windows.Application
         };
 
         // Lancée par la tâche de démarrage de Windows (voir StartupTask) : l'app démarre dans la zone de notification.
-        bool launchedByWindows = e.Args.Contains(StartupTask.LaunchArgument, StringComparer.OrdinalIgnoreCase);
+        bool launchedByWindows = mode.LaunchedByWindows;
 
         // Reprise des opérations restées en cours au dernier arrêt (journal de session), avant toute fenêtre et avant
         // que MainViewModel ne réapplique des réglages. Elle lit AppDataPaths.Current, qui fige le dossier de données :
@@ -110,6 +126,37 @@ public partial class App : System.Windows.Application
                 "PCPerfSuite", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
+    }
+
+    /// <summary>Mode worker de bench (<c>--bench-worker &lt;tube&gt;</c>) : aucune fenêtre, aucun réglage lu, juste le
+    /// tube. Un thread dédié fait tout le travail ; l'app quitte ensuite avec le code de sortie du worker. Ses messages
+    /// et un plantage éventuel vont au journal des erreurs, jamais dans une boîte de dialogue (personne ne la verrait,
+    /// et elle garderait la charge en vie).</summary>
+    private void RunBenchWorker(string pipeName)
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => CrashLog.Record(args.ExceptionObject as Exception, "worker de bench");
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            CrashLog.Record(args.Exception, "worker de bench, tâche non observée");
+            args.SetObserved();
+        };
+
+        var thread = new Thread(() =>
+        {
+            int exitCode;
+            try
+            {
+                exitCode = BenchWorkerHost.Run(pipeName, message => CrashLog.RecordMessage(message, "worker de bench", surfaceAsLastError: false));
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Record(ex, "worker de bench");
+                exitCode = BenchWorkerHost.ExitCrashed;
+            }
+            Dispatcher.InvokeAsync(() => Shutdown(exitCode));
+        })
+        { IsBackground = true, Name = "PCPerfSuite.BenchWorker" };
+        thread.Start();
     }
 
     /// <summary>Reprise au lancement (<see cref="StartupRecovery"/>), sans fenêtre : son bilan va au diagnostic. Ne

@@ -65,7 +65,7 @@ jamais de fusion, `/review-max` avant de finir, décisions ajoutées à `docs/de
 Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatisticsTests` (+ points, références, clés),
 `SattoloPermutationTests`, `CpuKernelsTests`.
 
-### Commit 2 (en cours, poussé tel quel : compile, **non testé**, pas encore branché dans l'app)
+### Commit 2 (poussé) : `feat(F1): worker de charge, modes secondaires et bench CPU`
 
 - `Hardware/Cpu/CpuTopology.cs` : `LogicalProcessor.CpuSetId` lu à l'offset 8.
 - `Benchmark/Cpu/ThreadPlacement.cs` : `PinCurrentThread(LogicalProcessorTarget)` → `ThreadPlacementResult(Mechanism,
@@ -95,24 +95,21 @@ Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatis
   LaunchedByWindows, PipeName, Problem)` ; liste fermée (`--demarrage-windows`, `--bench-worker <nom>` avec nom
   `^[A-Za-z0-9._-]{1,128}$`) ; inconnu → `Refused`, code de sortie 2.
 
-**Reste à faire pour clore ce commit** :
-1. `App.xaml.cs` : en tête d'`OnStartup`, juste après `base.OnStartup(e)` et avant le mutex :
-   `SecondaryMode mode = SecondaryModes.Parse(e.Args);` → `Refused` : `Shutdown(SecondaryModes.RefusedExitCode); return;`
-   → `BenchWorker` : thread qui exécute `BenchWorkerHost.Run(mode.PipeName!, message => CrashLog.RecordMessage(message,
-   "worker de bench", false))` puis `Dispatcher.InvokeAsync(() => Shutdown(code))` ; brancher aussi
-   `AppDomain.UnhandledException` → `CrashLog.Record` dans ce mode ; `return` sans mutex ni reprise ni fenêtre.
-   Remplacer la ligne `bool launchedByWindows = e.Args.Contains(...)` par `mode.LaunchedByWindows`.
-2. Tests à écrire : `tests/PCPerfSuite.App.Tests/SecondaryModesTests.cs` (inconnu refusé, `--demarrage-windows`
-   inchangé, tube valide, nom invalide, répétition refusée, worker + Windows incompatibles) ;
-   `tests/PCPerfSuite.Core.Tests/CpuTopologyTests.cs` : un cas « CpuSetId = 256 + index » ;
-   `CpuBenchRunnerTests` (mono : Warmup 0,02 s, PassSeconds 0,02, Passes 2, Sustained 0 → 3 mesures `.rafale`, Succeeded,
-   sans erreur de calcul ; multi 2 threads non épinglés avec Sustained 0,3 → mesures `.soutenu` ; annulation → Error
-   « arrêté ») ; `BenchWorkerSessionTests` (tube nommé en mémoire : `NamedPipeServerStream` + thread
-   `BenchWorkerHost.Run(name, applyProcessSetup: false)` + `AcceptAsync(server, null, null, Environment.ProcessId, …)` ;
-   un test cpu-mono court rend un résultat ; `HeartbeatEnabled = false` → le worker sort avec `ExitAppSilent` en ~3 s) ;
-   `ThreadPlacementTests` (thread dédié épinglé sur (0,0) → mécanisme non nul, `CurrentProcessor()` = (0,0)).
-3. `dotnet build -c Release` et `dotnet test` verts, puis commit `feat(F1): worker de charge, modes secondaires et bench CPU`
-   et push.
+- `App.xaml.cs` : `SecondaryModes.Parse(e.Args)` en tête d'`OnStartup`, avant le mutex : `Refused` → `Shutdown(2)` ;
+  `BenchWorker` → `RunBenchWorker(pipe)` (thread dédié qui exécute `BenchWorkerHost.Run`, messages et plantage dans
+  `CrashLog`, puis `Shutdown(code)` par le Dispatcher ; ni mutex, ni reprise, ni fenêtre) ; `launchedByWindows` lu dans
+  `mode.LaunchedByWindows`. `BenchWorkerHost.ExitCrashed = 1`.
+- Défaut trouvé par les tests et corrigé : `BenchWorkerSession.AcceptAsync` créait `BenchLineChannel` (StreamWriter en
+  AutoFlush) sur le tube serveur **avant** la connexion → « Pipe hasn't been connected yet ». Le canal est créé après
+  `WaitForConnectionAsync` ; en échec avant, le serveur est fermé directement (`CloseQuietly`).
+- Tests (verts) : `SecondaryModesTests` (App.Tests : inconnu refusé code 2, `--demarrage-windows` inchangé et insensible
+  à la casse, tube valide, noms invalides et trop longs, sans nom, répété, worker + Windows incompatibles),
+  `CpuTopologyTests` (CpuSetId = 256 + index, 0 par défaut), `CpuBenchRunnerTests` (mono court → 3 mesures `.rafale`,
+  notes ; multi 2 threads avec soutenu 0,3 s → `.soutenu` ; annulation avant et pendant → « arrêté » ; noyau inconnu ;
+  distributeur), `ThreadPlacementTests` (épinglage vérifié sur (0,0), mécanisme cpu-set si la topologie donne l'id,
+  processeur hors de portée sans plantage), `BenchWorkerSessionTests` (vrai tube nommé, worker dans un thread :
+  bonjour + test + sortie `ExitOk` à la fermeture du tube ; sans battement → `ExitAppSilent` ; annulation → résultat
+  partiel « arrêté » sans tuer ; second test refusé ; mauvais pid refusé ; attente expirée → `TimeoutException`).
 
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 

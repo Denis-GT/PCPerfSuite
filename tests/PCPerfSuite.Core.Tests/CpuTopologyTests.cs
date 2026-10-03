@@ -97,6 +97,19 @@ public class CpuTopologyTests
     }
 
     [Fact]
+    public void L_identifiant_de_cpu_set_est_lu_a_l_offset_8_pour_epingler_un_thread_du_bench()
+    {
+        // Windows numérote ses CPU sets à partir de 256 ; le tampon synthétique écrit 256 + index.
+        byte[] buffer = CpuSetBuffers.Concat([CpuSetBuffers.Entry(index: 0, core: 0, llc: 0, efficiencyClass: 1), CpuSetBuffers.Entry(index: 5, core: 4, llc: 0, efficiencyClass: 0)]);
+
+        IReadOnlyList<LogicalProcessor> processors = CpuTopology.ParseCpuSets(buffer);
+
+        Assert.Equal(256u, processors[0].CpuSetId);
+        Assert.Equal(261u, processors[1].CpuSetId);
+        Assert.Equal(0u, new LogicalProcessor(new LogicalProcessorId(0, 0), 0, 0, 0, 0, false).CpuSetId);
+    }
+
+    [Fact]
     public void Les_entrees_de_taille_variable_sont_suivies_par_leur_champ_Size()
     {
         // Une version future de Windows peut allonger l'entrée : le champ Size dit où commence la suivante.

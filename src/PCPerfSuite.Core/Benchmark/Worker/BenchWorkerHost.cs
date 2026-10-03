@@ -14,6 +14,8 @@ namespace PCPerfSuite.Core.Benchmark.Worker;
 public static class BenchWorkerHost
 {
     public const int ExitOk = 0;
+    /// <summary>Exception non rattrapée dans le worker (relevée par l'hôte, journalisée).</summary>
+    public const int ExitCrashed = 1;
     public const int ExitPipeUnavailable = 2;
     public const int ExitAppSilent = 3;
 
