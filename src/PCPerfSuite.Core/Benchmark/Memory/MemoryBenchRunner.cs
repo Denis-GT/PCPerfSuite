@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using PCPerfSuite.Core.Benchmark.Cpu;
 using PCPerfSuite.Core.Benchmark.Kernels;
 using PCPerfSuite.Core.Benchmark.Protocol;
 using PCPerfSuite.Core.Benchmark.Worker;
@@ -40,7 +42,8 @@ public sealed class MemoryBenchRunner
     {
         if (p.BandwidthBytes <= 0) return BenchJobResult.Failure(request.Id, request.Kind, "taille du tampon de débit absente");
         if (p.PassSeconds <= 0) return BenchJobResult.Failure(request.Id, request.Kind, "durée de passe invalide");
-        int threads = Math.Max(1, p.ThreadCount);
+        IReadOnlyList<LogicalProcessorTarget>? targets = p.Threads is { Count: > 0 } pinned ? pinned : null;
+        int threads = targets?.Count ?? Math.Max(1, p.ThreadCount);
 
         var result = new BenchJobResult { JobId = request.Id, Kind = request.Kind };
         var stopwatch = Stopwatch.StartNew();
@@ -66,6 +69,7 @@ public sealed class MemoryBenchRunner
         double plannedTotal = p.Passes * operations.Length * p.PassSeconds;
         double plannedDone = 0;
         int readMismatches = 0;
+        string placement = "non épinglé";
 
         void Report(string phase, string? detail, double? value)
             => progress?.Invoke(new BenchProgress
@@ -80,10 +84,11 @@ public sealed class MemoryBenchRunner
 
         try
         {
-            using var team = new MemoryLoadTeam(kernel);
+            using var team = new MemoryLoadTeam(kernel, targets);
             Report("préparation", $"tampon de {kernel.Length / MemoryBenchSizing.Mebibyte} Mo, {threads} thread(s)", null);
             team.Start();
             team.Fill(cancel);
+            placement = team.DescribePlacement();
             team.Calibrate(cancel);
 
             for (int pass = 0; pass < p.Passes; pass++)
@@ -123,6 +128,7 @@ public sealed class MemoryBenchRunner
             result.IsComparable = kernel.IsComparable;
             result.Notes["tampon-mo"] = (kernel.Length / MemoryBenchSizing.Mebibyte).ToString();
             result.Notes["threads"] = threads.ToString();
+            result.Notes["epinglage"] = placement;
             result.Notes["jeu-instructions"] = kernel.InstructionSet;
             result.Notes["passes"] = $"{p.Passes} × {p.PassSeconds:0.##} s";
             result.Notes["erreurs-lecture"] = readMismatches.ToString();
@@ -133,11 +139,37 @@ public sealed class MemoryBenchRunner
         return result;
     }
 
+    /// <summary>La latence se mesure sur un thread dédié, épinglé sur la cible de la demande (comme le mono-thread) : le
+    /// thread du worker qui reçoit les tests ne doit pas garder d'affinité, et sur un hybride un cœur E donnerait une
+    /// autre latence.</summary>
     private static BenchJobResult RunLatency(BenchJobRequest request, RamJobParameters p, Action<BenchProgress>? progress, CancellationToken cancel)
     {
         if (p.LatencyBytes <= 0) return BenchJobResult.Failure(request.Id, request.Kind, "taille du tampon de latence absente");
         if (p.LatencySteps <= 0) return BenchJobResult.Failure(request.Id, request.Kind, "nombre de pas invalide");
+        if (p.Threads is not { Count: > 0 } targets) return RunLatencyHere(request, p, progress, cancel, "non épinglé");
 
+        BenchJobResult? result = null;
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                string placement = ThreadPlacement.PinCurrentThread(targets[0]).Describe();
+                result = RunLatencyHere(request, p, progress, cancel, placement);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        }, 1 << 18) { IsBackground = true, Name = "PCPerfSuite bench RAM latence" };
+        thread.Start();
+        thread.Join();
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+        return result!;
+    }
+
+    private static BenchJobResult RunLatencyHere(BenchJobRequest request, RamJobParameters p, Action<BenchProgress>? progress, CancellationToken cancel, string placement)
+    {
         var result = new BenchJobResult { JobId = request.Id, Kind = request.Kind };
         var stopwatch = Stopwatch.StartNew();
         double plannedTotal = p.Passes * p.LatencySteps;
@@ -224,6 +256,7 @@ public sealed class MemoryBenchRunner
                 result.Notes["tampon-mo"] = (kernel.Length / MemoryBenchSizing.Mebibyte).ToString();
                 result.Notes["lignes"] = kernel.LineCount.ToString();
             }
+            result.Notes["epinglage"] = placement;
             result.Notes["pages"] = "4 Ko (grandes pages écartées : SeLockMemoryPrivilege)";
             result.Notes["pas-par-passe"] = p.LatencySteps.ToString();
             result.Notes["passes"] = p.Passes.ToString();
@@ -247,6 +280,8 @@ public sealed record MemorySweepOutcome(double BytesPerSecond, int Mismatches);
 internal sealed class MemoryLoadTeam : IDisposable
 {
     private readonly MemoryBandwidthKernel _kernel;
+    private readonly IReadOnlyList<LogicalProcessorTarget>? _targets;
+    private readonly ThreadPlacementResult?[] _placements;
     private readonly int _count;
     private readonly Barrier _barrier;
     private readonly Thread[] _threads;
@@ -259,10 +294,13 @@ internal sealed class MemoryLoadTeam : IDisposable
     private bool _started;
     private bool _exited;
 
-    public MemoryLoadTeam(MemoryBandwidthKernel kernel)
+    /// <param name="targets">Un processeur logique par thread, où l'épingler ; null : threads libres.</param>
+    public MemoryLoadTeam(MemoryBandwidthKernel kernel, IReadOnlyList<LogicalProcessorTarget>? targets = null)
     {
         _kernel = kernel;
+        _targets = targets;
         _count = kernel.ThreadCount;
+        _placements = new ThreadPlacementResult?[_count];
         _barrier = new Barrier(_count + 1);
         _threads = new Thread[_count];
         _expected = new ulong[_count];
@@ -313,10 +351,14 @@ internal sealed class MemoryLoadTeam : IDisposable
         cancel.ThrowIfCancellationRequested();
     }
 
+    /// <summary>Après la première phase (chaque thread s'épingle avant).</summary>
+    public string DescribePlacement() => _targets is null ? "non épinglé" : ThreadPlacementResult.Summarize(_placements);
+
     private void ThreadMain(int index)
     {
         try
         {
+            if (_targets is not null && index < _targets.Count) _placements[index] = ThreadPlacement.PinCurrentThread(_targets[index]);
             while (true)
             {
                 _barrier.SignalAndWait();

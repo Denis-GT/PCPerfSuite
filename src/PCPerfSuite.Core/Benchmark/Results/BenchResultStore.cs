@@ -6,7 +6,7 @@ using PCPerfSuite.Core.SystemInfo;
 namespace PCPerfSuite.Core.Benchmark.Results;
 
 /// <summary>
-/// Les sessions enregistrées : un fichier <c>bench-&lt;horodatage&gt;-&lt;id&gt;.json</c> par session dans
+/// Les sessions enregistrées : un fichier <c>bench-&lt;horodatage UTC&gt;Z-&lt;id&gt;.json</c> par session dans
 /// <see cref="AppDataPaths.BenchFolder"/> (relu à chaque écriture : mode portable). Lecture tolérante : un fichier
 /// illisible est compté, jamais une exception ; une version plus récente est lue avec ce qu'on en comprend.
 /// </summary>
@@ -35,7 +35,9 @@ public sealed class BenchResultStore
         {
             string folder = Folder;
             Directory.CreateDirectory(folder);
-            string name = $"{FilePrefix}{result.StartedUtc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}-{Shorten(result.Id)}.json";
+            // Heure UTC dans le nom : l'ordre des noms est celui des sessions, même au passage à l'heure d'hiver ou
+            // après un changement de fuseau (l'heure locale reculerait).
+            string name = $"{FilePrefix}{result.StartedUtc.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}Z-{Shorten(result.Id)}.json";
             string path = Path.Combine(folder, name);
             string temp = path + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(result, Options));

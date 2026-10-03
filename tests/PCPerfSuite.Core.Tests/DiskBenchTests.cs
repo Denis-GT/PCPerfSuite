@@ -123,14 +123,37 @@ public class DiskTestFileTests
         BenchVolume network = Volume(DriveType.Network, "NTFS", free: 100_000 * Mo);
         BenchVolume full = Volume(DriveType.Fixed, "NTFS", free: 1000 * Mo);
 
-        DiskTestFilePlacement refused = DiskTestFile.Prepare(network, 1024 * Mo);
-        DiskTestFilePlacement tooFull = DiskTestFile.Prepare(full, 1024 * Mo);
+        DiskTestFilePlacement refused = DiskTestFile.Prepare(network, 1024 * Mo, _ => null);
+        DiskTestFilePlacement tooFull = DiskTestFile.Prepare(full, 1024 * Mo, _ => null);
 
         Assert.False(refused.IsReady);
         Assert.Contains("réseau", refused.Problem!.Reason);
         Assert.False(tooFull.IsReady);
         Assert.Contains("espace libre", tooFull.Problem!.Reason);
         Assert.Contains("1000 Mo libres", tooFull.Problem.Reason);
+    }
+
+    [Fact]
+    public void L_espace_libre_est_relu_au_lancement_et_pas_pris_de_l_inventaire()
+    {
+        // Inventaire de l'ouverture de la page : 100 Go libres ; depuis, le volume s'est rempli.
+        BenchVolume volume = Volume(DriveType.Fixed, "NTFS", free: 100_000 * Mo);
+
+        DiskTestFilePlacement placement = DiskTestFile.Prepare(volume, 4096 * Mo, _ => 4300 * Mo);
+
+        Assert.False(placement.IsReady);
+        Assert.Contains("4300 Mo libres", placement.Problem!.Reason);
+    }
+
+    [Fact]
+    public void Un_volume_absent_n_est_pas_un_fichier_supprime()
+    {
+        string? missing = Enumerable.Range('D', 23).Select(c => $"{(char)c}:").FirstOrDefault(l => !Directory.Exists(l + "\\"));
+        if (missing is null) return; // toutes les lettres prises : rien à vérifier sur ce PC
+
+        Assert.False(DiskTestFile.TryDeleteStale(Path.Combine(DiskTestFile.FolderOnVolume(missing), DiskTestFile.FileName), out string? error));
+        Assert.Contains("volume absent", error);
+        Assert.False(DiskTestFile.TryDeleteOnVolume(missing, isSystem: false, out _));
     }
 
     [Fact]
@@ -356,6 +379,55 @@ public class DiskBenchRunnerTests
         Assert.Equal(BenchJobDispatcher.CancelledError, result.Error);
         Assert.False(File.Exists(path));
         Assert.InRange(result.DurationSeconds, 0, 10);
+    }
+
+    [Fact]
+    public void Arreter_pendant_la_derniere_phase_n_est_pas_un_test_reussi()
+    {
+        using var temp = new TempDirectory();
+        string path = temp.File(DiskTestFile.FileName);
+        string lastPhase = DiskBenchPlan.Create(16 * Mo, 4096, 0.15, isRotational: false).Phases[^1].Label;
+        using var cancel = new CancellationTokenSource();
+
+        BenchJobResult result = new DiskBenchRunner().Run(Request(path), p => { if (p.Phase == lastPhase) cancel.Cancel(); }, cancel.Token);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(BenchJobDispatcher.CancelledError, result.Error);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void Les_tranches_d_une_phase_disque_ne_rendent_pas_la_mesure_instable()
+    {
+        using var temp = new TempDirectory();
+
+        BenchJobResult result = new DiskBenchRunner().Run(Request(temp.File(DiskTestFile.FileName)), null, CancellationToken.None);
+
+        Assert.True(result.Succeeded, result.Error);
+        Assert.All(result.Measurements, m => Assert.False(m.IsUnstable, m.Key));
+    }
+
+    [Fact]
+    public void Un_dossier_devenu_une_jonction_est_refuse_par_le_worker()
+    {
+        using var temp = new TempDirectory();
+        string target = Directory.CreateDirectory(temp.File("ailleurs")).FullName;
+        string junction = temp.File("PCPerfSuite.Bench");
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{target}\"")
+               { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true })!)
+        {
+            mklink.WaitForExit(10_000);
+        }
+        if (!Directory.Exists(junction)) return; // jonction impossible à créer ici : rien à vérifier
+
+        Assert.True(DiskTestFile.FolderIsLink(junction));
+        Assert.False(DiskTestFile.FolderIsLink(target));
+
+        BenchJobResult result = new DiskBenchRunner().Run(Request(Path.Combine(junction, DiskTestFile.FileName)), null, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("lien", result.Error);
+        Assert.Empty(Directory.GetFiles(target));
     }
 
     [Fact]

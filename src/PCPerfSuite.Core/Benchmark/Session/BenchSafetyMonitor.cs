@@ -33,11 +33,10 @@ public sealed record BenchSafetySample(DateTimeOffset At, float? CpuTempC, float
             BatteryPercentOf(snapshot.Battery), snapshot.Battery is { PowerOnline: false });
     }
 
+    /// <summary>Celui de <see cref="BatterySnapshot.ChargePercent"/>, unités relatives comprises : sans elles, un portable
+    /// dont le pilote ne donne pas de mWh n'aurait ni refus ni arrêt sous le seuil.</summary>
     public static double? BatteryPercentOf(BatterySnapshot? battery)
-    {
-        if (battery is not { RemainingMWh: { } remaining, FullChargeMWh: { } full } || full <= 0) return null;
-        return Math.Clamp(remaining / full * 100, 0, 100);
-    }
+        => battery?.ChargePercent is { } percent ? Math.Clamp(percent, 0, 100) : null;
 }
 
 /// <summary>Verdict d'un relevé : rien, un échauffement en cours, ou un arrêt avec sa raison et un texte.</summary>
@@ -45,9 +44,11 @@ public sealed record BenchSafetyVerdict(BenchStopReason? Stop, string? Detail, b
 
 /// <summary>
 /// Arrêts de sécurité du bench, en logique pure : thermique (garde de #2 au seuil de <see cref="BenchThermalPolicy"/>),
-/// ventilateur du processeur identifié à 0 tr/min pendant <see cref="FanStoppedDelay"/> sous charge, batterie sous
-/// <see cref="BenchPreconditions.BatteryStopPercent"/>, perte de tout relevé pendant le délai de la garde. Un capteur
-/// absent ne déclenche rien (règle 2 : on ne refuse pas un PC qu'on ne sait pas lire, on le dit).
+/// ventilateur du processeur identifié, vu tourner pendant le test, puis à 0 tr/min pendant <see cref="FanStoppedDelay"/>
+/// sous charge (un connecteur CPU_FAN vide, l'AIO branché ailleurs, ou un ventilateur arrêté par le BIOS à froid lit 0
+/// depuis le début : ce n'est pas une panne), batterie sous <see cref="BenchPreconditions.BatteryStopPercent"/>, perte de
+/// tout relevé pendant le délai de la garde. Un capteur absent ne déclenche rien (règle 2 : on ne refuse pas un PC qu'on
+/// ne sait pas lire, on le dit).
 /// </summary>
 public sealed class BenchSafetyMonitor
 {
@@ -56,6 +57,7 @@ public sealed class BenchSafetyMonitor
     private readonly ThermalGuard _guard;
     private readonly BenchThermalLimits _limits;
     private DateTimeOffset? _fanStoppedSince;
+    private bool _fanSeenSpinning;
     private DateTimeOffset? _lastSampleAt;
 
     public BenchSafetyMonitor(BenchThermalLimits limits)
@@ -90,7 +92,8 @@ public sealed class BenchSafetyMonitor
             return new BenchSafetyVerdict(BenchStopReason.BatteryLow, $"batterie à {percent:0} %");
         }
 
-        if (underLoad && sample.CpuFanIdentified && sample.CpuFanRpm is { } rpm && rpm <= 0)
+        if (sample.CpuFanRpm is > 0) _fanSeenSpinning = true;
+        if (underLoad && _fanSeenSpinning && sample.CpuFanIdentified && sample.CpuFanRpm is { } rpm && rpm <= 0)
         {
             _fanStoppedSince ??= sample.At;
             if (sample.At - _fanStoppedSince >= FanStoppedDelay)
@@ -120,10 +123,14 @@ public sealed class BenchSafetyMonitor
         return new BenchSafetyVerdict(null, null);
     }
 
+    /// <summary>Au début de chaque test : délais, ventilateur vu tourner et température maximale repartent de zéro (le
+    /// maximum d'un test ne doit pas être celui du test précédent).</summary>
     public void Reset()
     {
+        MaxCpuTempC = null;
         _guard.Reset();
         _fanStoppedSince = null;
+        _fanSeenSpinning = false;
         _lastSampleAt = null;
     }
 

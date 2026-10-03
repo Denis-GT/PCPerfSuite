@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Microsoft.Win32.SafeHandles;
 using PCPerfSuite.Core.Benchmark.Kernels;
 using PCPerfSuite.Core.Benchmark.Protocol;
@@ -12,7 +13,7 @@ namespace PCPerfSuite.Core.Benchmark.Disk;
 /// la longueur valide, et <c>SetFileValidData</c> est écarté), puis les phases du <see cref="DiskBenchPlan"/> : pour
 /// chaque profil, lecture puis écriture, en gardant <c>QueueDepth</c> E/S en vol. Chaque phase est découpée en tranches
 /// de 1 s : la médiane et le CV portent sur ces tranches. Mo/s décimaux (10⁶) et, pour le 4 Ko, IOPS. Le fichier est
-/// supprimé en <c>finally</c>.
+/// ouvert en <c>DeleteOnClose</c> : Windows le supprime à la fermeture de son handle, même si le worker est tué.
 /// </summary>
 public sealed class DiskBenchRunner
 {
@@ -70,10 +71,21 @@ public sealed class DiskBenchRunner
 
         try
         {
+            // Le dossier a été vérifié par l'app au lancement de la session, parfois des minutes plus tôt : on revérifie
+            // juste avant de s'en servir qu'il n'est pas devenu une jonction (le worker tourne avec les droits de l'app).
+            if (Path.GetDirectoryName(p.Path) is not { } folder || DiskTestFile.FolderIsLink(folder))
+            {
+                return BenchJobResult.Failure(request.Id, request.Kind, "dossier du fichier de test devenu un lien vers un autre emplacement : test refusé");
+            }
+
             try
             {
+                // DeleteOnClose : Windows supprime le fichier à la fermeture du handle, y compris quand l'app tue le
+                // worker (arrêt non rendu à temps, worker muet, Job Object) ; seule une panne de Windows le laisse, et
+                // la reprise au lancement le supprime alors. Aucune suppression par chemin, qu'une jonction posée entre-
+                // temps pourrait détourner.
                 handle = File.OpenHandle(p.Path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
-                    FileOptions.Asynchronous | NoBuffering, preallocationSize: plan.FileBytes);
+                    FileOptions.Asynchronous | NoBuffering | FileOptions.DeleteOnClose, preallocationSize: plan.FileBytes);
                 created = true;
             }
             catch (IOException ex) when (File.Exists(p.Path))
@@ -83,6 +95,16 @@ public sealed class DiskBenchRunner
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return BenchJobResult.Failure(request.Id, request.Kind, $"fichier de test impossible à créer : {ex.Message}");
+            }
+
+            // Un dossier compressé (« Compresser ce lecteur ») ou chiffré par EFS se transmet au fichier : on mesurerait
+            // la compression ou le chiffrement, pas le disque. Dit, et le score n'est pas comparable (règle 3).
+            if (TryReadAttributes(handle) is { } attributes && (attributes & (FileAttributes.Compressed | FileAttributes.Encrypted)) != 0)
+            {
+                result.IsComparable = false;
+                result.Notes["fichier-transforme"] = (attributes & FileAttributes.Compressed) != 0
+                    ? "fichier compressé par NTFS (dossier ou volume compressé) : débits non comparables"
+                    : "fichier chiffré par EFS : débits non comparables";
             }
 
             pool = AlignedBuffer.Allocate((long)PoolBlocks * PoolBlockBytes, PageBytes);
@@ -95,9 +117,11 @@ public sealed class DiskBenchRunner
             Report("préremplissage", $"{plan.FileBytes / DiskBenchPlan.Mebibyte} Mo aléatoires", null);
             DiskPhaseOutcome filled = await RunPhaseAsync(handle, plan, prefill, poolMemory, 0, v => Report("préremplissage", null, v), cancel).ConfigureAwait(false);
             writtenBytes += filled.Bytes;
+            // Arrêter pendant une phase la laisse finir ses E/S en vol et rendre une mesure tronquée : elle ne compte pas.
+            cancel.ThrowIfCancellationRequested();
             plannedDone += plan.Phases[0].DurationSeconds;
             cacheExhaustion |= DiskBenchPlan.LooksLikeCacheExhaustion(filled.SliceMegabytesPerSecond);
-            result.Measurements.Add(BenchMeasurement.From(DiskBenchPlan.PrefillKey, "Préremplissage (écriture séquentielle)", Unit, filled.SliceMegabytesPerSecond));
+            result.Measurements.Add(SliceMeasurement(DiskBenchPlan.PrefillKey, "Préremplissage (écriture séquentielle)", Unit, filled.SliceMegabytesPerSecond));
 
             int phaseIndex = 1;
             foreach (DiskPhase phase in plan.Phases)
@@ -105,16 +129,17 @@ public sealed class DiskBenchRunner
                 cancel.ThrowIfCancellationRequested();
                 Report(phase.Label, $"{phase.QueueDepth} E/S en vol", null);
                 DiskPhaseOutcome outcome = await RunPhaseAsync(handle, plan, phase, poolMemory, phaseIndex++, v => Report(phase.Label, null, v), cancel).ConfigureAwait(false);
+                if (phase.Operation == DiskIoOperation.Write) writtenBytes += outcome.Bytes;
+                cancel.ThrowIfCancellationRequested();
                 plannedDone += phase.DurationSeconds;
-                if (phase.Operation == DiskIoOperation.Write)
+                if (phase.Operation == DiskIoOperation.Write && !phase.IsRandom)
                 {
-                    writtenBytes += outcome.Bytes;
-                    if (!phase.IsRandom) cacheExhaustion |= DiskBenchPlan.LooksLikeCacheExhaustion(outcome.SliceMegabytesPerSecond);
+                    cacheExhaustion |= DiskBenchPlan.LooksLikeCacheExhaustion(outcome.SliceMegabytesPerSecond);
                 }
-                result.Measurements.Add(BenchMeasurement.From(phase.MeasurementKey, phase.Label, Unit, outcome.SliceMegabytesPerSecond));
+                result.Measurements.Add(SliceMeasurement(phase.MeasurementKey, phase.Label, Unit, outcome.SliceMegabytesPerSecond));
                 if (phase.ReportsIops)
                 {
-                    result.Measurements.Add(BenchMeasurement.From(phase.MeasurementKey + IopsSuffix, phase.Label + " (IOPS)", IopsUnit, outcome.SliceIops));
+                    result.Measurements.Add(SliceMeasurement(phase.MeasurementKey + IopsSuffix, phase.Label + " (IOPS)", IopsUnit, outcome.SliceIops));
                 }
             }
 
@@ -132,10 +157,10 @@ public sealed class DiskBenchRunner
         }
         finally
         {
-            handle?.Dispose();
+            handle?.Dispose(); // DeleteOnClose : le fichier créé ici disparaît avec son handle
             pool?.Dispose();
-            // Seul le fichier créé ici est supprimé : un fichier déjà là n'est pas à nous.
-            deleteError = created ? DeleteWithRetries(p.Path) : null;
+            // Seul le fichier créé ici est concerné : un fichier déjà là n'est pas à nous.
+            deleteError = created ? ConfirmDeleted(p.Path) : null;
             result.DurationSeconds = stopwatch.Elapsed.TotalSeconds;
             result.Notes["fichier-mo"] = (plan.FileBytes / DiskBenchPlan.Mebibyte).ToString();
             result.Notes["secteur-o"] = plan.SectorBytes.ToString();
@@ -146,7 +171,7 @@ public sealed class DiskBenchRunner
             result.Notes["donnees"] = $"aléatoires, {PoolBlocks} blocs de 1 Mo en rotation";
             result.Notes["cache-slc"] = cacheExhaustion ? "chute du débit en écriture longue : cache SLC probablement épuisé" : "aucune chute de débit observée";
             result.Notes["fichier-supprime"] = !created ? "sans objet (jamais créé)" : deleteError is null ? "oui" : $"non : {deleteError}";
-            result.Notes["unite"] = "Mo/s décimaux (10⁶ octets/s), médiane et CV sur des tranches de 1 s";
+            result.Notes["unite"] = "Mo/s décimaux (10⁶ octets/s), médiane et CV sur des tranches de 1 s (CV indicatif : pas de mesure « instable »)";
         }
 
         return result;
@@ -201,7 +226,25 @@ public sealed class DiskBenchRunner
             return WriteAsync(handle, pool.Slice(poolOffset, phase.BlockBytes), offset, cancel);
         }
 
-        for (int i = 0; i < queue && CanIssue(); i++) slots[i] = Issue(i);
+        // Une E/S en échec (erreur du disque, ou annulée par Arrêter) n'arrête que l'émission : celles encore en vol sont
+        // attendues jusqu'au bout avant de sortir, car le disque lit et écrit encore dans leurs tampons natifs, que la
+        // sortie libérerait (corruption du tas du worker).
+        Exception? failure = null;
+
+        void TryIssue(int slot)
+        {
+            try
+            {
+                slots[slot] = Issue(slot);
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+                stopIssuing = true;
+            }
+        }
+
+        for (int i = 0; i < queue && CanIssue(); i++) TryIssue(i);
 
         while (true)
         {
@@ -209,7 +252,18 @@ public sealed class DiskBenchRunner
             if (active.Length == 0) break;
             Task<int> completed = await Task.WhenAny(active).ConfigureAwait(false);
             int slot = Array.IndexOf(slots, completed);
-            int bytes = await completed.ConfigureAwait(false);
+            slots[slot] = null;
+            int bytes;
+            try
+            {
+                bytes = await completed.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+                stopIssuing = true;
+                continue;
+            }
             totalBytes += bytes;
             totalOps++;
             sliceBytes += bytes;
@@ -231,8 +285,10 @@ public sealed class DiskBenchRunner
                 lastLive = now;
             }
 
-            slots[slot] = CanIssue() ? Issue(slot) : null;
+            if (CanIssue()) TryIssue(slot);
         }
+
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
 
         double end = stopwatch.Elapsed.TotalSeconds;
         double tail = end - sliceStart;
@@ -252,23 +308,27 @@ public sealed class DiskBenchRunner
         return data.Length;
     }
 
-    /// <summary>Supprime le fichier de test ; null si c'est fait (ou s'il n'existe pas), sinon la raison.</summary>
-    private static string? DeleteWithRetries(string path)
+    /// <summary>Une mesure sur les tranches de 1 s d'une phase. Leur dispersion (cache SLC, ramasse-miettes du SSD, file
+    /// d'attente, clé USB) n'est pas celle de passes répétées : le CV est donné, sans le drapeau « instable » qui accuserait
+    /// une activité en arrière-plan.</summary>
+    private static BenchMeasurement SliceMeasurement(string key, string label, string unit, IReadOnlyList<double> slices)
+        => BenchMeasurement.From(key, label, unit, slices, unstableThreshold: double.PositiveInfinity);
+
+    private static FileAttributes? TryReadAttributes(SafeFileHandle handle)
+    {
+        try { return File.GetAttributes(handle); }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>Vérifie que le fichier de test a bien disparu à la fermeture de son handle ; à défaut (système de fichiers
+    /// qui ignorerait DeleteOnClose), le supprime, jamais à travers un lien. Null si c'est fait, sinon la raison.</summary>
+    private static string? ConfirmDeleted(string path)
     {
         string? error = null;
         for (int attempt = 0; attempt < 5; attempt++)
         {
-            try
-            {
-                if (!File.Exists(path)) return null;
-                File.Delete(path);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-                Thread.Sleep(200);
-            }
+            if (DiskTestFile.TryDeleteStale(path, out error)) return null;
+            Thread.Sleep(200);
         }
         return error;
     }

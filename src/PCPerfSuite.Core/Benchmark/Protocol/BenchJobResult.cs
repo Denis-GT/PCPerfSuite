@@ -30,9 +30,12 @@ public sealed class BenchMeasurement
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; set; }
 
-    public static BenchMeasurement From(string key, string label, string unit, IReadOnlyList<double> values, bool higherIsBetter = true)
+    /// <param name="unstableThreshold">Seuil du drapeau « instable » ; l'infini pour des valeurs dont la dispersion est
+    /// attendue (tranches d'une phase disque).</param>
+    public static BenchMeasurement From(string key, string label, string unit, IReadOnlyList<double> values, bool higherIsBetter = true,
+        double unstableThreshold = BenchStatistics.UnstableCvThreshold)
     {
-        PassSummary summary = BenchStatistics.Summarize(values);
+        PassSummary summary = BenchStatistics.Summarize(values, unstableThreshold);
         return new BenchMeasurement
         {
             Key = key,

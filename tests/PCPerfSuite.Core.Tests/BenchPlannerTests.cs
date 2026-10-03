@@ -67,6 +67,22 @@ public class BenchPlannerTests
     }
 
     [Fact]
+    public void Sur_deux_ccd_les_threads_memoire_alternent_entre_les_groupes_de_cache()
+    {
+        CpuTopology topology = X3D();
+
+        IReadOnlyList<LogicalProcessorTarget> targets = BenchPlanner.MemoryTargets(topology);
+
+        Assert.Equal(BenchPlanner.MaxMemoryThreads, targets.Count);
+        int ClusterOf(LogicalProcessorTarget t) => topology.Clusters
+            .Select((cluster, index) => (cluster, index))
+            .First(c => c.cluster.Cores.SelectMany(k => k.Threads).Any(p => p.Id.Index == t.Index && p.Id.Group == t.Group)).index;
+        Assert.Equal(4, targets.Count(t => ClusterOf(t) == 0));
+        Assert.Equal(4, targets.Count(t => ClusterOf(t) == 1));
+        Assert.Empty(BenchPlanner.MemoryTargets(null));
+    }
+
+    [Fact]
     public void Les_demandes_processeur_portent_les_durees_et_les_cibles()
     {
         BenchJobRequest mono = BenchPlanner.CpuRequest(BenchTestKind.CpuMono, Hybrid(), sustained: false, fallbackProcessorCount: 20);
@@ -90,13 +106,19 @@ public class BenchPlannerTests
         var volume = new BenchVolume("D:", null, "NTFS", DriveType.Fixed, 1L << 40, 1L << 39, false,
             new VolumeDeviceInfo(512, 4096, 1, true, null), null, null, null);
 
-        BenchJobRequest bandwidth = BenchPlanner.RamRequest(BenchTestKind.RamBandwidth, sizes, 6);
-        BenchJobRequest latency = BenchPlanner.RamRequest(BenchTestKind.RamLatency, sizes, 6);
+        BenchJobRequest bandwidth = BenchPlanner.RamRequest(BenchTestKind.RamBandwidth, sizes, Hybrid(), 20);
+        BenchJobRequest latency = BenchPlanner.RamRequest(BenchTestKind.RamLatency, sizes, Hybrid(), 20);
+        BenchJobRequest blind = BenchPlanner.RamRequest(BenchTestKind.RamBandwidth, sizes, null, 8);
         BenchJobRequest disk = BenchPlanner.DiskRequest(@"D:\PCPerfSuite.Bench\test-disque.bin", volume, 1L << 30);
 
         Assert.Equal(sizes.BandwidthBytes, bandwidth.Ram!.BandwidthBytes);
         Assert.Equal(6, bandwidth.Ram.ThreadCount);
+        // Un thread par cœur P (premier fil de chacun), jamais sur un cœur E ; la latence sur le cœur du mono.
+        Assert.Equal([0, 2, 4, 6, 8, 10], bandwidth.Ram.Threads!.Select(t => t.Index));
         Assert.Equal(1, latency.Ram!.ThreadCount);
+        Assert.Equal(BenchPlanner.MonoTarget(Hybrid())!.Index, Assert.Single(latency.Ram.Threads!).Index);
+        Assert.Null(blind.Ram!.Threads);
+        Assert.Equal(4, blind.Ram.ThreadCount);
         Assert.Equal(sizes.LatencyBytes, latency.Ram.LatencyBytes);
         Assert.Equal(4096, disk.Disk!.SectorBytes);
         Assert.True(disk.Disk.IsRotational);
@@ -134,7 +156,7 @@ public class BenchPlannerTests
         var volume = new BenchVolume("D:", null, "NTFS", DriveType.Fixed, 1L << 40, 1L << 39, false,
             new VolumeDeviceInfo(512, 4096, 1, false, null), null, null, null);
         BenchJobRequest cpu = BenchPlanner.CpuRequest(BenchTestKind.CpuMulti, Hybrid(), false, 20);
-        BenchJobRequest latency = BenchPlanner.RamRequest(BenchTestKind.RamLatency, MemoryBenchSizing.Compute(null, null), 1);
+        BenchJobRequest latency = BenchPlanner.RamRequest(BenchTestKind.RamLatency, MemoryBenchSizing.Compute(null, null), null, 1);
         BenchJobRequest disk = BenchPlanner.DiskRequest(@"D:\PCPerfSuite.Bench\test-disque.bin", volume, 1L << 30);
 
         IReadOnlyDictionary<string, string> cpuValues = BenchPlanner.JournalValues(cpu);

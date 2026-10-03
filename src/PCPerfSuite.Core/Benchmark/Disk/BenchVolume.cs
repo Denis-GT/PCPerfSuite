@@ -100,9 +100,12 @@ public static class BenchVolumeReader
                 string format = "";
                 string? label = null;
                 long total = 0, free = 0;
+                // Un lecteur réseau, optique ou inconnu est écarté par son seul type : on n'interroge pas son média (un
+                // partage injoignable bloque IsReady de longues secondes, un DVD se met à tourner).
+                bool local = drive.DriveType is DriveType.Fixed or DriveType.Removable;
                 try
                 {
-                    ready = drive.IsReady;
+                    ready = local && drive.IsReady;
                     if (ready)
                     {
                         format = drive.DriveFormat;

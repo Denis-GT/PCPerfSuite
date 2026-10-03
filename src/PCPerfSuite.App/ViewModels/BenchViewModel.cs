@@ -227,7 +227,8 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
 
     [ObservableProperty] private string? status;
 
-    [ObservableProperty] private bool isLoaded;
+    /// <summary>Démarrer en dépend : sans cette notification, le bouton resterait grisé après le chargement.</summary>
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(StartCommand))] private bool isLoaded;
 
     [ObservableProperty] private bool isRunning;
 
@@ -472,7 +473,18 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
         // Décision D6 : avertissement à chaque fois, « Non » par défaut.
         if (ShowMessage(BuildConfirmation(selected, report), MessageBoxImage.Warning, MessageBoxButton.YesNo, MessageBoxResult.No) != MessageBoxResult.Yes) return;
 
-        List<BenchTestPlan> plans = BuildPlans(selected, out List<string> skipped);
+        // Dossier sécurisé, espace libre relu, ancien fichier supprimé : des E/S (un disque externe peut mettre des
+        // secondes à se réveiller), donc hors du fil d'interface.
+        DiskTestFilePlacement? diskPlacement = null;
+        if (selected.Any(t => t.IsDisk) && SelectedVolume?.Volume is { } diskVolume)
+        {
+            long fileBytes = (long)DiskFileSizeMb * DiskTestFile.Mebibyte;
+            Status = "Préparation du fichier de test disque…";
+            diskPlacement = await Task.Run(() => DiskTestFile.Prepare(diskVolume, fileBytes));
+            Status = null;
+        }
+
+        List<BenchTestPlan> plans = BuildPlans(selected, diskPlacement, out List<string> skipped);
         if (plans.Count == 0)
         {
             Status = skipped.Count > 0 ? string.Join(" ; ", skipped) : "Aucun test à passer.";
@@ -591,7 +603,7 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
         LiveValueText = p.Value is { } value ? $"{(value >= 100 ? value.ToString("N0", CultureInfo.CurrentCulture) : value.ToString("0.#", CultureInfo.CurrentCulture))} {p.Unit}" : null;
     }
 
-    private List<BenchTestPlan> BuildPlans(List<BenchTestItemViewModel> selected, out List<string> skipped)
+    private List<BenchTestPlan> BuildPlans(List<BenchTestItemViewModel> selected, DiskTestFilePlacement? diskPlacement, out List<string> skipped)
     {
         skipped = new List<string>();
         var plans = new List<BenchTestPlan>();
@@ -611,15 +623,14 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
                 case BenchTestKind.RamLatency:
                 {
                     if (_memorySizes is null) break;
-                    BenchJobRequest request = BenchPlanner.RamRequest(item.Kind, _memorySizes, BenchPlanner.MemoryThreads(_topology, processors));
+                    BenchJobRequest request = BenchPlanner.RamRequest(item.Kind, _memorySizes, _topology, processors);
                     plans.Add(new BenchTestPlan(item.Kind, request, BenchPlanner.JournalValues(request)));
                     break;
                 }
                 case BenchTestKind.Disk:
                 {
-                    if (SelectedVolume?.Volume is not { } volume) break;
+                    if (SelectedVolume?.Volume is not { } volume || diskPlacement is not { } placement) break;
                     long fileBytes = (long)DiskFileSizeMb * DiskTestFile.Mebibyte;
-                    DiskTestFilePlacement placement = DiskTestFile.Prepare(volume, fileBytes);
                     if (!placement.IsReady)
                     {
                         skipped.Add($"Disque non passé : {placement.Problem?.Reason}");
@@ -645,7 +656,7 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
         lines.AddRange(selected.Select(t => $"• {t.Title}"));
         if (selected.Any(t => t.IsDisk) && SelectedVolume?.Volume is { } volume)
         {
-            lines.Add($"• Le test disque écrit {DiskWriteText} sur {volume.DriveLetter} ({DiskTestFile.FileName}).");
+            lines.Add($"• Test disque sur le volume {volume.DriveLetter} ({DiskTestFile.FileName}) : {DiskWriteText}.");
         }
         lines.Add("");
         lines.Add("Pendant la mesure, les réglages processeur, carte graphique et ventilation sont figés, le PC peut chauffer et devenir peu réactif. Le bench s'arrête de lui-même si le processeur reste à son seuil, si son ventilateur s'arrête ou si la batterie passe sous 30 %.");

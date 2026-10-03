@@ -44,6 +44,8 @@ public partial class App : System.Windows.Application
         SecondaryMode mode = SecondaryModes.Parse(e.Args);
         if (mode.Kind == SecondaryModeKind.Refused)
         {
+            // Sans fenêtre, mais pas sans trace : « l'app ne s'ouvre pas » doit pouvoir s'expliquer (règle 3).
+            CrashLog.RecordMessage($"lancement refusé : {mode.Problem}", "arguments de la ligne de commande", surfaceAsLastError: false);
             Shutdown(SecondaryModes.RefusedExitCode);
             return;
         }

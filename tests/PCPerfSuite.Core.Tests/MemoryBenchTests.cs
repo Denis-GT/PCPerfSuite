@@ -250,6 +250,25 @@ public class MemoryBenchRunnerTests
     }
 
     [Fact]
+    public void Les_threads_du_debit_et_de_la_latence_s_epinglent_sur_leur_cible()
+    {
+        BenchJobRequest bandwidth = Bandwidth(threads: 1);
+        bandwidth.Ram!.Threads = [new LogicalProcessorTarget { Group = 0, Index = 0 }];
+        BenchJobRequest latency = Latency();
+        latency.Ram!.Threads = [new LogicalProcessorTarget { Group = 0, Index = 0 }];
+
+        BenchJobResult bandwidthResult = new MemoryBenchRunner().Run(bandwidth, null, CancellationToken.None);
+        BenchJobResult latencyResult = new MemoryBenchRunner().Run(latency, null, CancellationToken.None);
+
+        Assert.True(bandwidthResult.Succeeded, bandwidthResult.Error);
+        Assert.Equal("1", bandwidthResult.Notes["threads"]);
+        Assert.Contains("1/1 vérifié", bandwidthResult.Notes["epinglage"]);
+        Assert.True(latencyResult.Succeeded, latencyResult.Error);
+        Assert.Contains("affinite", latencyResult.Notes["epinglage"]);
+        Assert.Equal("non épinglé", new MemoryBenchRunner().Run(Latency(), null, CancellationToken.None).Notes["epinglage"]);
+    }
+
+    [Fact]
     public void Le_distributeur_connait_les_tests_memoire()
     {
         BenchJobResult result = BenchJobDispatcher.Run(Latency(), null, CancellationToken.None);

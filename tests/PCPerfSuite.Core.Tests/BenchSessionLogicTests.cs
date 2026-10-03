@@ -161,6 +161,17 @@ public class BenchThermalPolicyTests
     }
 
     [Fact]
+    public void Un_x3d_zen5_garde_le_seuil_des_zen5_qui_tournent_a_95_degres()
+    {
+        BenchThermalLimits zen5X3d = BenchThermalPolicy.Resolve(Cpu(CpuVendor.Amd, "AMD Ryzen 7 9800X3D 8-Core", 0x1A, 0x44), null, null);
+        BenchThermalLimits zen3X3d = BenchThermalPolicy.Resolve(Cpu(CpuVendor.Amd, "AMD Ryzen 7 5800X3D 8-Core", 0x19, 0x21), null, null);
+
+        Assert.Equal(BenchThermalPolicy.Zen4Or5ThresholdC, zen5X3d.CpuThresholdC);
+        Assert.Contains("X3D Zen 5", zen5X3d.Source);
+        Assert.Equal(BenchThermalPolicy.X3DThresholdC, zen3X3d.CpuThresholdC);
+    }
+
+    [Fact]
     public void Un_x3d_se_reconnait_aussi_a_ses_deux_tailles_de_l3()
     {
         (byte[] cpuSets, byte[] caches) = CpuSetBuffers.DualCcdX3D();
@@ -207,13 +218,40 @@ public class BenchSafetyMonitorTests
     }
 
     [Fact]
-    public void Un_ventilateur_cpu_identifie_a_zero_sous_charge_arrete_apres_dix_secondes()
+    public void La_temperature_maximale_est_celle_du_test_en_cours()
+    {
+        var monitor = new BenchSafetyMonitor(Limits);
+        monitor.Note(Sample(0, temp: 95)); // test processeur
+
+        monitor.Reset(); // test suivant
+        monitor.Note(Sample(1, temp: 55));
+
+        Assert.Equal(55, monitor.MaxCpuTempC);
+    }
+
+    [Fact]
+    public void Un_ventilateur_cpu_vu_tourner_puis_a_zero_sous_charge_arrete_apres_dix_secondes()
     {
         var monitor = new BenchSafetyMonitor(Limits);
 
-        Assert.Null(monitor.Note(Sample(0, fan: 0)).Stop);
-        Assert.Null(monitor.Note(Sample(5, fan: 0)).Stop);
-        Assert.Equal(BenchStopReason.FanStopped, monitor.Note(Sample(10, fan: 0)).Stop);
+        Assert.Null(monitor.Note(Sample(0, fan: 1100)).Stop);
+        Assert.Null(monitor.Note(Sample(1, fan: 0)).Stop);
+        Assert.Null(monitor.Note(Sample(6, fan: 0)).Stop);
+        Assert.Equal(BenchStopReason.FanStopped, monitor.Note(Sample(11, fan: 0)).Stop);
+    }
+
+    [Fact]
+    public void Un_ventilateur_cpu_jamais_vu_tourner_pendant_le_test_ne_declenche_rien()
+    {
+        // Connecteur CPU_FAN vide (AIO branché ailleurs) ou ventilateur arrêté par le BIOS à froid : 0 dès le début.
+        var monitor = new BenchSafetyMonitor(Limits);
+        for (int s = 0; s <= 30; s += 5) Assert.Null(monitor.Note(Sample(s, fan: 0)).Stop);
+
+        // Vu tourner au test précédent ne compte pas : chaque test repart de zéro.
+        var next = new BenchSafetyMonitor(Limits);
+        next.Note(Sample(0, fan: 1200));
+        next.Reset();
+        for (int s = 1; s <= 30; s += 5) Assert.Null(next.Note(Sample(s, fan: 0)).Stop);
     }
 
     [Fact]
@@ -270,6 +308,21 @@ public class BenchSafetyMonitorTests
         Assert.Equal(45, sample.BatteryPercent);
         Assert.True(sample.OnBattery);
         Assert.False(BenchSafetySample.From(BenchSnapshots.At(0, fanRpm: null), T0).CpuFanIdentified);
+    }
+
+    [Fact]
+    public void Une_batterie_en_unites_relatives_donne_quand_meme_son_pourcentage()
+    {
+        // Pilote sans mWh (certains portables) : pas de RemainingMWh, mais le pourcentage relatif suffit au seuil.
+        var relative = new BatterySnapshot { PowerOnline = false, IsCapacityRelative = true, RelativeChargePercent = 22 };
+
+        Assert.Equal(22, BenchSafetySample.BatteryPercentOf(relative));
+        Assert.Null(BenchSafetySample.BatteryPercentOf(new BatterySnapshot()));
+        Assert.Null(BenchSafetySample.BatteryPercentOf(null));
+
+        var monitor = new BenchSafetyMonitor(Limits);
+        BenchSafetySample sample = BenchSafetySample.From(new HardwareSnapshot { CapturedAtUtc = T0.UtcDateTime, Battery = relative }, T0);
+        Assert.Equal(BenchStopReason.BatteryLow, monitor.Note(sample).Stop);
     }
 }
 

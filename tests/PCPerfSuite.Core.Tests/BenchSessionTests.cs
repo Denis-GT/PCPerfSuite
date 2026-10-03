@@ -30,6 +30,9 @@ public class BenchSessionTests
 
         public bool Disposed { get; private set; }
 
+        /// <summary>Le worker meurt après son test (plantage) : la session doit le relancer.</summary>
+        public bool DiesAfterJob { get; init; }
+
         public IReadOnlyList<string> WorkerNotes { get; } = ["EcoQoS : désactivé (faux)"];
 
         public event Action<BenchProgress>? ProgressReported;
@@ -48,6 +51,7 @@ public class BenchSessionTests
             }
             var result = new BenchJobResult { JobId = request.Id, Kind = request.Kind, Succeeded = true };
             result.Measurements.Add(BenchMeasurement.From("entier.rafale", "Entier", "Mops/s", [300, 302, 301]));
+            if (DiesAfterJob) IsAlive = false;
             return result;
         }
 
@@ -318,5 +322,62 @@ public class BenchSessionTests
         Assert.Contains(phases, p => p.Phase == "retour au repos");
         Assert.Contains("42 °C", outcome.Tests[1].IdleReturnNote);
         Assert.Null(outcome.Tests[0].IdleReturnNote);
+    }
+
+    [Fact]
+    public async Task Chaque_releve_recu_pendant_un_test_est_enregistre_meme_plus_vite_que_la_veille()
+    {
+        using var temp = new TempDirectory();
+        var clock = new ManualClock(new DateTimeOffset(BenchSnapshots.T0));
+        var worker = new FakeWorker(TimeSpan.FromSeconds(2));
+        var sensors = new FakeSensors();
+        var session = new BenchSession(new BenchSessionPorts
+        {
+            StartWorker = (_, _) => Task.FromResult<IBenchWorker>(worker),
+            Lease = new TuningLease(clock),
+            Journal = new SessionJournal(temp.File("journal.jsonl"), clock),
+            Time = clock,
+            SubscribeSnapshots = sensors.Subscribe,
+        });
+
+        Task<BenchSessionOutcome> run = session.RunAsync(Plan(Test(BenchTestKind.CpuMono)), null, CancellationToken.None);
+        await Task.Delay(300);
+        // Six relevés à 250 ms d'écart à la capture, arrivés d'un coup : la veille (500 ms) n'en verrait qu'un.
+        for (int i = 0; i < 6; i++) sensors.Push(BenchSnapshots.At(1 + i * 0.25, cpuTemp: 60 + i));
+        BenchSessionOutcome outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        RecordingCadence cadence = outcome.Tests[0].Cadence;
+        Assert.Equal(6, cadence.Snapshots);
+        Assert.Equal(250, cadence.MeanIntervalMs!.Value, 3);
+        SensorSeries temperature = outcome.Tests[0].Series.First(s => s.Key == "cpu-temp");
+        Assert.Equal([63f, 65f], temperature.Points.Select(p => p.Value)); // 1 Hz : le dernier relevé de chaque seconde
+    }
+
+    [Fact]
+    public async Task Arreter_pendant_la_relance_du_worker_garde_les_tests_deja_passes()
+    {
+        using var temp = new TempDirectory();
+        var first = new FakeWorker { DiesAfterJob = true };
+        int starts = 0;
+        var session = new BenchSession(new BenchSessionPorts
+        {
+            StartWorker = async (_, cancel) =>
+            {
+                if (Interlocked.Increment(ref starts) == 1) return first;
+                await Task.Delay(Timeout.Infinite, cancel); // la relance attend la connexion du worker
+                throw new InvalidOperationException("inatteignable");
+            },
+            Lease = new TuningLease(),
+            Journal = new SessionJournal(temp.File("journal.jsonl")),
+        });
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+
+        BenchSessionOutcome outcome = await session.RunAsync(Plan(Test(BenchTestKind.CpuMono), Test(BenchTestKind.CpuMulti)), null, cancel.Token);
+
+        Assert.True(outcome.Cancelled);
+        BenchTestOutcome passed = Assert.Single(outcome.Tests);
+        Assert.True(passed.Result.Succeeded, passed.Result.Error);
+        Assert.Contains(outcome.Log, l => l.Contains("relance"));
+        Assert.Equal(2, starts);
     }
 }

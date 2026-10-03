@@ -13,8 +13,10 @@ public sealed record DiskTestFilePlacement(string? Path, string? Folder, IReadOn
 /// Le fichier du test disque : un seul, au nom fixe, hors Documents et Bureau (accès contrôlé aux dossiers, EDR qui
 /// voit des gigaoctets aléatoires) : sur le volume système dans <c>%ProgramData%\PCPerfSuite\Bench</c> (dossier sécurisé
 /// de #7) ; sur un autre volume à sa racine, <c>X:\PCPerfSuite.Bench</c>, avec la même liste d'accès quand le système
-/// de fichiers en a (NTFS, ReFS), sans liste sur exFAT, jonctions refusées dans les deux cas. Créé en <c>CreateNew</c>
-/// par le worker, supprimé par lui en <c>finally</c>, et par la reprise au lancement s'il reste d'un plantage.
+/// de fichiers en a (NTFS, ReFS), sans liste sur exFAT, jonctions refusées dans les deux cas (revérifiées par le worker
+/// juste avant la création, et par la reprise). Créé en <c>CreateNew</c> + <c>DeleteOnClose</c> par le worker : Windows
+/// le supprime à la fermeture du handle, worker tué compris ; la reprise au lancement le supprime s'il reste d'une panne
+/// de Windows.
 /// </summary>
 public static class DiskTestFile
 {
@@ -33,18 +35,21 @@ public static class DiskTestFile
 
     public static string FolderOnVolume(string driveLetter) => System.IO.Path.Combine(driveLetter + System.IO.Path.DirectorySeparatorChar, SecondaryVolumeFolderName);
 
-    /// <summary>Prépare l'emplacement : dossier sécurisé, espace libre, fichier d'un test précédent supprimé.
-    /// Ne lève jamais ; un refus est expliqué.</summary>
-    public static DiskTestFilePlacement Prepare(BenchVolume volume, long fileBytes)
+    /// <summary>Prépare l'emplacement : dossier sécurisé, espace libre relu à l'instant (l'inventaire des volumes date de
+    /// l'ouverture de la page), fichier d'un test précédent supprimé. Ne lève jamais ; un refus est expliqué.</summary>
+    /// <param name="readFreeBytes">Espace libre actuel d'une lettre, null s'il n'est pas lisible (on garde alors celui de
+    /// l'inventaire) ; par défaut <see cref="ReadFreeBytes"/>.</param>
+    public static DiskTestFilePlacement Prepare(BenchVolume volume, long fileBytes, Func<string, long?>? readFreeBytes = null)
     {
         var notes = new List<string>();
         if (volume.Unavailable is { } unavailable) return new DiskTestFilePlacement(null, null, notes, unavailable);
 
         long required = RequiredFreeBytes(fileBytes);
-        if (volume.FreeBytes < required)
+        long free = (readFreeBytes ?? ReadFreeBytes)(volume.DriveLetter) ?? volume.FreeBytes;
+        if (free < required)
         {
             return new DiskTestFilePlacement(null, null, notes, new Unavailable(UnavailableCause.HardwareOrDriver,
-                $"pas assez d'espace libre sur {volume.DriveLetter} : il faut {required / Mebibyte} Mo ({volume.FreeBytes / Mebibyte} Mo libres)"));
+                $"pas assez d'espace libre sur {volume.DriveLetter} : il faut {required / Mebibyte} Mo ({free / Mebibyte} Mo libres)"));
         }
 
         string? folder = ResolveFolder(volume, notes, out Unavailable? problem);
@@ -111,11 +116,17 @@ public static class DiskTestFile
         }
     }
 
-    /// <summary>Supprime un fichier de test laissé par un test interrompu ; un lien à sa place est refusé, jamais suivi.</summary>
+    /// <summary>Supprime un fichier de test laissé par un test interrompu ; un lien à sa place est refusé, jamais suivi. Un
+    /// volume absent (clé débranchée) n'est pas un fichier supprimé : il le reste à vérifier.</summary>
     public static bool TryDeleteStale(string path, out string? error)
     {
         try
         {
+            if (System.IO.Path.GetPathRoot(path) is { Length: > 0 } root && !Directory.Exists(root))
+            {
+                error = "volume absent (débranché ?) : fichier non vérifié";
+                return false;
+            }
             if (!File.Exists(path))
             {
                 error = null;
@@ -147,7 +158,42 @@ public static class DiskTestFile
             error = null;
             return true;
         }
+        // Sur un autre volume, le dossier n'a pas de parent sûr : remplacé par une jonction depuis le dernier test, il
+        // ferait supprimer en administrateur un fichier choisi par un autre. Jamais suivi.
+        if (FolderIsLink(folder))
+        {
+            error = "le dossier de test est devenu un lien vers un autre emplacement : rien n'est supprimé";
+            return false;
+        }
         return TryDeleteStale(System.IO.Path.Combine(folder, FileName), out error);
+    }
+
+    /// <summary>Vrai si le dossier existe et est un lien (jonction, lien symbolique) ; vrai aussi s'il est illisible :
+    /// dans le doute, on ne s'en sert pas.</summary>
+    public static bool FolderIsLink(string folder)
+    {
+        try
+        {
+            return Directory.Exists(folder) && (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Espace libre d'un volume à l'instant, null s'il n'est pas lisible.</summary>
+    public static long? ReadFreeBytes(string driveLetter)
+    {
+        try
+        {
+            var drive = new DriveInfo(driveLetter);
+            return drive.IsReady ? drive.AvailableFreeSpace : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>Taille réglée par +/− : multiple de 256 Mo dans [256 Mo, 8 Go].</summary>

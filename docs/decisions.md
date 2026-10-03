@@ -192,20 +192,26 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   - Scores : unités physiques **et** points, 1000 = la machine de référence ; `BenchReferences` provisoires, relevées le
     03/10/2026 sur le poste de reprise (AMD Ryzen 7 5800H portable, DDR4-3200, NVMe), à rebaser sur le i5-14600K ; un
     score ne se compare qu'à la même `BenchVersion.Bench` (expérimental). Le mono-thread est épinglé sur le **deuxième**
-    cœur performant (le cœur 0 reçoit les interruptions de Windows : passes plus dispersées, vu à l'essai).
+    cœur performant (le cœur 0 reçoit les interruptions de Windows : passes plus dispersées, vu à l'essai) ; la latence
+    mémoire sur ce même cœur, le débit mémoire sur le premier fil des cœurs de la plus haute classe (8 au plus, pris tour
+    à tour dans chaque groupe de cache) : jamais sur un cœur E d'un hybride.
   - Disque : écriture autorisée sur le volume système (`%ProgramData%\PCPerfSuite\Bench\test-disque.bin`) ; **volume au
     choix de l'utilisateur**, tout volume local (fixe ou amovible, NTFS/ReFS/exFAT ; réseau, optique, FAT32 écartés avec
     la raison), à sa racine dans `X:\PCPerfSuite.Bench` avec la liste d'accès du dossier sécurisé (sans liste sur exFAT) ;
     taille réglable par +/− (1 Go par défaut, pas de 256 Mo, de 256 Mo à 8 Go) ; volume écrit plafonné à 4 × la taille,
-    préremplissage compris ; disque à plateaux en files de 1 seulement ; fichier supprimé en `finally` et par la reprise.
+    préremplissage compris ; disque à plateaux en files de 1 seulement ; fichier ouvert en `DeleteOnClose` (Windows le
+    supprime à la fermeture du handle, worker tué compris) et supprimé par la reprise après une panne de Windows ; dossier
+    revérifié (pas de jonction) par le worker juste avant la création et par la reprise ; espace libre relu au lancement.
   - Batterie : bench autorisé, résultat « non représentatif » ; aucun départ et arrêt de sécurité sous 30 %.
-  - Sécurité : seuil thermique par famille (TjMax lu pour Intel, Zen 4/5 98 °C, X3D 93 °C, inconnu 98 °C) tenu 10 s,
-    ventilateur CPU identifié à 0 tr/min 10 s sous charge, perte de relevé 10 s ; le worker coupe toute charge 2 s sans
-    nouvelles de l'app ; Arrêter toujours visible ; confirmation « Non » par défaut à chaque lancement (D6) ; jamais de
-    lancement automatique.
-  - Protocole : préchauffe 5 s non comptée, 3 passes de 2 s par noyau, médiane et CV (> 3 % = « instable »), rafale puis
-    soutenu après 3 min de charge continue (facultatif), retour au repos entre tests (±3 °C de la base, 60 s max) ;
-    charge de fond notée (< 5 % sur 10 s = calme), jamais bloquante.
+  - Sécurité : seuil thermique par famille (TjMax lu pour Intel, Zen 4/5 98 °C, X3D Zen 3/4 93 °C, X3D Zen 5 98 °C
+    comme tout Zen 5, inconnu 98 °C) tenu 10 s, ventilateur CPU identifié et vu tourner pendant le test, puis à 0 tr/min 10 s sous charge (un connecteur CPU_FAN vide
+    ou un ventilateur arrêté par le BIOS à froid lit 0 dès le début : pas une panne), batterie lue aussi en unités
+    relatives, perte de relevé 10 s ; le worker coupe toute charge 2 s sans nouvelles de l'app ; Arrêter toujours
+    visible ; confirmation « Non » par défaut à chaque lancement (D6) ; jamais de lancement automatique.
+  - Protocole : préchauffe 5 s non comptée, 3 passes de 2 s par noyau, médiane et CV (> 3 % = « instable », pour les
+    passes CPU et RAM ; le CV des tranches de 1 s d'une phase disque est indicatif), rafale puis soutenu après 3 min de
+    charge continue (facultatif), retour au repos entre tests (±3 °C de la base, 60 s max) ; charge de fond notée
+    (< 5 % sur 10 s = calme), jamais bloquante.
   - Contexte : mode constructeur des portables **non lu** sur aucune marque à ce jour (N/D avec la raison, D4 lecture
     seule) ; lien PCIe N/D jusqu'à la livraison de #4 ; cadence réellement obtenue du relevé pendant le test
     (affamement par le worker High) inscrite dans le résultat.

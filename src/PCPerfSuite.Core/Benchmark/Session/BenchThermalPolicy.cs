@@ -18,8 +18,8 @@ public sealed record BenchThermalLimits(float CpuThresholdC, string Source, Time
 /// <summary>
 /// Seuil d'arrêt thermique du bench par famille de processeur, en logique pure. Un processeur se protège lui-même ; la
 /// garde n'est là que pour un refroidissement défaillant : un Intel à son TjMax (relevé par le socle de signaux, #4)
-/// pendant 10 s, un Zen 4 ou Zen 5 à 98 °C (95 °C est son régime normal sous charge), un X3D à 93 °C (89 °C normal),
-/// 98 °C quand on ne sait pas. Seuils expérimentaux (règle 6), à vérifier sur le portable Ryzen.
+/// pendant 10 s, un Zen 4 ou Zen 5 à 98 °C (95 °C est son régime normal sous charge, X3D Zen 5 compris), un X3D Zen 3
+/// ou Zen 4 à 93 °C (89 °C normal), 98 °C quand on ne sait pas. Seuils expérimentaux (règle 6), à vérifier sur le portable Ryzen.
 /// </summary>
 public static class BenchThermalPolicy
 {
@@ -40,9 +40,15 @@ public static class BenchThermalPolicy
         if (platform?.Vendor == CpuVendor.Amd)
         {
             bool x3d = topology?.HasMixedL3Sizes == true || platform.Name.Contains("X3D", StringComparison.OrdinalIgnoreCase);
-            if (x3d) return new BenchThermalLimits(X3DThresholdC, "Ryzen X3D (89 °C normal sous charge)", Delay, LossDelay);
-            bool zen4Or5 = (platform.Family == 0x19 && platform.Model >= 0x60) || platform.Family == 0x1A;
-            if (zen4Or5) return new BenchThermalLimits(Zen4Or5ThresholdC, "Zen 4/5 (95 °C normal sous charge)", Delay, LossDelay);
+            bool zen5 = platform.Family == 0x1A;
+            // Les X3D Zen 3 et Zen 4 plafonnent à 89-90 °C ; un X3D Zen 5 (9800X3D…) monte normalement à 95 °C comme
+            // tout Zen 5 : 93 °C l'arrêterait en plein régime normal.
+            if (x3d && !zen5) return new BenchThermalLimits(X3DThresholdC, "Ryzen X3D Zen 3/4 (89 °C normal sous charge)", Delay, LossDelay);
+            bool zen4Or5 = (platform.Family == 0x19 && platform.Model >= 0x60) || zen5;
+            if (zen4Or5)
+            {
+                return new BenchThermalLimits(Zen4Or5ThresholdC, x3d ? "Ryzen X3D Zen 5 (95 °C normal sous charge)" : "Zen 4/5 (95 °C normal sous charge)", Delay, LossDelay);
+            }
             return new BenchThermalLimits(DefaultThresholdC, "AMD, famille non reconnue : seuil prudent", Delay, LossDelay);
         }
 

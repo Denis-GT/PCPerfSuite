@@ -506,8 +506,9 @@ annoncés, pas encore livrés.
 - **Résultats** : des unités physiques (Mops/s et GFLOPS, Go/s et ns, Mo/s et IOPS) et des points,
   1000 points étant la machine de référence (références provisoires, à calibrer sur de vraies machines).
   Chaque mesure est la médiane de trois passes ; un coefficient de variation au-delà de 3 % marque la
-  mesure « instable » (activité en arrière-plan, bridage qui oscille). Les points ne se comparent
-  qu'entre sessions de la même version du bench.
+  mesure « instable » (activité en arrière-plan, bridage qui oscille). Une mesure disque est la médiane
+  des tranches de 1 s de sa phase : son coefficient de variation est donné à titre indicatif. Les points
+  ne se comparent qu'entre sessions de la même version du bench.
 - **Processeur** : noyaux déterministes à résultat vérifié (tri et hachage entiers, produit matriciel
   AVX2+FMA, branchements). Une somme de contrôle différente de l'étalon est une erreur de calcul. Le
   mono-thread est épinglé sur un cœur performant (un cœur P sur un hybride Intel, le CCD au grand cache
@@ -516,22 +517,24 @@ annoncés, pas encore livrés.
   continue : l'écart dit ce que font PL1/PL2 et le refroidissement.
 - **Mémoire** : débit en lecture, écriture (stockage non temporel) et copie sur un tampon de 8 × le L3 au
   moins (128 Mo au minimum, 25 % de la RAM libre au plus) ; latence par pointer chasing sur 512 Mo
-  (256 Mo à 1 Go), pages de 4 Ko.
+  (256 Mo à 1 Go), pages de 4 Ko. Les threads sont épinglés sur les cœurs performants (jamais sur un
+  cœur E d'un hybride), la latence sur le cœur du mono-thread.
 - **Disque** : profils façon CrystalDiskMark (séquentiel 1 Mo en file de 8 et de 1, aléatoire 4 Ko en
   file de 32 et de 1, lecture puis écriture, 5 s chacun), sans cache Windows, sur un fichier unique
   prérempli d'aléatoire. Le volume est au choix, parmi les volumes locaux (NTFS, ReFS, exFAT ; réseau et
   FAT32 écartés avec la raison) ; la taille se règle par +/− (1 Go par défaut, de 256 Mo à 8 Go) et le
   volume écrit est plafonné à quatre fois cette taille. Le fichier va dans `%ProgramData%\PCPerfSuite\Bench`
-  sur le volume système, sinon dans `X:\PCPerfSuite.Bench`, et il est supprimé à la fin, ou au prochain
-  lancement si l'app a été tuée pendant le test.
+  sur le volume système, sinon dans `X:\PCPerfSuite.Bench`. Windows le supprime dès la fin du test, même
+  si le processus de charge est tué ; après une panne de Windows, l'app le supprime au lancement suivant.
 - **Sécurité** : la charge tourne dans un second processus (le même exe, en mode `--bench-worker`),
   hors EcoQoS et en priorité haute, qui coupe tout dès qu'il n'a plus de nouvelles de l'app pendant 2 s
   et meurt avec elle (Job Object). Le bench s'arrête de lui-même si le processeur reste à son seuil
-  thermique pendant 10 s (TjMax lu sur Intel, 98 °C sur Zen 4/5, 93 °C sur X3D), si son ventilateur
-  identifié reste à l'arrêt, si la batterie passe sous 30 % ou si les capteurs se taisent. Sur batterie,
-  le bench est permis mais le résultat est marqué « non représentatif ». Les réglages processeur, GPU et
-  ventilation sont figés pendant la mesure (bail de réglage), et chaque test est inscrit au journal de
-  session. Chaque lancement demande confirmation, « Non » par défaut ; aucun lancement automatique.
+  thermique pendant 10 s (TjMax lu sur Intel, 98 °C sur Zen 4/5, 93 °C sur un X3D Zen 3 ou Zen 4), si
+  son ventilateur identifié, vu tourner pendant le test, reste à l'arrêt 10 s, si la batterie passe sous
+  30 % ou si les capteurs se taisent. Sur batterie, le bench est permis mais le résultat est marqué « non
+  représentatif ». Les réglages processeur, GPU et ventilation sont figés pendant la mesure (bail de
+  réglage), et chaque test est inscrit au journal de session. Chaque lancement demande confirmation,
+  « Non » par défaut ; aucun lancement automatique.
 - **Contexte enregistré** : processeur et topologie, RAM, cartes graphiques, machine, Windows, mode
   d'alimentation et plan actif, limites CPU et GPU, ventilation, séries de capteurs à 1 Hz, bridage relevé
   et cadence réellement obtenue du relevé pendant le test. Ce qui n'est pas lu le dit : mode constructeur

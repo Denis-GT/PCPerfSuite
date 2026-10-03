@@ -10,10 +10,10 @@ public sealed record BenchPlanOptions(bool SustainedEnabled, long DiskFileBytes,
 
 /// <summary>
 /// Construit les demandes de test à partir de la machine, en logique pure : le mono-thread épinglé sur le premier
-/// fil du premier cœur de la plus haute classe d'efficacité (un cœur P sur un hybride, le CCD au grand L3 sur un X3D),
-/// le multi sur tous les processeurs logiques, la mémoire sur les cœurs physiques de la plus haute classe (8 au plus :
-/// la RAM sature avant), les tailles de <see cref="MemoryBenchSizing"/>, le disque d'après son volume. Donne aussi la
-/// durée estimée de chaque test et les valeurs de sa ligne au journal de session.
+/// fil du deuxième cœur de la plus haute classe d'efficacité (un cœur P sur un hybride, le CCD au grand L3 sur un X3D),
+/// le multi sur tous les processeurs logiques, la mémoire épinglée sur les cœurs physiques de la plus haute classe
+/// (8 au plus : la RAM sature avant ; la latence sur le cœur du mono), les tailles de <see cref="MemoryBenchSizing"/>, le
+/// disque d'après son volume. Donne aussi la durée estimée de chaque test et les valeurs de sa ligne au journal de session.
 /// </summary>
 public static class BenchPlanner
 {
@@ -44,10 +44,31 @@ public static class BenchPlanner
 
     public static int MemoryThreads(CpuTopology? topology, int fallbackProcessorCount)
     {
-        if (topology is null) return Math.Clamp(fallbackProcessorCount / 2, 1, MaxMemoryThreads);
+        int pinned = MemoryTargets(topology).Count;
+        return pinned > 0 ? pinned : Math.Clamp(fallbackProcessorCount / 2, 1, MaxMemoryThreads);
+    }
+
+    /// <summary>Les threads du test de débit mémoire : le premier fil de chaque cœur de la plus haute classe (un cœur P
+    /// sur un hybride), <see cref="MaxMemoryThreads"/> au plus, pris tour à tour dans chaque groupe de cache (sur deux CCD,
+    /// chacun a son propre lien vers la mémoire). Vide sans topologie (threads libres).</summary>
+    public static IReadOnlyList<LogicalProcessorTarget> MemoryTargets(CpuTopology? topology)
+    {
+        if (topology is null) return [];
         int top = topology.TopEfficiencyClass;
-        int cores = topology.Clusters.SelectMany(c => c.Classes).Where(c => c.EfficiencyClass == top).Sum(c => c.Cores.Count);
-        return Math.Clamp(cores, 1, MaxMemoryThreads);
+        List<Queue<PhysicalCore>> perCluster = topology.Clusters
+            .Select(c => new Queue<PhysicalCore>(c.Classes.Where(k => k.EfficiencyClass == top).SelectMany(k => k.Cores)))
+            .Where(q => q.Count > 0)
+            .ToList();
+        var targets = new List<LogicalProcessorTarget>();
+        while (targets.Count < MaxMemoryThreads && perCluster.Any(q => q.Count > 0))
+        {
+            foreach (Queue<PhysicalCore> cores in perCluster)
+            {
+                if (targets.Count >= MaxMemoryThreads || !cores.TryDequeue(out PhysicalCore? core)) continue;
+                if (core.Threads.FirstOrDefault() is { } thread) targets.Add(Target(thread));
+            }
+        }
+        return targets;
     }
 
     public static BenchJobRequest CpuRequest(BenchTestKind kind, CpuTopology? topology, bool sustained, int fallbackProcessorCount)
@@ -74,17 +95,25 @@ public static class BenchPlanner
         return new BenchJobRequest { Kind = BenchTestKinds.Key(kind), Cpu = parameters };
     }
 
-    public static BenchJobRequest RamRequest(BenchTestKind kind, MemoryBenchSizes sizes, int threads)
-        => new()
+    /// <summary>Débit : un thread épinglé par cœur de <see cref="MemoryTargets"/> ; latence : un thread, épinglé comme le
+    /// mono-thread. Sans topologie, des threads libres (<see cref="MemoryThreads"/>).</summary>
+    public static BenchJobRequest RamRequest(BenchTestKind kind, MemoryBenchSizes sizes, CpuTopology? topology, int fallbackProcessorCount)
+    {
+        IReadOnlyList<LogicalProcessorTarget> targets = kind == BenchTestKind.RamBandwidth
+            ? MemoryTargets(topology)
+            : MonoTarget(topology) is { } mono ? [mono] : [];
+        return new BenchJobRequest
         {
             Kind = BenchTestKinds.Key(kind),
             Ram = new RamJobParameters
             {
                 BandwidthBytes = sizes.BandwidthBytes ?? 0,
                 LatencyBytes = sizes.LatencyBytes ?? 0,
-                ThreadCount = kind == BenchTestKind.RamBandwidth ? threads : 1,
+                ThreadCount = kind == BenchTestKind.RamBandwidth ? MemoryThreads(topology, fallbackProcessorCount) : 1,
+                Threads = targets.Count > 0 ? targets.ToList() : null,
             },
         };
+    }
 
     public static BenchJobRequest DiskRequest(string path, BenchVolume volume, long fileBytes)
         => new()

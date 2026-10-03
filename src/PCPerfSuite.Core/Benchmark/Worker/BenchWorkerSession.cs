@@ -26,6 +26,7 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
     private readonly object _gate = new();
     private TaskCompletionSource<BenchJobResult>? _pending;
     private string? _pendingJobId;
+    private string? _pendingKind;
     private volatile bool _closed;
     private int _disposed;
 
@@ -114,6 +115,7 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
             if (_pending is not null) throw new InvalidOperationException("Un test est déjà en cours sur ce worker.");
             _pending = completion;
             _pendingJobId = request.Id;
+            _pendingKind = request.Kind;
         }
 
         try
@@ -133,8 +135,7 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
                 _ = Task.Delay(StopGracePeriod).ContinueWith(_ =>
                 {
                     if (completion.Task.IsCompleted) return;
-                    Kill();
-                    completion.TrySetResult(BenchJobResult.Failure(request.Id, request.Kind, "arrêté (worker tué, pas de résultat partiel)"));
+                    KillWith("arrêté (worker tué, pas de résultat partiel)");
                 }, TaskScheduler.Default);
             });
 
@@ -146,17 +147,22 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
             {
                 _pending = null;
                 _pendingJobId = null;
+                _pendingKind = null;
             }
         }
     }
 
     /// <summary>Tue le worker sans ménagement (sécurité thermique, capteurs muets, fermeture).</summary>
-    public void Kill()
+    public void Kill() => KillWith("worker tué");
+
+    /// <summary>La cause d'abord, le tube ensuite : fermé avant, il réveillerait le lecteur, qui ferait échouer le test
+    /// en cours avec « arrêté sans rendre de résultat » à la place de la vraie cause.</summary>
+    private void KillWith(string reason)
     {
         _closed = true;
+        FailPending(reason);
         _channel.Close();
         KillQuietly(_process, _job);
-        FailPending("worker tué");
     }
 
     private void ReadLoop()
@@ -192,7 +198,28 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
         finally
         {
             _closed = true;
-            FailPending("le worker s'est arrêté sans rendre de résultat");
+            if (_pending is not null) FailPending($"le worker s'est arrêté sans rendre de résultat{DescribeWorkerExit()}");
+        }
+    }
+
+    /// <summary>Pourquoi le worker est parti de lui-même, d'après son code de sortie (attendu un instant : le tube se
+    /// ferme juste avant la fin du processus).</summary>
+    private string DescribeWorkerExit()
+    {
+        try
+        {
+            if (_process is null || !_process.WaitForExit(1000)) return "";
+            return _process.ExitCode switch
+            {
+                BenchWorkerHost.ExitAppSilent => " (il n'avait plus de nouvelles de l'app : battements en retard)",
+                BenchWorkerHost.ExitCrashed => " (plantage du worker, voir le journal des erreurs)",
+                BenchWorkerHost.ExitOk => "",
+                int code => $" (code de sortie {code})",
+            };
+        }
+        catch (Exception)
+        {
+            return "";
         }
     }
 
@@ -204,10 +231,7 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
         DateTimeOffset now = LivenessWatch.MonotonicNow();
         if (_liveness.IsExpired(now))
         {
-            _closed = true;
-            _channel.Close();
-            KillQuietly(_process, _job);
-            FailPending($"worker muet depuis {_liveness.Silence(now).TotalSeconds:0} s : tué");
+            KillWith($"worker muet depuis {_liveness.Silence(now).TotalSeconds:0} s : tué");
         }
     }
 
@@ -226,13 +250,15 @@ public sealed class BenchWorkerSession : Session.IBenchWorker
     {
         TaskCompletionSource<BenchJobResult>? pending;
         string? pendingJobId;
+        string? pendingKind;
         lock (_gate)
         {
             if (_pending is null || (jobId is not null && _pendingJobId is not null && jobId != _pendingJobId)) return;
             pending = _pending;
             pendingJobId = _pendingJobId;
+            pendingKind = _pendingKind;
         }
-        pending.TrySetResult(BenchJobResult.Failure(pendingJobId ?? "", "", error));
+        pending.TrySetResult(BenchJobResult.Failure(pendingJobId ?? "", pendingKind ?? "", error));
     }
 
     private bool ProcessHasExited()

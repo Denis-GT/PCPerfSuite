@@ -90,6 +90,10 @@ public sealed class RamJobParameters
 
     public int ThreadCount { get; set; } = 1;
 
+    /// <summary>Un thread par entrée, épinglé dessus (cœurs de la plus haute classe : sur un hybride, un thread posé sur
+    /// un cœur E mesurerait une autre latence) ; null ou vide : <see cref="ThreadCount"/> threads non épinglés.</summary>
+    public List<LogicalProcessorTarget>? Threads { get; set; }
+
     /// <summary>Pas de pointer chasing par passe de latence.</summary>
     public long LatencySteps { get; set; } = 20_000_000;
 

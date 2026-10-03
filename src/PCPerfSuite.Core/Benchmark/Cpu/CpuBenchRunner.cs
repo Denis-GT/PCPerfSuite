@@ -127,7 +127,7 @@ public sealed class CpuBenchRunner
     private static BenchJobResult Cancelled(BenchJobResult result, Stopwatch stopwatch)
     {
         result.Succeeded = false;
-        result.Error = "arrêté";
+        result.Error = Worker.BenchJobDispatcher.CancelledError;
         result.DurationSeconds = stopwatch.Elapsed.TotalSeconds;
         return result;
     }
@@ -211,6 +211,7 @@ internal sealed class CpuLoadTeam : IDisposable
     private readonly ThreadPlacementResult?[] _placements;
     private readonly string[] _labels;
     private readonly string[] _units;
+    private readonly double[] _unitScales;
     private readonly string[][] _instructionSets;
     private readonly bool[] _comparable;
     private readonly Exception?[] _failures;
@@ -236,11 +237,13 @@ internal sealed class CpuLoadTeam : IDisposable
         _failures = new Exception?[count];
         _labels = new string[keys.Count];
         _units = new string[keys.Count];
+        _unitScales = new double[keys.Count];
         for (int k = 0; k < keys.Count; k++)
         {
             using ICpuKernel sample = CpuKernelCatalog.Create(keys[k], seed);
             _labels[k] = sample.Label;
             _units[k] = sample.Unit;
+            _unitScales[k] = sample.UnitScale;
         }
     }
 
@@ -296,7 +299,7 @@ internal sealed class CpuLoadTeam : IDisposable
 
         if (phase.Kind != CpuLoadPhaseKind.Measure) return new CpuLoadOutcome(0, 0);
 
-        double unitScale = UnitScale(phase.KernelIndex);
+        double unitScale = _unitScales[phase.KernelIndex];
         double rate = 0;
         int mismatches = 0;
         foreach (KernelPassOutcome? outcome in _outcomes)
@@ -309,21 +312,10 @@ internal sealed class CpuLoadTeam : IDisposable
         return new CpuLoadOutcome(rate, mismatches);
     }
 
-    public string DescribePlacement()
-    {
-        int verified = _placements.Count(p => p is { Verified: true });
-        string mechanisms = string.Join("/", _placements.Where(p => p?.Mechanism is not null).Select(p => p!.Mechanism).Distinct());
-        return mechanisms.Length == 0 ? "échec de l'épinglage" : $"{mechanisms} : {verified}/{_count} vérifié(s)";
-    }
+    public string DescribePlacement() => ThreadPlacementResult.Summarize(_placements);
 
     public string DescribeInstructionSets()
         => string.Join(", ", _instructionSets.Where(s => s is not null).SelectMany(s => s).Distinct());
-
-    private double UnitScale(int kernelIndex)
-    {
-        using ICpuKernel sample = CpuKernelCatalog.Create(_keys[kernelIndex], _seed);
-        return sample.UnitScale;
-    }
 
     private void ThreadMain(int index)
     {

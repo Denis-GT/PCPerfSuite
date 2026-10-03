@@ -193,7 +193,13 @@ public sealed class BenchSession
                         worker.Dispose();
                         worker = await _ports.StartWorker(message => log.Add($"worker : {message}"), cancel).ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (OperationCanceledException)
+                    {
+                        // Arrêter pendant la relance : la session s'arrête, et les tests déjà passés restent à enregistrer.
+                        cancelled = true;
+                        break;
+                    }
+                    catch (Exception ex)
                     {
                         outcomes.Add(NotRun(test, time.GetUtcNow(), $"worker de charge non relancé : {ex.Message}"));
                         continue;
@@ -243,7 +249,10 @@ public sealed class BenchSession
             return NotRun(test, startedUtc, JournalUnavailableError) with { JournalDurable = false };
         }
 
+        // Chaque relevé reçu est enregistré à son arrivée (250 ms), pas seulement ceux que voit la veille de sécurité
+        // (500 ms) : sinon la cadence obtenue, que le résultat rapporte, serait mesurée à la moitié.
         var recording = new SensorRecording(startedUtc.UtcDateTime);
+        latest.Record(recording);
         monitor.Reset();
         BenchStopReason? stopReason = null;
         string? stopDetail = null;
@@ -265,7 +274,6 @@ public sealed class BenchSession
                 if (snapshot is not null && snapshot.CapturedAtUtc != lastSeen)
                 {
                     lastSeen = snapshot.CapturedAtUtc;
-                    lock (recording) recording.Add(snapshot);
                     verdict = monitor.Note(BenchSafetySample.From(snapshot, CapturedAt(snapshot)), underLoad: true);
                 }
                 else
@@ -295,6 +303,7 @@ public sealed class BenchSession
         }
         finally
         {
+            latest.Record(null);
             worker.ProgressReported -= OnProgress;
             safetyStop.Cancel();
             try { await safety.ConfigureAwait(false); } catch (Exception) { /* la veille n'intéresse plus */ }
@@ -383,13 +392,25 @@ public sealed class BenchSession
         }
     }
 
-    /// <summary>Le dernier relevé reçu, lu par la veille de sécurité.</summary>
+    /// <summary>Le dernier relevé reçu, lu par la veille de sécurité ; pendant un test, chaque relevé reçu est aussi
+    /// ajouté à son enregistrement.</summary>
     private sealed class LatestSnapshot
     {
         private HardwareSnapshot? _snapshot;
+        private SensorRecording? _recording;
 
-        public void Set(HardwareSnapshot snapshot) => Volatile.Write(ref _snapshot, snapshot);
+        public void Set(HardwareSnapshot snapshot)
+        {
+            Volatile.Write(ref _snapshot, snapshot);
+            if (Volatile.Read(ref _recording) is { } recording)
+            {
+                lock (recording) recording.Add(snapshot);
+            }
+        }
 
         public HardwareSnapshot? Get() => Volatile.Read(ref _snapshot);
+
+        /// <summary>L'enregistrement du test en cours, null entre deux tests.</summary>
+        public void Record(SensorRecording? recording) => Volatile.Write(ref _recording, recording);
     }
 }

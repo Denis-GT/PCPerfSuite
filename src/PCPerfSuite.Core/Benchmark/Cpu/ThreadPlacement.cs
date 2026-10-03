@@ -7,6 +7,14 @@ namespace PCPerfSuite.Core.Benchmark.Cpu;
 public sealed record ThreadPlacementResult(string? Mechanism, bool Verified)
 {
     public string Describe() => Mechanism is null ? "non épinglé" : Verified ? Mechanism : $"{Mechanism} (non vérifié)";
+
+    /// <summary>Bilan d'une équipe de threads : « cpu-set+affinite : 6/6 vérifié(s) », ou l'échec.</summary>
+    public static string Summarize(IReadOnlyCollection<ThreadPlacementResult?> placements)
+    {
+        int verified = placements.Count(p => p is { Verified: true });
+        string mechanisms = string.Join("/", placements.Where(p => p?.Mechanism is not null).Select(p => p!.Mechanism).Distinct());
+        return mechanisms.Length == 0 ? "échec de l'épinglage" : $"{mechanisms} : {verified}/{placements.Count} vérifié(s)";
+    }
 }
 
 /// <summary>
