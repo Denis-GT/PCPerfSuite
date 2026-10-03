@@ -207,7 +207,9 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
     comme tout Zen 5, inconnu 98 °C) tenu 10 s, ventilateur CPU identifié et vu tourner pendant le test, puis à 0 tr/min 10 s sous charge (un connecteur CPU_FAN vide
     ou un ventilateur arrêté par le BIOS à froid lit 0 dès le début : pas une panne), batterie lue aussi en unités
     relatives, perte de relevé 10 s ; le worker coupe toute charge 2 s sans nouvelles de l'app ; Arrêter toujours
-    visible ; confirmation « Non » par défaut à chaque lancement (D6) ; jamais de lancement automatique.
+    visible ; confirmation « Non » par défaut à chaque lancement (D6) ; jamais de lancement automatique. Tous ces délais,
+    et le retour au repos, se mesurent sur l'horloge monotone (`MonotonicClock`, heure de capture
+    `HardwareSnapshot.CapturedTimestamp`) : un changement d'heure de Windows ne déclenche ni ne retarde aucun arrêt.
   - Protocole : préchauffe 5 s non comptée, 3 passes de 2 s par noyau, médiane et CV (> 3 % = « instable », pour les
     passes CPU et RAM ; le CV des tranches de 1 s d'une phase disque est indicatif), rafale puis soutenu après 3 min de
     charge continue (facultatif), retour au repos entre tests (±3 °C de la base, 60 s max) ; charge de fond notée
@@ -215,7 +217,8 @@ Tranchées par Denis le 30/09/2026 (conversation #1).
   - Contexte : mode constructeur des portables **non lu** sur aucune marque à ce jour (N/D avec la raison, D4 lecture
     seule) ; lien PCIe N/D jusqu'à la livraison de #4 ; cadence réellement obtenue du relevé pendant le test
     (affamement par le worker High) inscrite dans le résultat.
-  - Fichiers : une session = un JSON v1 dans `AppDataPaths.BenchFolder` (`bench\`), lu de façon tolérante ; les réglages
+  - Fichiers : une session = un JSON v1 dans `AppDataPaths.BenchFolder` (`bench\`), lu de façon tolérante, mais un
+    document sans « v » est refusé (« version absente »), comme une ligne du tube sans « v » ; les réglages
     de la page dans `AppSettings.Bench` ; aucune dépendance NuGet nouvelle.
   - Calibration prévue par Denis : i5-14600K / RTX 5070 Ti / TUF B760, un portable Ryzen, le PC de travail i5-13500T.
 - **Cause d'une absence** (#4) : une lecture « N/D » porte un `Unavailable` (`UnavailableCause` : `HardwareOrDriver`,

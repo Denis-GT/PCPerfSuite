@@ -122,6 +122,24 @@ public class BenchSessionResultTests
     }
 
     [Fact]
+    public void Un_document_sans_v_n_est_pas_pris_pour_une_session_v1()
+    {
+        Assert.Null(BenchResultStore.TryParse("{}", out string? problem));
+        Assert.Equal("version absente", problem);
+        Assert.Null(BenchResultStore.TryParse("{\"Id\":\"abc\",\"Tests\":[]}", out problem));
+        Assert.Equal("version absente", problem);
+
+        // Le fichier d'un autre outil rangé dans le dossier compte pour illisible, jamais pour la dernière session.
+        using var temp = new TempDirectory();
+        var store = new BenchResultStore(() => Path.Combine(temp.Root, "bench"));
+        Directory.CreateDirectory(store.Folder);
+        File.WriteAllText(Path.Combine(store.Folder, BenchResultStore.FilePrefix + "autre-outil.json"), "{\"outil\":\"autre\"}");
+
+        Assert.Empty(store.LoadAll(out int unreadable));
+        Assert.Equal(1, unreadable);
+    }
+
+    [Fact]
     public void Le_depot_ecrit_un_fichier_par_session_et_relit_la_plus_recente_en_premier()
     {
         using var temp = new TempDirectory();

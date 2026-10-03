@@ -28,6 +28,7 @@ internal static class BenchSnapshots
         return new HardwareSnapshot
         {
             CapturedAtUtc = T0.AddSeconds(seconds),
+            CapturedTimestamp = T0.AddSeconds(seconds).Ticks, // échelle de ManualClock.GetTimestamp
             Cpu = new CpuSnapshot { PackageTempC = cpuTemp, PowerWatts = cpuPower, MaxClockMhz = 4800, LoadPercent = 95 },
             Fans = fans,
             Battery = battery,
@@ -323,6 +324,41 @@ public class BenchSafetyMonitorTests
         var monitor = new BenchSafetyMonitor(Limits);
         BenchSafetySample sample = BenchSafetySample.From(new HardwareSnapshot { CapturedAtUtc = T0.UtcDateTime, Battery = relative }, T0);
         Assert.Equal(BenchStopReason.BatteryLow, monitor.Note(sample).Stop);
+    }
+}
+
+public class MonotonicClockTests
+{
+    private static readonly DateTimeOffset T0 = new(2026, 10, 2, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void Un_changement_d_heure_de_Windows_ne_deplace_ni_l_heure_ni_les_releves()
+    {
+        var time = new ManualClock(T0);
+        var clock = new MonotonicClock(time);
+
+        time.Now = T0.AddSeconds(3);
+        Assert.Equal(T0.AddSeconds(3), clock.Now());
+
+        time.WallShift = TimeSpan.FromSeconds(15); // recalage vers l'avant
+        Assert.Equal(T0.AddSeconds(3), clock.Now());
+        time.WallShift = TimeSpan.FromMinutes(-5); // l'heure recule
+        Assert.Equal(T0.AddSeconds(3), clock.Now());
+        Assert.Equal(T0.AddSeconds(1), clock.At(T0.AddSeconds(1).UtcTicks));
+    }
+
+    [Fact]
+    public void Un_recul_de_l_heure_ne_retarde_pas_l_arret_thermique()
+    {
+        var time = new ManualClock(T0);
+        var clock = new MonotonicClock(time);
+        var monitor = new BenchSafetyMonitor(new BenchThermalLimits(95, "test", TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10)));
+
+        Assert.Null(monitor.Note(new BenchSafetySample(clock.Now(), 96, 1200, true, null, false)).Stop);
+        time.WallShift = TimeSpan.FromMinutes(-1);
+        time.Now = T0.AddSeconds(11);
+
+        Assert.Equal(BenchStopReason.Thermal, monitor.Note(new BenchSafetySample(clock.Now(), 96, 1200, true, null, false)).Stop);
     }
 }
 

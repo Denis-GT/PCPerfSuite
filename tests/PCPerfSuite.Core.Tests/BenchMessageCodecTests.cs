@@ -66,6 +66,16 @@ public class BenchMessageCodecTests
     }
 
     [Fact]
+    public void Une_ligne_sans_version_est_refusee_au_lieu_de_passer_pour_le_protocole_courant()
+    {
+        BenchMessage? decoded = BenchMessageCodec.TryDecode("""{"type":"battement"}""", out string? problem);
+
+        Assert.Null(decoded);
+        Assert.Equal("version de protocole absente", problem);
+        Assert.Equal(BenchVersion.Protocol, new BenchMessage().Version);
+    }
+
+    [Fact]
     public void Un_champ_inconnu_est_garde_et_une_ligne_abimee_refusee()
     {
         BenchMessage? decoded = BenchMessageCodec.TryDecode("""{"v":1,"type":"battement","futur":{"x":1}}""", out string? problem);

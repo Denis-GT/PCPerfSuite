@@ -434,7 +434,8 @@ public sealed partial class BenchViewModel : ObservableObject, IPageLifecycle, I
     private void OnSnapshot(HardwareSnapshot snapshot)
     {
         if (!IsPageShown && !_running) return;
-        _backgroundLoad.Note(DateTimeOffset.UtcNow, snapshot.Cpu.LoadPercent);
+        // Heure monotone : un changement d'heure de Windows ne doit ni vider ni étirer la fenêtre de 10 s.
+        _backgroundLoad.Note(LivenessWatch.MonotonicNow(), snapshot.Cpu.LoadPercent);
         if (!_running) return;
 
         float? temp = snapshot.Cpu.PackageTempC ?? snapshot.Cpu.MaxCoreTempC;

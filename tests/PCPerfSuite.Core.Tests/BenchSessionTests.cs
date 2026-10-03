@@ -231,6 +231,33 @@ public class BenchSessionTests
     }
 
     [Fact]
+    public async Task Un_changement_d_heure_de_Windows_pendant_un_test_ne_l_arrete_pas()
+    {
+        using var temp = new TempDirectory();
+        var clock = new ManualClock(new DateTimeOffset(BenchSnapshots.T0));
+        var worker = new FakeWorker(TimeSpan.FromSeconds(1.5));
+        var sensors = new FakeSensors();
+        var session = new BenchSession(new BenchSessionPorts
+        {
+            StartWorker = (_, _) => Task.FromResult<IBenchWorker>(worker),
+            Lease = new TuningLease(clock),
+            Journal = new SessionJournal(temp.File("journal.jsonl"), clock),
+            Time = clock,
+            SubscribeSnapshots = sensors.Subscribe,
+        });
+
+        Task<BenchSessionOutcome> run = session.RunAsync(Plan(Test(BenchTestKind.CpuMono)), null, CancellationToken.None);
+        await Task.Delay(300);
+        sensors.Push(BenchSnapshots.At(0));
+        // Windows avance son heure d'une minute : à l'heure murale, le relevé daterait d'il y a 60 s (perte de relevé).
+        clock.WallShift = TimeSpan.FromMinutes(1);
+        BenchSessionOutcome outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Null(outcome.StoppedBy);
+        Assert.True(outcome.Tests[0].Result.Succeeded, outcome.Tests[0].Result.Error);
+    }
+
+    [Fact]
     public async Task Une_annulation_de_l_utilisateur_arrete_le_test_et_la_session()
     {
         using var temp = new TempDirectory();

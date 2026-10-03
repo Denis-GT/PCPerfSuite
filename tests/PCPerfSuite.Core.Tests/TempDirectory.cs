@@ -20,10 +20,18 @@ internal sealed class TempDirectory : IDisposable
     }
 }
 
-/// <summary>Horloge réglée à la main.</summary>
+/// <summary>Horloge réglée à la main. <see cref="Now"/> est le temps qui passe : l'heure murale et l'horodatage monotone
+/// (en ticks de <see cref="Now"/>) le suivent ; <see cref="WallShift"/> ne décale que l'heure murale, comme un changement
+/// d'heure de Windows.</summary>
 internal sealed class ManualClock(DateTimeOffset now) : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = now;
 
-    public override DateTimeOffset GetUtcNow() => Now;
+    public TimeSpan WallShift { get; set; }
+
+    public override DateTimeOffset GetUtcNow() => Now + WallShift;
+
+    public override long GetTimestamp() => Now.UtcTicks;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 }

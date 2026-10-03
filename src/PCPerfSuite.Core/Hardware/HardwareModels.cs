@@ -319,6 +319,11 @@ public sealed class HardwareSnapshot
 
     public DateTime CapturedAtUtc { get; init; } = DateTime.UtcNow;
 
+    /// <summary>Même instant sur l'horloge monotone (<see cref="System.Diagnostics.Stopwatch.GetTimestamp"/>, celle de
+    /// <see cref="TimeProvider.System"/>) : pour mesurer un délai entre deux relevés sans qu'un changement d'heure de
+    /// Windows le raccourcisse ou l'allonge (veille de sécurité du bench).</summary>
+    public long CapturedTimestamp { get; init; } = System.Diagnostics.Stopwatch.GetTimestamp();
+
     /// <summary>Matériel effectivement mis à jour pour ce relevé : le matériel lent en est absent
     /// quand il n'était pas encore temps de le relire.</summary>
     public IReadOnlyList<HardwareReadTiming> ReadTimings { get; init; } = Array.Empty<HardwareReadTiming>();

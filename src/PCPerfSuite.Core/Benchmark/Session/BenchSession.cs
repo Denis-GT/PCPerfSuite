@@ -45,6 +45,9 @@ public sealed class BenchSessionPorts
 
     public required SessionJournal Journal { get; init; }
 
+    /// <summary>L'heure murale date les tests et la session ; son horodatage monotone (<see cref="TimeProvider.GetTimestamp"/>,
+    /// sur la même horloge que <see cref="HardwareSnapshot.CapturedTimestamp"/>) mesure les délais de la veille et du
+    /// retour au repos (<see cref="MonotonicClock"/>).</summary>
     public TimeProvider Time { get; init; } = TimeProvider.System;
 
     /// <summary>Abonnement aux relevés de capteurs ; null quand il n'y en a pas (tests).</summary>
@@ -110,8 +113,13 @@ public sealed class BenchSession
     private static readonly TimeSpan SafetyTick = TimeSpan.FromMilliseconds(500);
 
     private readonly BenchSessionPorts _ports;
+    private readonly MonotonicClock _clock;
 
-    public BenchSession(BenchSessionPorts ports) => _ports = ports;
+    public BenchSession(BenchSessionPorts ports)
+    {
+        _ports = ports;
+        _clock = new MonotonicClock(ports.Time);
+    }
 
     public async Task<BenchSessionOutcome> RunAsync(BenchSessionPlan plan, Action<BenchSessionProgress>? progress, CancellationToken cancel)
     {
@@ -162,7 +170,7 @@ public sealed class BenchSession
             }
 
             HardwareSnapshot? first = latest.Get() ?? TryRead(_ports.LastSnapshot, "dernier relevé", log);
-            float? baselineC = first is null ? null : BenchSafetySample.From(first, time.GetUtcNow()).CpuTempC;
+            float? baselineC = first is null ? null : SampleOf(first).CpuTempC;
             log.Add(baselineC is { } b ? $"température de départ : {b:0} °C" : "température de départ non lue");
 
             for (int index = 0; index < plan.Tests.Count; index++)
@@ -266,19 +274,19 @@ public sealed class BenchSession
         var safetyStop = new CancellationTokenSource();
         Task safety = Task.Run(async () =>
         {
-            DateTime? lastSeen = null;
+            long? lastSeen = null;
             while (!safetyStop.IsCancellationRequested)
             {
                 HardwareSnapshot? snapshot = latest.Get();
                 BenchSafetyVerdict verdict;
-                if (snapshot is not null && snapshot.CapturedAtUtc != lastSeen)
+                if (snapshot is not null && snapshot.CapturedTimestamp != lastSeen)
                 {
-                    lastSeen = snapshot.CapturedAtUtc;
-                    verdict = monitor.Note(BenchSafetySample.From(snapshot, CapturedAt(snapshot)), underLoad: true);
+                    lastSeen = snapshot.CapturedTimestamp;
+                    verdict = monitor.Note(SampleOf(snapshot), underLoad: true);
                 }
                 else
                 {
-                    verdict = monitor.NoteNoReading(time.GetUtcNow());
+                    verdict = monitor.NoteNoReading(_clock.Now());
                 }
 
                 if (verdict.Stop is { } reason)
@@ -341,24 +349,25 @@ public sealed class BenchSession
     private async Task<string> WaitIdleAsync(float? baselineC, LatestSnapshot latest, BenchSafetyMonitor monitor, int index, int count,
         Action<BenchSessionProgress>? progress, CancellationToken cancel)
     {
-        TimeProvider time = _ports.Time;
-        var idle = new IdleReturn(baselineC, time.GetUtcNow());
+        var idle = new IdleReturn(baselineC, _clock.Now());
         while (true)
         {
             HardwareSnapshot? snapshot = latest.Get();
-            float? current = snapshot is null ? null : BenchSafetySample.From(snapshot, time.GetUtcNow()).CpuTempC;
-            if (snapshot is not null) monitor.Note(BenchSafetySample.From(snapshot, CapturedAt(snapshot)), underLoad: false);
-            IdleReturnState state = idle.Check(time.GetUtcNow(), current);
+            BenchSafetySample? sample = snapshot is null ? null : SampleOf(snapshot);
+            float? current = sample?.CpuTempC;
+            if (sample is not null) monitor.Note(sample, underLoad: false);
+            IdleReturnState state = idle.Check(_clock.Now(), current);
             progress?.Invoke(new BenchSessionProgress(index, count, null, "retour au repos", 0, state.Reason, current, current is null ? null : "°C"));
             if (state.Done) return state.Reason;
             try { await Task.Delay(SafetyTick, cancel).ConfigureAwait(false); } catch (OperationCanceledException) { return "interrompu"; }
         }
     }
 
-    /// <summary>L'heure d'un relevé est celle de sa capture (même horloge que la session en production) : un relevé en
-    /// retard compte pour le moment où il a été pris, et deux relevés chauds espacés du délai déclenchent quel que soit
-    /// le moment où la veille les voit.</summary>
-    private static DateTimeOffset CapturedAt(HardwareSnapshot snapshot) => new(DateTime.SpecifyKind(snapshot.CapturedAtUtc, DateTimeKind.Utc));
+    /// <summary>L'heure d'un relevé pour la veille est celle de sa capture, sur l'horloge monotone : un relevé en retard
+    /// (il arrive par le fil de l'interface) compte pour le moment où il a été pris, deux relevés chauds espacés du délai
+    /// déclenchent quel que soit le moment où la veille les voit, et un changement d'heure de Windows ne raccourcit ni
+    /// n'allonge aucun délai.</summary>
+    private BenchSafetySample SampleOf(HardwareSnapshot snapshot) => BenchSafetySample.From(snapshot, _clock.At(snapshot.CapturedTimestamp));
 
     private static BenchTestOutcome NotRun(BenchTestPlan test, DateTimeOffset at, string error)
         => new(test.Kind, test.Request, BenchJobResult.Failure(test.Request.Id, test.Request.Kind, error), at, at, [],

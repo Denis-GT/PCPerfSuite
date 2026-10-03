@@ -11,12 +11,18 @@ namespace PCPerfSuite.Core.Benchmark.Results;
 /// données. Schéma stable et lu de façon tolérante (<c>[JsonExtensionData]</c> partout) : le diagnostic (#12) s'en
 /// servira. Unités physiques et points côte à côte ; un score ne se compare qu'à la même <see cref="BenchVersion"/>.
 /// </summary>
-public sealed class BenchSessionResult
+public sealed class BenchSessionResult : IJsonOnDeserializing
 {
     public const int FormatVersion = 1;
 
+    /// <summary><see cref="FormatVersion"/> pour une session créée ici ; à la lecture, 0 si le document n'a pas de « v »
+    /// (refusé « version absente » par <see cref="BenchResultStore.TryParse"/>).</summary>
     [JsonPropertyName("v")]
     public int Version { get; set; } = FormatVersion;
+
+    /// <summary>Avant la lecture des champs : sans cela, un document sans « v » garderait la version de l'initialiseur et
+    /// passerait pour une session v1.</summary>
+    void IJsonOnDeserializing.OnDeserializing() => Version = 0;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 

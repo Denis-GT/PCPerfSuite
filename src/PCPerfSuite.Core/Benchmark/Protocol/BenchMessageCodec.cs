@@ -21,7 +21,8 @@ public static class BenchMessageCodec
 
     public static string Encode(BenchMessage message) => JsonSerializer.Serialize(message, Options);
 
-    /// <summary>Null, avec la raison, pour une ligne vide, un JSON invalide, une autre version ou un type absent.</summary>
+    /// <summary>Null, avec la raison, pour une ligne vide, un JSON invalide, une version absente ou autre, ou un type
+    /// absent.</summary>
     public static BenchMessage? TryDecode(string? line, out string? problem)
     {
         if (string.IsNullOrWhiteSpace(line))
@@ -50,6 +51,12 @@ public static class BenchMessageCodec
         if (message is null)
         {
             problem = "message nul";
+            return null;
+        }
+
+        if (message.Version <= 0)
+        {
+            problem = "version de protocole absente";
             return null;
         }
 

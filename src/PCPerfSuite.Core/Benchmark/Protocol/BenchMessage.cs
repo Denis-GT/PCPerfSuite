@@ -32,10 +32,16 @@ public static class BenchMessageTypes
 /// Un message du tube entre l'app et son worker de charge : une ligne JSON, versionnée. Les champs inconnus sont gardés
 /// (<see cref="Extra"/>) ; une autre version de protocole est refusée net par <see cref="BenchMessageCodec"/>.
 /// </summary>
-public sealed class BenchMessage
+public sealed class BenchMessage : IJsonOnDeserializing
 {
+    /// <summary>La version du protocole pour un message créé ici ; à la lecture, 0 si la ligne n'a pas de « v » (refusée
+    /// par <see cref="BenchMessageCodec.TryDecode"/>).</summary>
     [JsonPropertyName("v")]
     public int Version { get; set; } = Benchmark.BenchVersion.Protocol;
+
+    /// <summary>Avant la lecture des champs : sans cela, une ligne sans « v » garderait la version de l'initialiseur et
+    /// passerait pour un message du protocole courant.</summary>
+    void IJsonOnDeserializing.OnDeserializing() => Version = 0;
 
     [JsonPropertyName("type")]
     public string Type { get; set; } = "";
