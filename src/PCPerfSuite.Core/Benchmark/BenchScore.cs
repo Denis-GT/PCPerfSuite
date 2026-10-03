@@ -9,7 +9,7 @@ public sealed record ScoreReference(string MeasurementKey, double ReferenceValue
 /// Points d'un test (décision de Denis du 02/10/2026 : unités physiques et points). 1000 points = la machine de
 /// référence ; les points d'un test sont 1000 × la moyenne géométrique des ratios mesure / référence (référence / mesure
 /// pour une latence), sur les seules mesures qui ont une référence. Les références de <see cref="BenchReferences"/> sont
-/// provisoires : relevées sur un i5-13500T, à rebaser sur le i5-14600K de Denis. Expérimental (règle 6).
+/// provisoires : relevées sur un Ryzen 7 5800H portable, à rebaser sur le i5-14600K de Denis. Expérimental (règle 6).
 /// </summary>
 public static class BenchScore
 {
