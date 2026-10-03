@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using PCPerfSuite.Core.Benchmark.Cpu;
+using PCPerfSuite.Core.Benchmark.Memory;
 using PCPerfSuite.Core.Benchmark.Protocol;
 
 namespace PCPerfSuite.Core.Benchmark.Worker;
@@ -18,6 +19,7 @@ public static class BenchJobDispatcher
             result = BenchTestKinds.Parse(request.Kind) switch
             {
                 BenchTestKind.CpuMono or BenchTestKind.CpuMulti => new CpuBenchRunner().Run(request, progress, cancel),
+                BenchTestKind.RamBandwidth or BenchTestKind.RamLatency => new MemoryBenchRunner().Run(request, progress, cancel),
                 _ => BenchJobResult.Failure(request.Id, request.Kind, $"test inconnu « {request.Kind} »"),
             };
         }

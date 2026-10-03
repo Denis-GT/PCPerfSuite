@@ -111,16 +111,34 @@ Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatis
   bonjour + test + sortie `ExitOk` à la fermeture du tube ; sans battement → `ExitAppSilent` ; annulation → résultat
   partiel « arrêté » sans tuer ; second test refusé ; mauvais pid refusé ; attente expirée → `TimeoutException`).
 
+### Commit 3 (poussé) : `feat(F1): bench RAM, debit et latence`
+
+- `Benchmark/Memory/MemorySlices.cs` (pur : tranches contiguës alignées 4 Ko, une par thread).
+- `Benchmark/Kernels/MemoryBandwidthKernel.cs` : tampon unique aligné page ; écriture = motif par page (graine ⊕ page)
+  en `StoreAlignedNonTemporal` + sfence ; lecture = `LoadAlignedVector256` **additionnée** par voie (pas un XOR : un
+  motif répété un nombre pair de fois s'annulerait, vu au premier test) ; copie = première moitié → seconde (lus + écrits
+  comptés) ; repli `Vector<T>` non comparable ; `Snapshot` pour les tests.
+- `Benchmark/Kernels/MemoryLatencyKernel.cs` : lignes de 64 o, nombre de lignes ramené à une puissance de deux (indice lu
+  toujours masqué : une corruption ne sort pas du tampon), chaîne de Sattolo écrite dans les lignes, `Chase(start,
+  steps)` déroulé par 4 → ns/pas, `VerifyPermutationChecksum` (XOR des indices = XOR de 0..n−1).
+- `Benchmark/Memory/MemoryBenchSizing.cs` (pur) : `Compute(l3, libre)` → `MemoryBenchSizes` (débit = max(8 × L3,
+  128 Mo) plafonné à 25 % de la RAM libre, aligné 2 Mo ; latence = 512 Mo dans [256 Mo, 1 Go], ≤ 25 % libre, puissance de
+  deux ; sous le plancher → `Unavailable` HardwareOrDriver avec la raison) ; `ReadCurrent(topology)` (plus grand L3 des
+  groupes de cache, RAM libre par `SystemMemoryReader`).
+- `Benchmark/Memory/MemoryBenchRunner.cs` : débit = équipe `MemoryLoadTeam` (barrière ; Fill, Calibrate, Measure), par
+  passe écriture → lecture (somme vérifiée → `ChecksumMismatch`) → copie, balayages entiers jusqu'à `PassSeconds`,
+  mesures `ecriture`, `lecture`, `copie` en **Go/s décimaux** (10⁹) ; latence = préchauffe non comptée (1 chaîne),
+  passes par tronçons de 1 M pas (annulation, avancement), mesure `latence` en ns (HigherIsBetter faux), passes qui
+  doivent rendre le même indice final + permutation intacte, sinon `ChecksumMismatch` ; notes (tampon-mo, threads,
+  jeu-instructions, erreurs-lecture, pages 4 Ko, verification). Branché dans `BenchJobDispatcher`.
+- Mesure de vraisemblance sur le 13500T (RAM libre 4,3 Go, L3 16 Mo → tampon 128 Mo) : lecture ≈ 15–16 Go/s, écriture
+  ≈ 12–13, copie ≈ 15–17 (1, 4 ou 8 threads : la RAM sature dès 1 thread sur ce PC), latence ≈ 131 ns (première passe
+  151 → d'où la préchauffe). Références `BenchReferences` RAM encore à calibrer (étape 6).
+- Tests (verts, 18) : `MemoryBenchTests.cs` (tranches, dimensionnement et bornes, noyaux : somme attendue, copie
+  recopiée, graine, cycle unique masqué et vérifiable, runner : débit, latence, refus, annulation, distributeur).
+
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 
-3. **Bench RAM** (`Benchmark/Memory/`, `Benchmark/Kernels/`) : `MemoryBandwidthKernel` (lecture
-   `Avx.LoadAlignedVector256` sommée, écriture `Avx.StoreAlignedNonTemporal`, copie ; multi-thread par tranches alignées
-   4 Ko ; repli `Vector<T>` ; copie comptée lus + écrits), `MemoryLatencyKernel` (lignes de 64 o, `SattoloPermutation`
-   sur les indices de lignes, pointer chasing, ns par pas, « pages de 4 Ko »), `MemoryBenchRunner.Run(request, progress,
-   cancel)` : 3 passes débit (`lecture`, `ecriture`, `copie` en Go/s) et 3 passes latence (`latence` en ns) ; tailles
-   fournies par l'app (`RamJobParameters.BandwidthBytes` = max(8 × L3, 128 Mo) plafonné à 25 % de la RAM libre ;
-   `LatencyBytes` 512 Mo borné [256 Mo, 1 Go] et 25 % libre ; RAM libre lue par `SystemMemoryReader` interne).
-   Brancher dans `BenchJobDispatcher`. Tests sur la logique pure (tailles, bornes).
 4. **Bench disque** (`Benchmark/Disk/`) : `DiskBenchPlan` (pur : phases façon CrystalDiskMark séq 1 Mo Q8/Q1, aléa 4 Ko
    Q32/Q1, lecture puis écriture, 5 s chacune ; alignement sur `SectorBytes` ; budget écrit 4 × taille : préremplissage
    1 ×, séq ≤ 1 × par phase, aléa ≤ 0,5 × ; HDD raccourci = Q1 seulement ; CV sur tranches de 1 s, une passe par profil),
