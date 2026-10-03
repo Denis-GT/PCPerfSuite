@@ -247,13 +247,18 @@ arrêt thermique → ligne échouée et suivants sautés, annulation, journal no
 - Tests (verts) : `BenchPlannerTests`, `BenchResultsTests` (conversion, points, aller-retour JSON avec champs inconnus,
   tolérance, dépôt), `BenchRowProviderTests`, `BenchViewModelsTests` (App : cartes, historique, test cochable).
 
+### Commit 7 (poussé) : `docs(F1): bench dans decisions, navigation et README`
+
+- `docs/decisions.md` : briques « Modes secondaires » (livrée), « Moteur de charge et noyaux CPU vérifiés » (livrée,
+  emplacements), « Session de bench » et « Volumes et disque physique » (nouvelles, pour #11, #12, #19) ; `bench` inscrit
+  au `StartupRecovery` ; bloc « Bench (#10, décisions de Denis du 02/10/2026) » dans les règles communes (périmètre,
+  worker, scores et calibration, disque, batterie, sécurité, protocole, contexte, fichiers).
+- `docs/navigation.md` : Bench → livrée (expérimental) ; #11, #12, #13 → prévues dans la page livrée.
+- `README.md` : table « Organisation de l'app », dossiers `bench\` et `%ProgramData%\PCPerfSuite\Bench`, section
+  « Bench *(expérimental)* ».
+
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 
-7. **Documentation** : `docs/decisions.md` (briques « Modes secondaires » livrée et « Moteur de charge et noyaux CPU
-   vérifiés » à `Core/Benchmark/` ; `bench` inscrit au `StartupRecovery` ; décisions de cette conversation en ajout, une
-   ligne chacune), `docs/navigation.md` (ligne Bench → livrée, expérimental), `README.md` (section « Bench et
-   diagnostic », « Organisation de l'app », dossiers `bench\` et `%ProgramData%\PCPerfSuite\Bench`). Aucune dépendance
-   NuGet nouvelle.
 8. `/review-max` sur le travail de la conversation, puis `fix(F1): …`.
 
 ## À vérifier sur une vraie machine (prompt, section 9)

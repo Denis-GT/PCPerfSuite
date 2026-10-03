@@ -14,13 +14,13 @@ sont déjà dans le menu, en grisé : elles ouvrent une page qui dit ce qu'elles
 |---|---|
 | **Surveiller** | Monitoring, Processus, Overlay |
 | **Régler** | Processeur, GPU, Ventilateurs, Profils (Groupes, Automatique), OC automatique *(bientôt disponible)*, Écrans *(bientôt disponible)*, Éclairage *(bientôt disponible)*, GPU portable *(bientôt disponible, absente des PC de bureau)* |
-| **Diagnostiquer** | Bench et diagnostic *(bientôt disponible)* |
+| **Diagnostiquer** | Bench et diagnostic (Bench ; Diagnostic et Technicien *(bientôt disponibles)*) |
 | **Outils** | Optimisation Windows, Nettoyage, Stockage, Périphériques *(bientôt disponible)*, Boîte à outils, Mémoire *(bientôt disponible)* |
 
 **Paramètres** est en bas de la barre. Une page qui grossit reçoit des sous-onglets en pastilles
 (comme Paramètres : Général, Installations, Compatibilité de ce PC, Thèmes, ou Profils : Groupes, Automatique) plutôt qu'une entrée de
-plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, Boîte à outils, Profils, et le
-diagnostic de Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
+plus. Les pages de gestion (Optimisation Windows, Nettoyage, Stockage, Boîte à outils, Profils, Bench et
+le diagnostic de Paramètres) ne lisent leurs données qu'à leur première ouverture, et le relevé des processus ne
 tourne que tant que sa page est affichée : l'app démarre plus vite, même lancée dans la zone de
 notification. Le relevé des capteurs (Monitoring, overlay, ventilateurs, limites) tourne, lui, dès
 le lancement.
@@ -31,9 +31,11 @@ des ventilateurs au démarrage et à la fermeture), le témoin du contrôle GPU 
 (`adlx-plantage.temoin`), le journal de session (`journal-session.jsonl` : opérations risquées en
 cours, reprises au lancement suivant, gardées 30 jours) et, une fois la bascule automatique activée,
 son historique (`usage.json` : temps et températures par usage, applications vues, journal des
-bascules, 30 jours, jamais transmis). Ce que la Boîte à outils télécharge passe par
+bascules, 30 jours, jamais transmis), et les sessions de bench (`bench\` : un fichier JSON par session,
+mesures, points, séries de capteurs et contexte machine). Ce que la Boîte à outils télécharge passe par
 `%ProgramData%\PCPerfSuite`, que seuls les administrateurs peuvent modifier : `Installations\` pour un
-fichier en cours de vérification, `Tools\` pour les outils portables, et, pour tous les comptes du PC,
+fichier en cours de vérification, `Tools\` pour les outils portables, `Bench\` pour le fichier du test
+disque le temps du test, et, pour tous les comptes du PC,
 le dernier catalogue en ligne accepté (`catalogue-outils.json` et sa signature) avec le plus haut numéro
 accepté (`catalogue-outils.plancher`). Lancée sans droits administrateur, l'app se replie sur
 `%TEMP%\PCPerfSuite` pour ses installeurs.
@@ -493,6 +495,50 @@ encore vérifiés sur une vraie machine.
   des 20 dernières bascules avec ce qui n'a pas été posé, et la ligne « Bascule automatique » du
   diagnostic, qui ne nomme aucune application. « Effacer l'historique » vide `usage.json` (et sa copie
   `usage.json.corrupt`, gardée si le fichier était illisible).
+
+## Bench *(expérimental)*
+
+La page **Bench et diagnostic** (section Diagnostiquer), sous-onglet **Bench**, mesure les performances
+du PC test par test, chacun cochable indépendamment : processeur sur un cœur, processeur sur tous les
+cœurs, mémoire (débit), mémoire (latence), disque. Les sous-onglets Diagnostic et Technicien sont
+annoncés, pas encore livrés.
+
+- **Résultats** : des unités physiques (Mops/s et GFLOPS, Go/s et ns, Mo/s et IOPS) et des points,
+  1000 points étant la machine de référence (références provisoires, à calibrer sur de vraies machines).
+  Chaque mesure est la médiane de trois passes ; un coefficient de variation au-delà de 3 % marque la
+  mesure « instable » (activité en arrière-plan, bridage qui oscille). Les points ne se comparent
+  qu'entre sessions de la même version du bench.
+- **Processeur** : noyaux déterministes à résultat vérifié (tri et hachage entiers, produit matriciel
+  AVX2+FMA, branchements). Une somme de contrôle différente de l'étalon est une erreur de calcul. Le
+  mono-thread est épinglé sur un cœur performant (un cœur P sur un hybride Intel, le CCD au grand cache
+  d'un Ryzen X3D) ; le multi prend tous les processeurs logiques. Une mesure « rafale » dans les
+  premières secondes puis, si la phase soutenue est cochée, une seconde après trois minutes de charge
+  continue : l'écart dit ce que font PL1/PL2 et le refroidissement.
+- **Mémoire** : débit en lecture, écriture (stockage non temporel) et copie sur un tampon de 8 × le L3 au
+  moins (128 Mo au minimum, 25 % de la RAM libre au plus) ; latence par pointer chasing sur 512 Mo
+  (256 Mo à 1 Go), pages de 4 Ko.
+- **Disque** : profils façon CrystalDiskMark (séquentiel 1 Mo en file de 8 et de 1, aléatoire 4 Ko en
+  file de 32 et de 1, lecture puis écriture, 5 s chacun), sans cache Windows, sur un fichier unique
+  prérempli d'aléatoire. Le volume est au choix, parmi les volumes locaux (NTFS, ReFS, exFAT ; réseau et
+  FAT32 écartés avec la raison) ; la taille se règle par +/− (1 Go par défaut, de 256 Mo à 8 Go) et le
+  volume écrit est plafonné à quatre fois cette taille. Le fichier va dans `%ProgramData%\PCPerfSuite\Bench`
+  sur le volume système, sinon dans `X:\PCPerfSuite.Bench`, et il est supprimé à la fin, ou au prochain
+  lancement si l'app a été tuée pendant le test.
+- **Sécurité** : la charge tourne dans un second processus (le même exe, en mode `--bench-worker`),
+  hors EcoQoS et en priorité haute, qui coupe tout dès qu'il n'a plus de nouvelles de l'app pendant 2 s
+  et meurt avec elle (Job Object). Le bench s'arrête de lui-même si le processeur reste à son seuil
+  thermique pendant 10 s (TjMax lu sur Intel, 98 °C sur Zen 4/5, 93 °C sur X3D), si son ventilateur
+  identifié reste à l'arrêt, si la batterie passe sous 30 % ou si les capteurs se taisent. Sur batterie,
+  le bench est permis mais le résultat est marqué « non représentatif ». Les réglages processeur, GPU et
+  ventilation sont figés pendant la mesure (bail de réglage), et chaque test est inscrit au journal de
+  session. Chaque lancement demande confirmation, « Non » par défaut ; aucun lancement automatique.
+- **Contexte enregistré** : processeur et topologie, RAM, cartes graphiques, machine, Windows, mode
+  d'alimentation et plan actif, limites CPU et GPU, ventilation, séries de capteurs à 1 Hz, bridage relevé
+  et cadence réellement obtenue du relevé pendant le test. Ce qui n'est pas lu le dit : mode constructeur
+  des portables (lecture seule, aucune marque prise en charge à ce jour), lien PCIe (à venir).
+
+Ce qui est disponible sur ce PC, et pourquoi pas le reste, figure dans Paramètres › Compatibilité de
+ce PC, ligne « Bench ».
 
 ## Boîte à outils
 

@@ -70,10 +70,10 @@ d'une page livrée, pas encore fait). La conversation qui livre met sa ligne à 
 | Éclairage RGB : socle et OpenRGB | Régler | Éclairage (`lighting`) | page minimale (inventaire, couleur fixe) | #23 | bientôt disponible |
 | Éclairage RGB : Dynamic Lighting et effets | Régler | Éclairage (`lighting`) | page complète | #24 | bientôt disponible |
 | GPU dédié des portables | Régler | GPU portable (`laptop-gpu`), absente d'un PC de bureau avéré | — | #22 | bientôt disponible |
-| Bench CPU / RAM / disque | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** | #10 | bientôt disponible |
-| Bench GPU et test combiné « alimentation » | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** | #11 | bientôt disponible |
-| Diagnostic déterministe et rapport | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Diagnostic** | #12 | bientôt disponible |
-| Mode technicien et rédaction IA | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Technicien** | #13 | bientôt disponible |
+| Bench CPU / RAM / disque | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** (`BenchViewModel`, page `BenchDiagnosticViewModel`) | #10 | livrée (expérimental) |
+| Bench GPU et test combiné « alimentation » | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Bench** : deux tests de plus dans la liste | #11 | prévue |
+| Diagnostic déterministe et rapport | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Diagnostic** (texte d'attente dans la page) | #12 | prévue |
+| Mode technicien et rédaction IA | Diagnostiquer | Bench et diagnostic (`bench-diagnostic`) | sous-onglet **Technicien** (texte d'attente dans la page) | #13 | prévue |
 | Réglages de performance de Windows | Outils | Optimisation Windows (`optimization`) | — | existant | livrée |
 | Animations Windows | Outils | Optimisation Windows (`optimization`) | sous-onglet **Animations** (carte « Animations et effets ») ; l'autre sous-onglet s'appelle **Réglages** | #6 | livrée |
 | Nettoyage des caches | Outils | Nettoyage (`cleanup`) | — | existant | livrée |
