@@ -56,6 +56,9 @@ public sealed class AppDataPaths
     /// bascules (UsageHistory). Hors de settings.json, réécrit en entier à chaque enregistrement.</summary>
     public string UsageFile => InRoot("usage.json");
 
+    /// <summary>Sous-dossier des sessions de bench (#10) : un fichier JSON par session.</summary>
+    public string BenchFolder => InRoot("bench");
+
     private string InRoot(string name) => Path.Combine(Root, name);
 }
 

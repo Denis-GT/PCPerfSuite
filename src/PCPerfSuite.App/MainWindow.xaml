@@ -149,6 +149,8 @@
                                Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Toolbox}}"/>
             <views:ProfileGroupsView DataContext="{Binding Profiles}"
                                      Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Profiles}}"/>
+            <views:BenchDiagnosticView DataContext="{Binding BenchDiagnostic}"
+                                       Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.BenchDiagnostic}}"/>
             <views:AppSettingsView DataContext="{Binding AppSettings}"
                                    Visibility="{Binding DataContext.CurrentPage.Key, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource StringEqualsToVisibility}, ConverterParameter={x:Static vm:PageKeys.Settings}}"/>
 

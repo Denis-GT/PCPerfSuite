@@ -34,36 +34,39 @@ public static class BenchScore
 }
 
 /// <summary>Références provisoires par test (voir <see cref="BenchScore"/>). Les clés sont celles des mesures
-/// « rafale » (le soutenu est un diagnostic, pas un score) et des profils disque en Mo/s.</summary>
+/// « rafale » (le soutenu est un diagnostic, pas un score) et des profils disque en Mo/s. Valeurs relevées le
+/// 03/10/2026 sur le poste de reprise : AMD Ryzen 7 5800H (portable, 8 cœurs / 16 fils, Zen 3), 16 Go de DDR4-3200,
+/// NVMe du système ; à rebaser sur le i5-14600K de Denis, puis à confronter au 13500T et au portable Ryzen. Changer
+/// une référence oblige à incrémenter <see cref="BenchVersion.Bench"/>.</summary>
 public static class BenchReferences
 {
     private static readonly IReadOnlyDictionary<string, ScoreReference> CpuMono = Build(
-        new ScoreReference("entier.rafale", 320),
-        new ScoreReference("flottant.rafale", 95),
-        new ScoreReference("branches.rafale", 900));
+        new ScoreReference("entier.rafale", 325),
+        new ScoreReference("flottant.rafale", 48),
+        new ScoreReference("branches.rafale", 395));
 
     private static readonly IReadOnlyDictionary<string, ScoreReference> CpuMulti = Build(
-        new ScoreReference("entier.rafale", 2800),
-        new ScoreReference("flottant.rafale", 850),
-        new ScoreReference("branches.rafale", 8000));
+        new ScoreReference("entier.rafale", 4160),
+        new ScoreReference("flottant.rafale", 300),
+        new ScoreReference("branches.rafale", 5030));
 
     private static readonly IReadOnlyDictionary<string, ScoreReference> RamBandwidth = Build(
-        new ScoreReference("lecture", 40),
-        new ScoreReference("ecriture", 38),
-        new ScoreReference("copie", 40));
+        new ScoreReference("lecture", 15.5),
+        new ScoreReference("ecriture", 12.4),
+        new ScoreReference("copie", 15.5));
 
     private static readonly IReadOnlyDictionary<string, ScoreReference> RamLatency = Build(
-        new ScoreReference("latence", 95, HigherIsBetter: false));
+        new ScoreReference("latence", 131, HigherIsBetter: false));
 
     private static readonly IReadOnlyDictionary<string, ScoreReference> Disk = Build(
-        new ScoreReference("seq1m-q8.lecture", 3500),
-        new ScoreReference("seq1m-q8.ecriture", 2500),
-        new ScoreReference("seq1m-q1.lecture", 2500),
-        new ScoreReference("seq1m-q1.ecriture", 2000),
-        new ScoreReference("alea4k-q32.lecture", 600),
-        new ScoreReference("alea4k-q32.ecriture", 450),
-        new ScoreReference("alea4k-q1.lecture", 55),
-        new ScoreReference("alea4k-q1.ecriture", 150));
+        new ScoreReference("seq1m-q8.lecture", 2910),
+        new ScoreReference("seq1m-q8.ecriture", 1636),
+        new ScoreReference("seq1m-q1.lecture", 2389),
+        new ScoreReference("seq1m-q1.ecriture", 1631),
+        new ScoreReference("alea4k-q32.lecture", 206),
+        new ScoreReference("alea4k-q32.ecriture", 119),
+        new ScoreReference("alea4k-q1.lecture", 43),
+        new ScoreReference("alea4k-q1.ecriture", 77));
 
     public static IReadOnlyDictionary<string, ScoreReference> For(BenchTestKind kind) => kind switch
     {

@@ -147,7 +147,7 @@ Tests (verts, 43) : `BenchMessageCodecTests`, `LivenessWatchTests`, `BenchStatis
   `LooksLikeCacheExhaustion(tranches)` (dernier tiers < moitié du premier → cache SLC).
 - `Benchmark/Disk/VolumeDevice.cs` : `Read("X:")` → `VolumeDeviceInfo` (secteurs logique/physique, numéro de disque,
   pénalité de recherche) par `IOCTL_STORAGE_QUERY_PROPERTY` (AccessAlignment, SeekPenalty) et
-  `IOCTL_STORAGE_GET_DEVICE_NUMBER` sur `\.\X:` ouvert sans droit d'accès (pas d'administrateur requis) ; parseurs purs ;
+  `IOCTL_STORAGE_GET_DEVICE_NUMBER` sur `\\.\X:` ouvert sans droit d'accès (pas d'administrateur requis) ; parseurs purs ;
   `SectorBytes` = physique, sinon logique, sinon 4 096 ; `NormalizeLetter`.
 - `Benchmark/Disk/BenchVolume.cs` : `BenchVolume` (lettre, nom, format, type, tailles, système, `Device`, `Disk`
   `PhysicalDiskInfo?`, BitLocker, `Unavailable`), `IsRotational` = pénalité de recherche sinon média WMI, `Describe()` ;
@@ -216,24 +216,39 @@ retour au repos, enregistrement, mode d'alimentation, contexte, priorité, gesti
 `BenchSessionTests.cs` (faux worker, faux capteurs, horloge manuelle : deux tests et leurs lignes au journal, bail refusé,
 arrêt thermique → ligne échouée et suivants sautés, annulation, journal non écrit, worker non lancé, retour au repos).
 
+### Commit 6 (poussé) : `feat(F1): page Bench, resultats et calibration provisoire`
+
+- **Le poste de reprise n'est pas le 13500T** : c'est un portable AMD Ryzen 7 5800H (Zen 3, 8 cœurs / 16 fils, 16 Go
+  DDR4-3200, NVMe). Les `BenchReferences` provisoires ont été relevées dessus le 03/10/2026 (CPU mono 325 / 48 / 395,
+  multi 4160 / 300 / 5030, RAM 15,5 / 12,4 / 15,5 Go/s et 131 ns, disque 2910 / 1636 / 2389 / 1631 / 206 / 119 / 43 / 77
+  Mo/s) ; à rebaser sur le 14600K.
+- Vu à l'essai : le mono épinglé sur le cœur 0 est plus dispersé (CV 2 à 9 %, et 16 % juste après une compilation) que
+  sur le cœur 1 (1 à 4 %) → `BenchPlanner.MonoTarget` prend le **deuxième** cœur de la plus haute classe (le cœur 0
+  reçoit les interruptions). Décision reportée dans `docs/decisions.md`.
+- `Results/BenchSessionResult.cs` (JSON v1 : `v`, Id, BenchVersion, AppVersion, Runtime, dates, `BenchContextDocument`
+  à plat, préconditions, `IsRepresentative`, `OnBattery`, `ThermalLimit`, `BenchTestResult` (mesures, points,
+  comparable, erreur de calcul, instable, séries `BenchSeriesDocument`, cadence, bridage, température max, arrêt, repos),
+  notes du worker, journal, `StoppedBy`, `Cancelled`, `[JsonExtensionData]` partout ; `Summary()`),
+  `Results/BenchResultStore.cs` (`bench-<horodatage>-<id>.json` dans `AppDataPaths.BenchFolder`, écriture atomique,
+  `LoadAll` tolérant, `TryParse`), `AppDataPaths.BenchFolder`, `BenchSettings` + `AppSettings.Bench`,
+  `Session/BenchPlanner.cs` (cibles mono/multi, threads mémoire = cœurs de la plus haute classe ≤ 8, demandes CPU/RAM/
+  disque, `EstimateSeconds`, `DescribeDuration`, `JournalValues`), `BenchRowProvider` (ligne « Bench » + « Dernière
+  session de bench » lue par `RefreshAsync`).
+- App : `BenchDiagnosticViewModel` (pastilles Bench / Diagnostic / Technicien, textes d'attente de #12 et #13,
+  `IsPageShown` propagé au sous-onglet), `BenchViewModel` (`IPageLifecycle` + `IBackgroundSensorConsumer` + `IDisposable` ;
+  charge à la première ouverture : topologie, tailles RAM, volumes, worker lançable, historique ; tests cochables avec
+  raison et estimation ; volume en combo (`LabelOptionTemplate`), taille +/− ; phase soutenue ; préconditions ;
+  confirmation D6 « Non » par défaut ; `BenchSession` avec ses ports réels (`BenchWorkerLauncher`,
+  `MonitoringViewModel.SnapshotUpdated`, `RequestCadence("bench", 250 ms, Cpu/CpuLoad/Motherboard/Battery)`,
+  `ProcessPriorityScope`, `LastSnapshot`) ; progression, courbes `Sparkline` (température, puissance, fréquence),
+  cartes de résultat, historique, enregistrement ; réglages dans `AppSettings.Bench`), `Views/BenchDiagnosticView.xaml`,
+  `MainWindow.xaml`, `MainViewModel` (construction, `[PageKeys.BenchDiagnostic]`, `BenchRowProvider`, `UpdateEcoMode`,
+  `Dispose` juste après `_autoSwitch.Stop`), `ComingSoonPages` sans `bench-diagnostic`.
+- Tests (verts) : `BenchPlannerTests`, `BenchResultsTests` (conversion, points, aller-retour JSON avec champs inconnus,
+  tolérance, dépôt), `BenchRowProviderTests`, `BenchViewModelsTests` (App : cartes, historique, test cochable).
+
 ## Reste à faire (plan approuvé par Denis, dans l'ordre)
 
-6. **Résultats et page** : `Results/BenchSessionResult.cs` (JSON v1, `[JsonExtensionData]` partout : contexte,
-   BenchVersion, runtime, par test unités + points + CV + instable + séries + bridage + préconditions + `IsComparable`),
-   `Results/BenchResultStore.cs` (un fichier `bench\<horodatage>.json` sous `AppDataPaths.BenchFolder`, lecture tolérante),
-   `AppDataPaths.BenchFolder => InRoot("bench")`, `BenchSettings` + `AppSettings.Bench` (tests cochés, lettre du
-   volume, `DiskFileSizeMb` 1024, `SustainedEnabled` true), `BenchRowProvider` (ligne « Bench » du diagnostic),
-   `ViewModels/BenchDiagnosticViewModel.cs` (page `IPageLifecycle` + `IDisposable`, sections Bench / Diagnostic
-   (ComingSoon #12) / Technicien (ComingSoon #13), modèle `AppSettingsViewModel.Sections` + `PillSelector`),
-   `ViewModels/BenchViewModel.cs` (tests cochables avec raison, volume en combo, taille +/−, durée estimée,
-   confirmation « Non » par défaut avant Démarrer (D6), Arrêter toujours visible, phase et %, courbes
-   `Sparkline`/`SampleHistory` (température, puissance, fréquence CPU), cartes de résultat, historique à la première
-   ouverture ; `IBackgroundSensorConsumer` pendant un test ; jamais de lancement automatique),
-   `Views/BenchDiagnosticView.xaml(.cs)`, `MainWindow.xaml` (ligne de la vue, modèle `ProfileGroupsView`),
-   `MainViewModel.cs` (construction avec `_hardware`, `_monitoring`, `_cpuControl`, `_gpuControl`, `_fans`,
-   `_tuningLease`, `startupRecovery` ; `[PageKeys.BenchDiagnostic] = …` ; `_compatibilityRows.Add(new
-   BenchRowProvider(...))` avant la ligne ~183 ; `UpdateEcoMode` ; `Dispose` juste après `_autoSwitch.Stop`),
-   `ComingSoonPages.cs` (retirer la ligne `bench-diagnostic`). Calibrer `BenchReferences` sur le 13500T.
 7. **Documentation** : `docs/decisions.md` (briques « Modes secondaires » livrée et « Moteur de charge et noyaux CPU
    vérifiés » à `Core/Benchmark/` ; `bench` inscrit au `StartupRecovery` ; décisions de cette conversation en ajout, une
    ligne chacune), `docs/navigation.md` (ligne Bench → livrée, expérimental), `README.md` (section « Bench et

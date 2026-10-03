@@ -40,14 +40,6 @@ public static class ComingSoonPages
                 "Les applications qui le tiennent éveillé.",
                 "La carte graphique à utiliser, application par application.",
             }),
-        [PageKeys.BenchDiagnostic] = new(
-            "Mesurer les performances du PC et repérer ce qui ne va pas.",
-            new[]
-            {
-                "Tests processeur, mémoire, disque et GPU, choisis un par un.",
-                "Diagnostic : ce qui est normal, anormal ou très bien, et pourquoi.",
-                "Rapport à partager, et parcours guidé pour les techniciens.",
-            }),
         [PageKeys.Devices] = new(
             "Les périphériques en erreur ou fantômes, et les pilotes.",
             new[]

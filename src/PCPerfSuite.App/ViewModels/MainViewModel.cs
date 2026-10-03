@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PCPerfSuite.App.Utils;
 using PCPerfSuite.Core.Compatibility;
+using PCPerfSuite.Core.Benchmark;
 using PCPerfSuite.Core.Hardware;
 using PCPerfSuite.Core.Hardware.Cpu;
 using PCPerfSuite.Core.Hardware.Cpu.CoreParking;
@@ -95,6 +96,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public AutoProfileSwitcher AutoSwitch => _autoSwitch;
 
+    /// <summary>Page Bench et diagnostic : le bench CPU / RAM / disque (#10) ; diagnostic et technicien à venir.</summary>
+    public BenchDiagnosticViewModel BenchDiagnostic { get; }
+
     /// <summary>Entrées de la barre latérale, dans l'ordre de <see cref="NavigationMenu.Pages"/> : MainWindow les
     /// range sous leurs en-têtes de section.</summary>
     public ObservableCollection<NavEntry> NavItems { get; }
@@ -180,6 +184,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _compatibilityRows.Add(new ProfileGroupsRowProvider(() => Profiles.Store, _tuningLease, () => Profiles.DiagnosticStatus));
         _compatibilityRows.Add(new AutoSwitchRowProvider(() => _autoSwitch.DiagnosticStatus));
 
+        // Bench (#10) : tient le bail de réglage pendant une session, lit le relevé par MonitoringViewModel, et charge à sa
+        // première ouverture (volumes, RAM libre, historique).
+        BenchDiagnostic = new BenchDiagnosticViewModel(new BenchViewModel(_hardware, _monitoring, _cpuControl, _gpuControl, _fans, _tuningLease, Tuning, startupRecovery));
+        _compatibilityRows.Add(new BenchRowProvider(() => BenchDiagnostic.Bench.DiagnosticStatus, BenchDiagnostic.Bench.Store));
+
         AppSettings = new AppSettingsViewModel(
             new CompatibilityViewModel(_hardware, _monitoring, _processes, _fans, _gpu, _cpu, _installations, _compatibilityRows),
             _installations);
@@ -200,6 +209,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             [PageKeys.Storage] = Storage,
             [PageKeys.Toolbox] = Toolbox,
             [PageKeys.Profiles] = Profiles,
+            [PageKeys.BenchDiagnostic] = BenchDiagnostic,
         };
         // Seul un PC de bureau avéré perd les pages des portables : sur un châssis indéterminé, la page reste et dira
         // elle-même ce qu'elle trouve.
@@ -239,11 +249,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Mode éco en arrière-plan : fenêtre réduite ou dans la zone de notification, et réglage activé. Seuls
-    /// l'overlay, les courbes de ventilateurs, les sécurités thermiques du GPU et du CPU et la bascule automatique (quand
-    /// elle est activée) continuent d'être nourris.</summary>
+    /// l'overlay, les courbes de ventilateurs, les sécurités thermiques du GPU et du CPU, la bascule automatique (quand
+    /// elle est activée) et le bench (pendant une session) continuent d'être nourris.</summary>
     private void UpdateEcoMode()
         => _monitoring.SetBackgroundMode(AppSettings.EcoModeWhenHidden && !IsWindowShown,
-            new IBackgroundSensorConsumer[] { _overlay, _fans, _gpu, _cpu, _autoSwitch });
+            new IBackgroundSensorConsumer[] { _overlay, _fans, _gpu, _cpu, _autoSwitch, BenchDiagnostic.Bench });
 
     /// <summary>Recalcule ce qui dépend à la fois des logiciels manquants, de la page affichée et de la visibilité
     /// de la fenêtre : le clignotement du bouton Paramètres et son info-bulle, puis, pour chaque page, si elle est sous
@@ -292,6 +302,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // ventilateurs, le GPU et le CPU se ferment. Son historique part sans attendre ; l'écriture est attendue en
         // dernier.
         DisposeSafely(_autoSwitch.Stop, nameof(_autoSwitch));
+        // Le bench juste après : une session en cours est annulée (le worker rend la main, puis le Job Object le tue).
+        DisposeSafely(BenchDiagnostic.Dispose, nameof(BenchDiagnostic));
         DisposeSafely(_processes.Dispose, nameof(_processes));
         DisposeSafely(_installations.Dispose, nameof(_installations));
         DisposeSafely(Toolbox.Dispose, nameof(Toolbox));

@@ -94,6 +94,25 @@ public sealed class AppSettings
     /// <summary>Bascule automatique de profils selon l'usage (sous-onglet Profils › Automatique). L'historique d'usage
     /// vit à part, dans usage.json.</summary>
     public AutoSwitchSettings AutoSwitch { get; set; } = new();
+
+    /// <summary>Page Bench (#10) : tests cochés, volume du test disque, taille du fichier, phase soutenue.</summary>
+    public BenchSettings Bench { get; set; } = new();
+}
+
+/// <summary>Réglages de la page Bench (#10). Les clés des tests sont celles de <c>BenchTestKinds.Key</c>.</summary>
+public sealed class BenchSettings
+{
+    /// <summary>Tests cochés ; null = tous (premier lancement).</summary>
+    public List<string>? SelectedTests { get; set; }
+
+    /// <summary>Lettre du volume du test disque (« D: ») ; null = le volume système.</summary>
+    public string? DiskVolume { get; set; }
+
+    /// <summary>Taille du fichier de test, réglée par +/− (pas de 256 Mo, de 256 Mo à 8 Go).</summary>
+    public int DiskFileSizeMb { get; set; } = 1024;
+
+    /// <summary>Phase « soutenu » des tests processeur (3 min de charge continue avant la seconde mesure).</summary>
+    public bool SustainedEnabled { get; set; } = true;
 }
 
 /// <summary>Réglages de l'onglet Nettoyage.</summary>
